@@ -1,0 +1,28 @@
+---
+description: Modül/ekran içeriği Create_DB.sql şemasından türetilir
+alwaysApply: true
+---
+
+# Create_DB referansı
+
+Menü, ekran ve form içerikleri **`Create_DB.sql`** tablolarına göre tanımlanır. Yeni özellik eklerken önce şemadaki tablo/kolon/açıklamaya bak.
+
+## Modül eşlemesi (özet)
+
+| Modül | Ana tablolar (Create_DB) |
+|-------|--------------------------|
+| Malzeme | `ProductCard`, `ProductBarcode`, `ProductSub`, `VariantCard`, `VaritantProperties`, `VariantPropertiesTrans`, `ProductVoucher` (devir/transfer/sayım), `ProductTrans*` |
+| Finans | `CustomerCard`, `CustomerAdress`, `CustomerContact`, `CustomerEinvoiceDetail`, `CustomerVoucher`, `CustomerTrans`, `RiskGroup`, `BankCard`, `BankAccountCard`, `BankVoucher`, `BankTrans`, `SafeCard`, `BoundCard`, `BoundTrans`, `PaymentTrans`, `PaymentClosedTrans`, `PaidPlanCard` |
+| Satış / Satınalma | `ProductPrice` (Type_ 1 Satış / 2 Alış · malzeme+hizmet), `OrderVoucher`/`OrderTrans`, `ProductVoucher`/`ProductTrans` (alış-satış), `Invoice` — tip alanları ile ayrılır |
+| Genel Muhasebe | `AccountCard`, `AccountGroup`, `AccountLink*`, `AccountVoucher`, `AccountTrans*` |
+| Sistem | `SystemUser`, `SYS_Companies`/`SYS_Whouse`/`SYS_City`/`SYS_Workplace`, `Setting`, `VoucherType`, `AuxilCodes`, `TaxCard`/`TaxLine`, `TLanguage`, `Menu*`/`UserMenuAuth` |
+| İK (Personel) | `PersonCard`, `PersonDocument`, `DailyAction*`, `MonthlyAction`, `JobRegion`, `ActionType` |
+
+## Kurallar
+
+1. Ekran `subtitle` içinde gerçek tablo adını yaz (örn. `CustomerAdress`, `BankVoucher`)
+2. Aynı tablo farklı tiplerle kullanılıyorsa tek tablo + `Type_` / `VoucherType` / `InvoiceType` / `ProductType` filtresi
+3. Şemada olmayan tablo uydurma; gerekirse önce `SqlUpdates/NN_xxx.sql`
+4. `CustomerAdress`: cariye N adres; `AdressType` (Merkez/Sevkiyat/Fatura/Diğer)
+5. `ProductVoucher.VoucherType` (şema notu): 1 Devir, 2 Alım, 3… — satış/alış/iade/transfer ayrı kodlarla tutulur
+6. Detaylı eşleme: `FrontendUI/src/data/schemaModuleMap.ts`

@@ -1,0 +1,48 @@
+# Dependencies / build
+**/node_modules/
+**/bin/
+**/obj/
+**/dist/
+**/build/
+**/.vite/
+**/coverage/
+*.user
+*.suo
+*.cache
+
+# Secrets & local config
+.env
+.env.*
+**/.env
+**/.env.*
+**/dbsettings.json
+**/Data/dbsettings.json
+BackendAPI/Data/dbsettings.json
+appsettings.*.local.json
+**/secrets.json
+*.pem
+*.pfx
+
+# Logs / temp
+*.log
+backend-build-log.txt
+npm-debug.log*
+yarn-error.log*
+
+# OS / IDE
+.DS_Store
+Thumbs.db
+.vs/
+.idea/
+*.swp
+
+# Publish output
+**/publish/
+**/Publish/
+
+# Deploy / build ciktilari (repoya girmesin)
+iis-site/
+iis-site-staging/
+iis-site.bak-*/
+_claude_build/
+*.bak

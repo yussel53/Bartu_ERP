@@ -1,0 +1,10 @@
+{
+  "source": "api.turkiyeapi.dev/v2/datasets/2025",
+  "generatedAt": "2026-09-25T04:54:42.157Z",
+  "counts": {
+    "countries": 4,
+    "provinces": 81,
+    "districts": 973,
+    "neighborhoods": 32254
+  }
+}
