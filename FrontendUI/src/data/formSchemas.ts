@@ -1575,6 +1575,8 @@ export const FORM_SCHEMAS: Record<string, FormSchemaDto> = {
     title: 'Firma',
     tableName: 'SYS_Companies',
     primaryKeyColumn: 'CompanyId',
+    /** Çok alanlı firma kartı: satırda 3 kutu */
+    formColumns: 3,
     enableWorkplacesTab: true,
     /** Ambarlar işyeri kartı içinde yönetilir */
     enableWhousesTab: false,

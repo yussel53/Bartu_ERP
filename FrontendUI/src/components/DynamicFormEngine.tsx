@@ -115,6 +115,8 @@ export const DynamicFormEngine: React.FC<DynamicFormEngineProps> = ({
   /** e-Fatura kutusunda «e-Faturaya Geçiş Tarihi» (CustomerCard.EinvoiceEntryDate · SqlUpdates/14) */
   const hasEinvoiceEntryDate = schema.tableName === 'CustomerCard';
   const accountLinkSingle = Boolean(schema.accountLinkSingle);
+  /** Kurumsal ızgara sütun sayısı (firma kartı gibi geniş formlarda 3) */
+  const formCols: 2 | 3 = schema.formColumns === 3 ? 3 : 2;
   const accountLinkFixed = Boolean(schema.accountLinkFixed);
   const linkModule = schema.accountLinkModule ?? 0;
   const [tab, setTab] = React.useState('genel');
@@ -746,7 +748,7 @@ export const DynamicFormEngine: React.FC<DynamicFormEngineProps> = ({
     return (
       <div className="space-y-3">
         {ungrouped.length > 0 && (
-          <InlineFieldGrid>{ungrouped.map(renderField)}</InlineFieldGrid>
+          <InlineFieldGrid cols={formCols}>{ungrouped.map(renderField)}</InlineFieldGrid>
         )}
         {groupNames.map((g) => (
           <fieldset
@@ -791,7 +793,7 @@ export const DynamicFormEngine: React.FC<DynamicFormEngineProps> = ({
                 </div>
               </div>
             )}
-            <InlineFieldGrid>
+            <InlineFieldGrid cols={formCols}>
               {fieldsList.filter((f) => f.group === g).map(renderField)}
             </InlineFieldGrid>
           </fieldset>
@@ -867,7 +869,9 @@ export const DynamicFormEngine: React.FC<DynamicFormEngineProps> = ({
 
   return (
     <FormFieldContext.Provider value={{ setValue, watch }}>
-    <div className="w-full max-w-5xl mx-auto p-3 bg-white dark:bg-slate-900 rounded-md border border-slate-300 dark:border-slate-700 shadow-sm">
+    <div
+      className={`w-full ${formCols === 3 ? 'max-w-7xl' : 'max-w-5xl'} mx-auto p-3 bg-white dark:bg-slate-900 rounded-md border border-slate-300 dark:border-slate-700 shadow-sm`}
+    >
       <div className="mb-2 pb-1.5 border-b border-slate-100 dark:border-slate-800 flex items-start justify-between gap-3">
         <div className="min-w-0">
           <h2 className="text-[14px] font-semibold text-slate-800 dark:text-slate-100 leading-tight">{schema.title}</h2>

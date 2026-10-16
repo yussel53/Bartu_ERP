@@ -47,6 +47,8 @@ export interface FormSchemaDto {
   title: string;
   tableName: string;
   fields: FormFieldDto[];
+  /** Kurumsal form ızgarası sütun sayısı (varsayılan 2) — geniş kartlar için 3 */
+  formColumns?: 2 | 3;
   /** Özel Alanlar sekmesinde gösterilecek alanlar (U_*) */
   customFields?: FormFieldDto[];
   lineFields?: FormFieldDto[];

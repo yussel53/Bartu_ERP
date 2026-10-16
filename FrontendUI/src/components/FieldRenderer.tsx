@@ -11,7 +11,7 @@ import { ActiveToggleField, isActiveToggleField } from './ActiveToggle';
 import { LookupField, isLookupField } from './LookupField';
 import { AddressSuggestField, addressSuggestLevelForField } from './AddressSuggestField';
 import { DateField } from './DateField';
-import { FieldLayoutContext, useFormFieldContext } from './FormFieldContext';
+import { FieldLayoutContext, InlineColsContext, useFormFieldContext } from './FormFieldContext';
 import { attachNoMinusHandlers } from '../utils/noMinusInput';
 import { getSystemDatePlaceholder } from '../utils/dateFormat';
 
@@ -72,6 +72,7 @@ export const FieldRenderer: React.FC<FieldRendererProps> = ({
   const formCtx = useFormFieldContext();
   /** Kurumsal görünüm: etiket solda (InlineFieldGrid içinde, tablo hücresi değilse) */
   const inline = React.useContext(FieldLayoutContext) === 'inline' && !hideLabel;
+  const inlineCols = React.useContext(InlineColsContext);
   const setValueFn = setValue ?? formCtx?.setValue;
   const watchFn = watch ?? formCtx?.watch;
   const isUdf = field.fieldName.startsWith('U_');
@@ -153,13 +154,13 @@ export const FieldRenderer: React.FC<FieldRendererProps> = ({
     <div
       className={
         inline
-          ? `${inlineWide ? 'md:col-span-2' : ''} flex ${field.fieldType === 'textarea' ? 'items-start' : 'items-center'} gap-2 min-w-0`
+          ? `${inlineWide ? (inlineCols === 3 ? 'md:col-span-2 xl:col-span-3' : 'md:col-span-2') : ''} flex ${field.fieldType === 'textarea' ? 'items-start' : 'items-center'} gap-2 min-w-0`
           : `${hideLabel ? 'w-full min-w-0' : `col-span-12 ${colSpanClass}`} flex flex-col gap-0.5`
       }
     >
       {inline && (
         <label
-          className="w-[132px] shrink-0 text-[11.5px] leading-7 text-slate-600 dark:text-slate-300 truncate"
+          className={`${inlineCols === 3 ? 'w-[124px]' : 'w-[132px]'} shrink-0 text-[11.5px] leading-7 text-slate-600 dark:text-slate-300 truncate`}
           title={labelText}
         >
           {labelText}
