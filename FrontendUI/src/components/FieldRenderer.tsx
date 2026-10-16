@@ -113,7 +113,7 @@ export const FieldRenderer: React.FC<FieldRendererProps> = ({
     w-full px-2 py-1 text-[12px] leading-tight rounded border bg-white
     focus:ring-1 focus:ring-blue-500/30 focus:border-blue-500 transition-colors
     text-slate-800 dark:text-slate-100 placeholder:text-slate-400 dark:bg-slate-900/60
-    outline-none ${inline ? 'h-7 rounded-sm' : hideLabel && compact ? 'h-7' : 'h-8'}
+    outline-none ${inline ? 'h-7 rounded-sm' : hideLabel ? 'h-7' : 'h-8'}
     ${disabled ? 'bg-slate-50 text-slate-500 cursor-not-allowed' : inline && field.isRequired ? 'bg-amber-50/80 dark:bg-amber-900/10' : ''}
     ${error ? 'border-red-400 focus:ring-red-400/40' : 'border-slate-300 dark:border-slate-600'}
   `;

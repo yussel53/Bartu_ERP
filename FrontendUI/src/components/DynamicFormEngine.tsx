@@ -76,6 +76,9 @@ function splitFields(schema: FormSchemaDto): { general: FormFieldDto[]; custom: 
   return { general, custom, headerRight };
 }
 
+/** Adres yer alanları — adres detayında tek satırda gösterilir */
+const PLACE_FIELDS = ['Country', 'City', 'Town', 'Dictrict'];
+
 export const DynamicFormEngine: React.FC<DynamicFormEngineProps> = ({
   schema,
   initialData,
@@ -954,6 +957,10 @@ export const DynamicFormEngine: React.FC<DynamicFormEngineProps> = ({
               const sel = Math.min(selectedAddr, Math.max(fields.length - 1, 0));
               const af = schema.addressFields!;
               const ungrouped = af.filter((f) => !f.group);
+              /** Ülke → İl → İlçe → Mahalle (açık adresin hemen üstünde tek satır) */
+              const placeFields = PLACE_FIELDS.map((n) => ungrouped.find((f) => f.fieldName === n)).filter(
+                (f): f is FormFieldDto => Boolean(f),
+              );
               const groupNames = [...new Set(af.filter((f) => f.group).map((f) => f.group!))];
               const addrErrors = (errors as Record<string, unknown>).addresses as unknown[] | undefined;
               const addrText = (i: number) => {
@@ -1051,7 +1058,39 @@ export const DynamicFormEngine: React.FC<DynamicFormEngineProps> = ({
                               </button>
                             )}
                           </div>
-                          {ungrouped.length > 0 && <InlineFieldGrid>{ungrouped.map(renderAddr)}</InlineFieldGrid>}
+                          {ungrouped.length > 0 && (
+                            <InlineFieldGrid>
+                              {ungrouped.filter((f) => !PLACE_FIELDS.includes(f.fieldName)).map((f) =>
+                                // Ülke / İl / İlçe / Mahalle: Ülke'nin yerinde tek satır
+                                f.fieldName === 'Adress' && placeFields.length > 0 ? (
+                                  <React.Fragment key={`${row.id}-place-adress`}>
+                                    <div className="md:col-span-2 flex items-center gap-2 min-w-0">
+                                      <label className="w-[132px] shrink-0 text-[11.5px] leading-7 text-slate-600 dark:text-slate-300 truncate">
+                                        {placeFields.map((pf) => pf.label).join(' / ')}
+                                        {placeFields.some((pf) => pf.isRequired) && <span className="text-red-500 ml-0.5">*</span>}
+                                      </label>
+                                      <div className="flex-1 min-w-0 grid grid-cols-2 sm:grid-cols-4 gap-1.5">
+                                        {placeFields.map((pf) => (
+                                          <FieldRenderer
+                                            key={`${row.id}-${pf.fieldId}`}
+                                            field={pf}
+                                            register={register as UseFormRegister<FieldValues>}
+                                            registerNameOverride={`addresses.${index}.${pf.fieldName}`}
+                                            hideLabel
+                                            disabled={readOnly}
+                                            error={get(errors, `addresses.${index}.${pf.fieldName}`) as FieldError | undefined}
+                                          />
+                                        ))}
+                                      </div>
+                                    </div>
+                                    {renderAddr(f)}
+                                  </React.Fragment>
+                                ) : (
+                                  renderAddr(f)
+                                ),
+                              )}
+                            </InlineFieldGrid>
+                          )}
                           {groupNames.map((g) => (
                             <fieldset
                               key={g}
