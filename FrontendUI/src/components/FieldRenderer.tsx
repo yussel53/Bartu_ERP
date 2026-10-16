@@ -107,7 +107,12 @@ export const FieldRenderer: React.FC<FieldRendererProps> = ({
 
   const useWatermark = watermark && !inline && !hideLabel && !useActiveToggle && field.fieldType !== 'checkbox';
   /** Kurumsal görünümde kutu içi etiket yok (form: etiket solda · tablo: sütun başlığında) */
-  const ph = inline || (hideLabel && compact) ? '' : field.isRequired ? `${field.label} *` : field.label;
+  const ph =
+    inline || (hideLabel && compact) || (!watermark && !hideLabel)
+      ? ''
+      : field.isRequired
+        ? `${field.label} *`
+        : field.label;
 
   const baseInputClass = `
     w-full px-2 py-1 text-[12px] leading-tight rounded border bg-white

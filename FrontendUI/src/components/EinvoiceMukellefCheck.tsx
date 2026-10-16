@@ -30,7 +30,18 @@ interface Props {
     title?: string;
     unitType?: string;
     status: string;
+    /** GİB listesindeki ilk kayıt (e-Faturaya geçiş) tarihi — ISO */
+    entryDate?: string;
   }) => void;
+}
+
+/** Eşleşen satırlar içinde en eski kayıt tarihi (e-Faturaya geçiş) */
+function firstEntryDate(res: EFaturaMukellefQueryResult): string | undefined {
+  const dates = res.rows
+    .map((r) => r.firstCreateDate)
+    .filter((d): d is string => Boolean(d))
+    .sort();
+  return dates[0];
 }
 
 function hasIntegratorCreds(i?: IntegratorCredentials): boolean {
@@ -80,6 +91,7 @@ export const EinvoiceMukellefCheck: React.FC<Props> = ({
         title: res.title || undefined,
         unitType: res.suggestedUnitType || undefined,
         status: res.message,
+        entryDate: firstEntryDate(res),
       });
     } else {
       onApplied({ status: res.message });

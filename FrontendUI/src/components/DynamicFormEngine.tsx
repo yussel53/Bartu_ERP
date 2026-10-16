@@ -10,6 +10,7 @@ import {
 } from 'react-hook-form';
 import { FormSchemaDto, DynamicFormDataDto, FormFieldDto } from '../types/formTypes';
 import { FieldRenderer } from './FieldRenderer';
+import { DateField } from './DateField';
 import { FormTabs, FormTabPanel } from './FormTabs';
 import { SubListGrid } from './SubListGrid';
 import {
@@ -78,6 +79,8 @@ function splitFields(schema: FormSchemaDto): { general: FormFieldDto[]; custom: 
 
 /** Adres yer alanları — adres detayında tek satırda gösterilir */
 const PLACE_FIELDS = ['Country', 'City', 'Town', 'Dictrict'];
+/** Adres kimliği — tek satırda: Tip / Kod / Ad */
+const ADDR_ID_FIELDS = ['AdressType', 'AdressCode', 'Title'];
 
 export const DynamicFormEngine: React.FC<DynamicFormEngineProps> = ({
   schema,
@@ -109,6 +112,8 @@ export const DynamicFormEngine: React.FC<DynamicFormEngineProps> = ({
   /** Ambar: üst sekme veya işyeri kartı içinde */
   const hasWhouses = Boolean(schema.whouseFields?.length && (schema.enableWhousesTab || hasWorkplaces));
   const whousesUnderWorkplace = Boolean(hasWorkplaces && !schema.enableWhousesTab && schema.whouseFields?.length);
+  /** e-Fatura kutusunda «e-Faturaya Geçiş Tarihi» (CustomerCard.EinvoiceEntryDate · SqlUpdates/14) */
+  const hasEinvoiceEntryDate = schema.tableName === 'CustomerCard';
   const accountLinkSingle = Boolean(schema.accountLinkSingle);
   const accountLinkFixed = Boolean(schema.accountLinkFixed);
   const linkModule = schema.accountLinkModule ?? 0;
@@ -957,6 +962,35 @@ export const DynamicFormEngine: React.FC<DynamicFormEngineProps> = ({
               const sel = Math.min(selectedAddr, Math.max(fields.length - 1, 0));
               const af = schema.addressFields!;
               const ungrouped = af.filter((f) => !f.group);
+              const idFields = ADDR_ID_FIELDS.map((n) => ungrouped.find((f) => f.fieldName === n)).filter(
+                (f): f is FormFieldDto => Boolean(f),
+              );
+              /** Birden çok alan tek satırda: «Adres Tipi / Kodu / Adı», «Ülke / İl / İlçe / Mahalle» */
+              const renderAddrRow = (list: FormFieldDto[], index: number, rowId: string) =>
+                list.length === 0 ? null : (
+                  <div key={`${rowId}-row-${list[0].fieldName}`} className="md:col-span-2 flex items-center gap-2 min-w-0">
+                    <label
+                      className="w-[132px] shrink-0 text-[11.5px] leading-7 text-slate-600 dark:text-slate-300 truncate"
+                      title={list.map((f) => f.label).join(' / ')}
+                    >
+                      {list.map((f) => f.label.replace(/^Adres\s+/i, '')).join(' / ')}
+                      {list.some((f) => f.isRequired) && <span className="text-red-500 ml-0.5">*</span>}
+                    </label>
+                    <div className={`flex-1 min-w-0 grid gap-1.5 ${list.length >= 4 ? 'grid-cols-2 sm:grid-cols-4' : 'grid-cols-3'}`}>
+                      {list.map((f) => (
+                        <FieldRenderer
+                          key={`${rowId}-${f.fieldId}`}
+                          field={f}
+                          register={register as UseFormRegister<FieldValues>}
+                          registerNameOverride={`addresses.${index}.${f.fieldName}`}
+                          hideLabel
+                          disabled={readOnly}
+                          error={get(errors, `addresses.${index}.${f.fieldName}`) as FieldError | undefined}
+                        />
+                      ))}
+                    </div>
+                  </div>
+                );
               /** Ülke → İl → İlçe → Mahalle (açık adresin hemen üstünde tek satır) */
               const placeFields = PLACE_FIELDS.map((n) => ungrouped.find((f) => f.fieldName === n)).filter(
                 (f): f is FormFieldDto => Boolean(f),
@@ -1060,35 +1094,13 @@ export const DynamicFormEngine: React.FC<DynamicFormEngineProps> = ({
                           </div>
                           {ungrouped.length > 0 && (
                             <InlineFieldGrid>
-                              {ungrouped.filter((f) => !PLACE_FIELDS.includes(f.fieldName)).map((f) =>
-                                // Ülke / İl / İlçe / Mahalle: Ülke'nin yerinde tek satır
-                                f.fieldName === 'Adress' && placeFields.length > 0 ? (
-                                  <React.Fragment key={`${row.id}-place-adress`}>
-                                    <div className="md:col-span-2 flex items-center gap-2 min-w-0">
-                                      <label className="w-[132px] shrink-0 text-[11.5px] leading-7 text-slate-600 dark:text-slate-300 truncate">
-                                        {placeFields.map((pf) => pf.label).join(' / ')}
-                                        {placeFields.some((pf) => pf.isRequired) && <span className="text-red-500 ml-0.5">*</span>}
-                                      </label>
-                                      <div className="flex-1 min-w-0 grid grid-cols-2 sm:grid-cols-4 gap-1.5">
-                                        {placeFields.map((pf) => (
-                                          <FieldRenderer
-                                            key={`${row.id}-${pf.fieldId}`}
-                                            field={pf}
-                                            register={register as UseFormRegister<FieldValues>}
-                                            registerNameOverride={`addresses.${index}.${pf.fieldName}`}
-                                            hideLabel
-                                            disabled={readOnly}
-                                            error={get(errors, `addresses.${index}.${pf.fieldName}`) as FieldError | undefined}
-                                          />
-                                        ))}
-                                      </div>
-                                    </div>
-                                    {renderAddr(f)}
-                                  </React.Fragment>
-                                ) : (
-                                  renderAddr(f)
-                                ),
-                              )}
+                              {renderAddrRow(idFields, index, row.id)}
+                              {renderAddrRow(placeFields, index, row.id)}
+                              {ungrouped
+                                .filter((f) => !PLACE_FIELDS.includes(f.fieldName) && !ADDR_ID_FIELDS.includes(f.fieldName))
+                                // açık adres (tam satır) önce; Varsayılan + Aktif alt satırda yan yana
+                                .sort((x, y) => Number(y.fieldType === 'textarea') - Number(x.fieldType === 'textarea'))
+                                .map(renderAddr)}
                             </InlineFieldGrid>
                           )}
                           {groupNames.map((g) => (
@@ -1108,7 +1120,10 @@ export const DynamicFormEngine: React.FC<DynamicFormEngineProps> = ({
                                         '',
                                     )}
                                     disabled={readOnly}
-                                    onApplied={({ postLabel, senderLabel, title, unitType, status }) => {
+                                    onApplied={({ postLabel, senderLabel, title, unitType, status, entryDate }) => {
+                                      if (entryDate && hasEinvoiceEntryDate && !String(watch('standardFields.EinvoiceEntryDate') || '').trim()) {
+                                        setValue('standardFields.EinvoiceEntryDate', entryDate.slice(0, 10), { shouldDirty: true });
+                                      }
                                       if (postLabel) {
                                         setValue(`addresses.${index}.PostLabel`, postLabel, {
                                           shouldDirty: true,
@@ -1143,27 +1158,54 @@ export const DynamicFormEngine: React.FC<DynamicFormEngineProps> = ({
                                   />
                                 </div>
                               )}
-                              <InlineFieldGrid>
+                              <div className="grid grid-cols-12 gap-x-3 gap-y-1.5">
                                 {af
                                   .filter((f) => f.group === g)
                                   .map((field) =>
                                     field.fieldName === 'MukellefCheckStatus' ? (
-                                      <div key={`${row.id}-${field.fieldId}`} className="md:col-span-2 flex items-center gap-2 min-w-0">
-                                        <label className="w-[132px] shrink-0 text-[11.5px] leading-7 text-slate-600 dark:text-slate-300 truncate">
+                                      <div key={`${row.id}-${field.fieldId}`} className="col-span-12 md:col-span-4 flex flex-col gap-0.5 min-w-0">
+                                        <label className="text-[10px] font-semibold text-slate-500 dark:text-slate-400 leading-none">
                                           {field.label}
                                         </label>
                                         <input
                                           type="text"
                                           readOnly
-                                          className="flex-1 min-w-0 h-7 px-2 text-[11px] border border-slate-200 rounded-sm bg-slate-50 text-slate-600"
+                                          title={String(watchedAddresses?.[index]?.MukellefCheckStatus ?? '')}
+                                          className="w-full h-7 px-2 text-[11px] border border-slate-200 rounded-sm bg-slate-50 text-slate-600 truncate"
                                           {...register(`addresses.${index}.MukellefCheckStatus`)}
                                         />
                                       </div>
                                     ) : (
-                                      renderAddr(field)
+                                      <FieldRenderer
+                                        key={`${row.id}-${field.fieldId}`}
+                                        field={{ ...field, colSpan: 4 }}
+                                        register={register as UseFormRegister<FieldValues>}
+                                        registerNameOverride={`addresses.${index}.${field.fieldName}`}
+                                        compact
+                                        watermark={false}
+                                        disabled={readOnly}
+                                        error={get(errors, `addresses.${index}.${field.fieldName}`) as FieldError | undefined}
+                                      />
                                     ),
                                   )}
-                              </InlineFieldGrid>
+                                {g === 'e-Fatura Posta Kutusu' && hasEinvoiceEntryDate && index === sel && (
+                                  <div className="col-span-12 md:col-span-4 flex flex-col gap-0.5 min-w-0">
+                                    <label className="text-[10px] font-semibold text-slate-500 dark:text-slate-400 leading-none">
+                                      e-Faturaya Geçiş Tarihi
+                                    </label>
+                                    <DateField
+                                      label="e-Faturaya Geçiş Tarihi"
+                                      registerName="standardFields.EinvoiceEntryDate"
+                                      register={register as UseFormRegister<FieldValues>}
+                                      setValue={setValue}
+                                      watch={watch}
+                                      disabled={readOnly}
+                                      inputClassName="w-full h-7 px-2 text-[12px] rounded-sm border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-900/60 outline-none focus:ring-1 focus:ring-blue-500/30 focus:border-blue-500"
+                                      title="Cari kart · GİB mükellef listesindeki kayıt tarihi"
+                                    />
+                                  </div>
+                                )}
+                              </div>
                             </fieldset>
                           ))}
                         </div>
@@ -2008,7 +2050,7 @@ export const DynamicFormEngine: React.FC<DynamicFormEngineProps> = ({
                       : 'İşlem koşullarına göre muhasebe hesap bağlantıları'}
                 </p>
               </div>
-              {!readOnly && !accountLinkSingle && !accountLinkFixed && (
+              {!readOnly && !accountLinkFixed && (
                 <button
                   type="button"
                   onClick={() => appendAccountLink(defaultAccountLinkRow(linkModule))}
@@ -2062,65 +2104,17 @@ export const DynamicFormEngine: React.FC<DynamicFormEngineProps> = ({
                 })}
               </div>
             ) : (
-              <div className="space-y-2">
-                {accountLinkRows.length === 0 ? (
-                  <div className="py-6 text-center text-[12px] text-slate-400 border border-dashed border-slate-200 rounded-md">
-                    Muhasebe bağlantısı yok.
-                  </div>
-                ) : (
-                  accountLinkRows.map((row, index) => {
-                    const typeVal = watchedAccountLinks?.[index]?.Type;
-                    return (
-                      <div
-                        key={row.id}
-                        className="relative grid grid-cols-12 gap-1.5 px-2 py-1.5 rounded-sm bg-white dark:bg-slate-900/40 border border-slate-300 dark:border-slate-600"
-                      >
-                        <div className="col-span-12 flex items-center justify-between pl-0.5 mb-0.5">
-                          <span className="inline-flex items-center gap-1.5 text-[11px] font-semibold text-slate-600">
-                            <span className="w-5 h-5 rounded bg-slate-700 text-white text-[10px] font-bold flex items-center justify-center">
-                              {index + 1}
-                            </span>
-                            {accountLinkTypeLabel(
-                              typeVal as string | number | undefined,
-                              linkModule,
-                            )}
-                          </span>
-                          {!readOnly && !accountLinkSingle && (
-                            <button
-                              type="button"
-                              onClick={() => removeAccountLink(index)}
-                              className="inline-flex items-center gap-1 text-[11px] text-red-600 hover:text-red-700"
-                            >
-                              <Trash2 className="w-3 h-3" />
-                              Sil
-                            </button>
-                          )}
-                        </div>
-                        <div className="col-span-12 grid grid-cols-12 gap-1.5">
-                          {schema.accountLinkFields!.map((field) => (
-                            <FieldRenderer
-                              key={`${row.id}-${field.fieldId}`}
-                              field={field}
-                              register={register as UseFormRegister<FieldValues>}
-                              registerNameOverride={`accountLinks.${index}.${field.fieldName}`}
-                              compact
-                              disabled={
-                                readOnly ||
-                                (accountLinkSingle && field.fieldName === 'Type')
-                              }
-                              error={
-                                get(errors, `accountLinks.${index}.${field.fieldName}`) as
-                                  | FieldError
-                                  | undefined
-                              }
-                            />
-                          ))}
-                        </div>
-                      </div>
-                    );
-                  })
-                )}
-              </div>
+              <SubListGrid
+                rows={accountLinkRows}
+                fields={schema.accountLinkFields!}
+                prefix="accountLinks"
+                register={register as UseFormRegister<FieldValues>}
+                errors={errors}
+                readOnly={readOnly}
+                emptyText="Muhasebe bağlantısı yok. «Bağlantı Ekle» ile satır ekleyin."
+                onRemove={removeAccountLink}
+                isFieldDisabled={(name) => accountLinkSingle && name === 'Type'}
+              />
             )}
           </div>
         )}

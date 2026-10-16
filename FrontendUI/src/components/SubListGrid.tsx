@@ -20,6 +20,8 @@ interface SubListGridProps {
   emptyText?: string;
   onAdd?: () => void;
   onRemove?: (index: number) => void;
+  /** Satırda kilitli alan (örn. tek tipli muhasebe bağlantısında Tip) */
+  isFieldDisabled?: (fieldName: string) => boolean;
 }
 
 /** Kart içi alt liste (yetkili, hesap, barkod…) — kurumsal ızgara: başlıklı sütunlar, satır başına tek satır */
@@ -37,6 +39,7 @@ export const SubListGrid: React.FC<SubListGridProps> = ({
   emptyText = 'Kayıt yok.',
   onAdd,
   onRemove,
+  isFieldDisabled,
 }) => (
   <div className="space-y-1.5">
     {(title || (!readOnly && onAdd)) && (
@@ -110,7 +113,7 @@ export const SubListGrid: React.FC<SubListGridProps> = ({
                       registerNameOverride={`${prefix}.${index}.${field.fieldName}`}
                       hideLabel
                       compact
-                      disabled={readOnly}
+                      disabled={readOnly || Boolean(isFieldDisabled?.(field.fieldName))}
                       error={get(errors, `${prefix}.${index}.${field.fieldName}`) as FieldError | undefined}
                     />
                   </td>

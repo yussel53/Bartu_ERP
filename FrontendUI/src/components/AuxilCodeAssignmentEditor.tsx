@@ -131,7 +131,7 @@ export const AuxilCodeAssignmentEditor: React.FC<AuxilCodeAssignmentEditorProps>
   }, [watched, loadValues]);
 
   const selectCls =
-    'w-full h-8 px-2 text-[12px] border border-slate-200 dark:border-slate-600 rounded-md bg-white dark:bg-slate-900 text-slate-800 dark:text-slate-100';
+    'w-full h-7 px-2 text-[12px] border border-slate-300 dark:border-slate-600 rounded-sm bg-white dark:bg-slate-900 text-slate-800 dark:text-slate-100';
 
   return (
     <div className="space-y-2">
@@ -151,10 +151,10 @@ export const AuxilCodeAssignmentEditor: React.FC<AuxilCodeAssignmentEditorProps>
           <button
             type="button"
             onClick={() => append(defaultAuxilCodeRow(fields.length + 1))}
-            className="inline-flex items-center gap-1 px-2.5 h-7 text-[11px] font-semibold text-blue-700 bg-blue-50 hover:bg-blue-100 rounded-md"
+            className="inline-flex items-center gap-1 px-2 h-6 text-[11px] font-semibold text-slate-700 bg-white border border-slate-300 hover:bg-slate-50 rounded-sm"
           >
             <Plus className="w-3.5 h-3.5" />
-            AuxilTrans Ekle
+            Satır Ekle
           </button>
         )}
       </div>
@@ -171,142 +171,140 @@ export const AuxilCodeAssignmentEditor: React.FC<AuxilCodeAssignmentEditorProps>
         </div>
       )}
 
-      <div className={`space-y-2 ${compact ? 'max-h-[280px] overflow-y-auto pr-0.5' : ''}`}>
-        {fields.length === 0 ? (
-          <div className="py-5 text-center text-[11px] text-slate-400 border border-dashed border-slate-200 rounded-md">
-            Henüz AuxilTrans yok. «AuxilTrans Ekle» ile 1…N satır ekleyin.
-          </div>
-        ) : (
-          fields.map((row, index) => {
-            const defId = String(watched?.[index]?.AuxilCodesID ?? '').trim();
-            const selectedCode = String(watched?.[index]?.AuxilCode ?? '').trim();
-            const allVals = valuesByDef[defId] || [];
-            const codeOpts = allVals.filter((v) => v.kind === AUXIL_VALUE_KIND.Code);
-            const valuesLoaded = Boolean(defId && valuesByDef[defId] != null);
-            const noCodeList = valuesLoaded && codeOpts.length === 0;
-            /** Tanım (+ varsa kod) seçilince açıklama/tarih açılır */
-            const showDetail =
-              Boolean(defId) && valuesLoaded && (noCodeList || selectedCode !== '');
+      <div
+        className={`overflow-x-auto border border-slate-300 dark:border-slate-600 rounded-sm ${
+          compact ? 'max-h-[280px] overflow-y-auto' : ''
+        }`}
+      >
+        <table className="w-full text-[12px] border-collapse">
+          <thead>
+            <tr className="bg-slate-100 dark:bg-slate-800">
+              <th className="w-8 px-1.5 py-1 text-center font-medium text-slate-500 border-b border-r border-slate-300 dark:border-slate-600">
+                #
+              </th>
+              <th className="px-1.5 py-1 text-left font-medium text-slate-600 border-b border-r border-slate-300 dark:border-slate-600 min-w-[170px]">
+                Özel Kod Tanımı
+              </th>
+              <th className="px-1.5 py-1 text-left font-medium text-slate-600 border-b border-r border-slate-300 dark:border-slate-600 min-w-[160px]">
+                Özel Kod
+              </th>
+              <th className="px-1.5 py-1 text-left font-medium text-slate-600 border-b border-r border-slate-300 dark:border-slate-600 min-w-[200px]">
+                Açıklama
+              </th>
+              <th className="px-1.5 py-1 text-left font-medium text-slate-600 border-b border-r border-slate-300 dark:border-slate-600 w-[130px]">
+                Tarih
+              </th>
+              {!readOnly && <th className="w-8 border-b border-slate-300 dark:border-slate-600" />}
+            </tr>
+          </thead>
+          <tbody>
+            {fields.length === 0 ? (
+              <tr>
+                <td colSpan={6} className="px-3 py-4 text-center text-[11px] text-slate-400">
+                  Özel kod yok. «Satır Ekle» ile satır satır ekleyin.
+                </td>
+              </tr>
+            ) : (
+              fields.map((row, index) => {
+                const defId = String(watched?.[index]?.AuxilCodesID ?? '').trim();
+                const selectedCode = String(watched?.[index]?.AuxilCode ?? '').trim();
+                const allVals = valuesByDef[defId] || [];
+                const codeOpts = allVals.filter((v) => v.kind === AUXIL_VALUE_KIND.Code);
+                const valuesLoaded = Boolean(defId && valuesByDef[defId] != null);
+                const noCodeList = valuesLoaded && codeOpts.length === 0;
+                /** Tanım (+ varsa kod) seçilince açıklama/tarih açılır */
+                const showDetail =
+                  Boolean(defId) && valuesLoaded && (noCodeList || selectedCode !== '');
+                const cell = 'px-1 py-0.5 border-b border-r border-slate-200 dark:border-slate-700 align-middle';
 
-            return (
-              <div
-                key={row.id}
-                className="rounded-md border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800/40 p-2.5 space-y-2"
-              >
-                <div className="flex items-center justify-between">
-                  <span className="inline-flex items-center gap-1.5 text-[11px] font-semibold text-slate-600">
-                    <span className="w-5 h-5 rounded bg-slate-700 text-white text-[10px] font-bold flex items-center justify-center">
+                return (
+                  <tr key={row.id} className="hover:bg-blue-50/40 dark:hover:bg-slate-800/40">
+                    <td className="px-1.5 py-0.5 text-center text-[11px] text-slate-500 bg-slate-50 dark:bg-slate-800/60 border-b border-r border-slate-200 dark:border-slate-700">
                       {index + 1}
-                    </span>
-                    AuxilTrans
-                  </span>
-                  {!readOnly && (
-                    <button
-                      type="button"
-                      onClick={() => remove(index)}
-                      className="inline-flex items-center gap-1 text-[11px] text-red-600 hover:text-red-700"
-                    >
-                      <Trash2 className="w-3 h-3" />
-                      Sil
-                    </button>
-                  )}
-                </div>
-
-                <input type="hidden" {...register(`auxilCodes.${index}.LineNr`)} />
-
-                {/* 1) Auxil tanımı + 2) Özel kod */}
-                <div className="grid grid-cols-12 gap-2">
-                  <div className="col-span-12 sm:col-span-6">
-                    <label className="block text-[10px] font-semibold text-slate-500 mb-0.5">
-                      1 · Özel Kod Tanımı (AUXIL)
-                    </label>
-                    <select
-                      className={selectCls}
-                      disabled={readOnly}
-                      value={defId}
-                      onChange={(e) => {
-                        const next = e.target.value;
-                        setValue(`auxilCodes.${index}.AuxilCodesID`, next, { shouldDirty: true });
-                        setValue(`auxilCodes.${index}.AuxilCode`, '', { shouldDirty: true });
-                        setValue(`auxilCodes.${index}.AuxilCodeValueID`, '', { shouldDirty: true });
-                        setValue(`auxilCodes.${index}.Definition`, '', { shouldDirty: true });
-                        void loadValues(next);
-                      }}
-                    >
-                      <option value="">— Auxil tanımı seçin —</option>
-                      {defs.map((d) => (
-                        <option key={d.id} value={d.id}>
-                          {d.title}
-                        </option>
-                      ))}
-                    </select>
-                  </div>
-
-                  <div className="col-span-12 sm:col-span-6">
-                    <label className="block text-[10px] font-semibold text-slate-500 mb-0.5">
-                      2 · Özel Kod
-                    </label>
-                    <select
-                      className={selectCls}
-                      disabled={readOnly || !defId || noCodeList}
-                      value={selectedCode}
-                      onChange={(e) => {
-                        const code = e.target.value;
-                        const match = codeOpts.find((v) => v.code === code);
-                        setValue(`auxilCodes.${index}.AuxilCode`, code, { shouldDirty: true });
-                        setValue(`auxilCodes.${index}.AuxilCodeValueID`, match?.id || '', {
-                          shouldDirty: true,
-                        });
-                      }}
-                    >
-                      <option value="">
-                        {noCodeList ? '— Bu tanımda kod listesi yok —' : '— Özel kod seçin —'}
-                      </option>
-                      {codeOpts.map((v) => (
-                        <option key={v.id || v.code} value={v.code}>
-                          {v.title || v.code}
-                        </option>
-                      ))}
-                    </select>
-                  </div>
-                </div>
-
-                {/* 3) Açıklama + Tarih — AuxilTrans detayı */}
-                {showDetail && (
-                  <div className="grid grid-cols-12 gap-2 pt-1 border-t border-slate-200/80 dark:border-slate-700/80">
-                    <div className="col-span-12 sm:col-span-8">
-                      <label className="block text-[10px] font-semibold text-slate-500 mb-0.5">
-                        3 · Açıklama
-                      </label>
+                      <input type="hidden" {...register(`auxilCodes.${index}.LineNr`)} />
+                    </td>
+                    <td className={cell}>
+                      <select
+                        className={selectCls}
+                        disabled={readOnly}
+                        value={defId}
+                        onChange={(e) => {
+                          const next = e.target.value;
+                          setValue(`auxilCodes.${index}.AuxilCodesID`, next, { shouldDirty: true });
+                          setValue(`auxilCodes.${index}.AuxilCode`, '', { shouldDirty: true });
+                          setValue(`auxilCodes.${index}.AuxilCodeValueID`, '', { shouldDirty: true });
+                          setValue(`auxilCodes.${index}.Definition`, '', { shouldDirty: true });
+                          void loadValues(next);
+                        }}
+                      >
+                        <option value="">— Tanım seçin —</option>
+                        {defs.map((d) => (
+                          <option key={d.id} value={d.id}>
+                            {d.title}
+                          </option>
+                        ))}
+                      </select>
+                    </td>
+                    <td className={cell}>
+                      <select
+                        className={selectCls}
+                        disabled={readOnly || !defId || noCodeList}
+                        value={selectedCode}
+                        onChange={(e) => {
+                          const code = e.target.value;
+                          const match = codeOpts.find((v) => v.code === code);
+                          setValue(`auxilCodes.${index}.AuxilCode`, code, { shouldDirty: true });
+                          setValue(`auxilCodes.${index}.AuxilCodeValueID`, match?.id || '', {
+                            shouldDirty: true,
+                          });
+                        }}
+                      >
+                        <option value="">{noCodeList ? '— Kod listesi yok —' : '— Kod seçin —'}</option>
+                        {codeOpts.map((v) => (
+                          <option key={v.id || v.code} value={v.code}>
+                            {v.title || v.code}
+                          </option>
+                        ))}
+                      </select>
+                    </td>
+                    <td className={cell}>
                       <input
                         type="text"
                         className={selectCls}
-                        disabled={readOnly}
-                        placeholder="Açıklama yazın"
+                        disabled={readOnly || !showDetail}
+                        title={showDetail ? undefined : 'Önce tanım ve kod seçin'}
                         {...register(`auxilCodes.${index}.Definition`)}
                       />
-                    </div>
-
-                    <div className="col-span-12 sm:col-span-4">
-                      <label className="block text-[10px] font-semibold text-slate-500 mb-0.5">
-                        4 · Tarih
-                      </label>
+                    </td>
+                    <td className={cell}>
                       <DateField
                         label="Tarih"
                         registerName={`auxilCodes.${index}.TransDate`}
                         register={register}
                         setValue={setValue}
                         watch={watch}
-                        disabled={readOnly}
+                        disabled={readOnly || !showDetail}
                         inputClassName={selectCls}
                       />
-                    </div>
-                  </div>
-                )}
-              </div>
-            );
-          })
-        )}
+                    </td>
+                    {!readOnly && (
+                      <td className="px-1 text-center border-b border-slate-200 dark:border-slate-700">
+                        <button
+                          type="button"
+                          onClick={() => remove(index)}
+                          title="Satırı sil"
+                          className="p-1 rounded text-slate-400 hover:text-red-600 hover:bg-red-50"
+                        >
+                          <Trash2 className="w-3.5 h-3.5" />
+                        </button>
+                      </td>
+                    )}
+                  </tr>
+                );
+              })
+            )}
+          </tbody>
+        </table>
       </div>
     </div>
   );
