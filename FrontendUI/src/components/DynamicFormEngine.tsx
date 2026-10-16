@@ -111,6 +111,8 @@ export const DynamicFormEngine: React.FC<DynamicFormEngineProps> = ({
   const linkModule = schema.accountLinkModule ?? 0;
   const [tab, setTab] = React.useState('genel');
   const [addressError, setAddressError] = React.useState<string | null>(null);
+  /** Adresler sekmesi: soldaki listede seçili adres (sağda detayı) */
+  const [selectedAddr, setSelectedAddr] = React.useState(0);
 
   const fieldDefaults: Record<string, unknown> = {};
   for (const f of schema.fields) {
@@ -925,14 +927,15 @@ export const DynamicFormEngine: React.FC<DynamicFormEngineProps> = ({
               {!readOnly && (
                 <button
                   type="button"
-                  onClick={() =>
+                  onClick={() => {
                     append({
                       ...defaultCustomerAddressRow(),
                       AdressType: '2',
                       Title: 'Sevkiyat',
                       IsDefault: false,
-                    })
-                  }
+                    });
+                    setSelectedAddr(fields.length);
+                  }}
                   className="inline-flex items-center gap-1 px-2 h-6 text-[11px] font-semibold text-slate-700 bg-white border border-slate-300 hover:bg-slate-50 rounded-sm transition-colors"
                 >
                   <Plus className="w-3.5 h-3.5" />
@@ -947,67 +950,118 @@ export const DynamicFormEngine: React.FC<DynamicFormEngineProps> = ({
               </div>
             )}
 
-            <div className="space-y-2">
-              {fields.map((row, index) => {
-                const typeVal = watchedAddresses?.[index]?.AdressType;
-                return (
-                  <div
-                    key={row.id}
-                    className="relative grid grid-cols-12 gap-1.5 px-2 py-1.5 rounded-sm bg-white dark:bg-slate-900/40 border border-slate-300 dark:border-slate-600"
-                  >
-                    <div className="col-span-12 flex items-center justify-between pl-0.5 mb-0.5">
-                      <span className="inline-flex items-center gap-1.5 text-[11px] font-semibold text-slate-600">
-                        <span className="w-5 h-5 rounded bg-slate-700 text-white text-[10px] font-bold flex items-center justify-center">
-                          {index + 1}
-                        </span>
-                        {customerAddressTypeLabel(typeVal as string | number | undefined)}
-                      </span>
-                      {!readOnly && (
-                        <button
-                          type="button"
-                          disabled={fields.length <= 1}
-                          onClick={() => remove(index)}
-                          className="inline-flex items-center gap-1 text-[11px] text-red-600 hover:text-red-700 disabled:opacity-40 disabled:cursor-not-allowed"
-                        >
-                          <Trash2 className="w-3 h-3" />
-                          Sil
-                        </button>
-                      )}
+            {(() => {
+              const sel = Math.min(selectedAddr, Math.max(fields.length - 1, 0));
+              const af = schema.addressFields!;
+              const ungrouped = af.filter((f) => !f.group);
+              const groupNames = [...new Set(af.filter((f) => f.group).map((f) => f.group!))];
+              const addrErrors = (errors as Record<string, unknown>).addresses as unknown[] | undefined;
+              const addrText = (i: number) => {
+                const a = (watchedAddresses?.[i] || {}) as Record<string, unknown>;
+                const place = [a.Dictrict, a.Town, a.City].map((v) => String(v ?? '').trim()).filter(Boolean);
+                return place.join(' / ') || String(a.Adress ?? '').trim();
+              };
+              return (
+                <div className="grid grid-cols-1 md:grid-cols-[220px_minmax(0,1fr)] gap-3">
+                  {/* Sol: adres listesi */}
+                  <div className="border border-slate-300 dark:border-slate-600 rounded-sm overflow-hidden self-start">
+                    <div className="px-2 py-1 bg-slate-100 dark:bg-slate-800 text-[11px] font-medium text-slate-600 border-b border-slate-300 dark:border-slate-600">
+                      Adres listesi ({fields.length})
                     </div>
-                    <div className="col-span-12 space-y-2">
-                      {(() => {
-                        const af = schema.addressFields!;
-                        const ungrouped = af.filter((f) => !f.group);
-                        const groupNames = [...new Set(af.filter((f) => f.group).map((f) => f.group!))];
-                        const renderAddr = (field: FormFieldDto) => (
-                          <FieldRenderer
-                            key={`${row.id}-${field.fieldId}`}
-                            field={field}
-                            register={register as UseFormRegister<FieldValues>}
-                            registerNameOverride={`addresses.${index}.${field.fieldName}`}
-                            compact
-                            disabled={readOnly}
-                            error={
-                              get(errors, `addresses.${index}.${field.fieldName}`) as
-                                | FieldError
-                                | undefined
-                            }
-                          />
-                        );
+                    <ul className="max-h-[360px] overflow-y-auto">
+                      {fields.map((row, index) => {
+                        const a = (watchedAddresses?.[index] || {}) as Record<string, unknown>;
+                        const isDefault = a.IsDefault === true || a.IsDefault === 'true' || a.IsDefault === 1;
+                        const hasErr = Boolean(addrErrors?.[index]);
+                        const active = index === sel;
                         return (
-                          <>
-                            {ungrouped.length > 0 && (
-                              <div className="grid grid-cols-12 gap-2">{ungrouped.map(renderAddr)}</div>
-                            )}
-                            {groupNames.map((g) => (
-                              <fieldset
-                                key={g}
-                                className="rounded-md border border-slate-200 dark:border-slate-600 px-2.5 pt-1.5 pb-2 bg-white/70 dark:bg-slate-900/40"
+                          <li key={row.id}>
+                            <button
+                              type="button"
+                              onClick={() => setSelectedAddr(index)}
+                              className={`w-full text-left px-2 py-1.5 border-b border-slate-200 dark:border-slate-700 flex items-start gap-1.5 ${
+                                active
+                                  ? 'bg-blue-50 dark:bg-blue-950/40 border-l-2 border-l-blue-600'
+                                  : 'hover:bg-slate-50 dark:hover:bg-slate-800/50 border-l-2 border-l-transparent'
+                              }`}
+                            >
+                              <span className="mt-px w-4 h-4 shrink-0 rounded-sm bg-slate-600 text-white text-[9px] font-bold flex items-center justify-center">
+                                {index + 1}
+                              </span>
+                              <span className="min-w-0 flex-1">
+                                <span className="flex items-center gap-1 text-[11.5px] font-medium text-slate-800 dark:text-slate-100">
+                                  <span className="truncate">
+                                    {String(a.Title ?? '').trim() ||
+                                      customerAddressTypeLabel(a.AdressType as string | number | undefined)}
+                                  </span>
+                                  {isDefault && (
+                                    <span className="shrink-0 text-[9px] px-1 rounded-sm bg-emerald-100 text-emerald-700">
+                                      Varsayılan
+                                    </span>
+                                  )}
+                                  {hasErr && <span className="shrink-0 w-1.5 h-1.5 rounded-full bg-red-500" title="Eksik alan" />}
+                                </span>
+                                <span className="block text-[10.5px] text-slate-500 truncate">
+                                  {customerAddressTypeLabel(a.AdressType as string | number | undefined)}
+                                  {addrText(index) ? ` · ${addrText(index)}` : ''}
+                                </span>
+                              </span>
+                            </button>
+                          </li>
+                        );
+                      })}
+                    </ul>
+                  </div>
+
+                  {/* Sağ: seçili adresin bilgileri (diğerleri gizli ama formda kayıtlı kalır) */}
+                  <div className="min-w-0">
+                    {fields.map((row, index) => {
+                      const renderAddr = (field: FormFieldDto) => (
+                        <FieldRenderer
+                          key={`${row.id}-${field.fieldId}`}
+                          field={field}
+                          register={register as UseFormRegister<FieldValues>}
+                          registerNameOverride={`addresses.${index}.${field.fieldName}`}
+                          disabled={readOnly}
+                          error={
+                            get(errors, `addresses.${index}.${field.fieldName}`) as
+                              | FieldError
+                              | undefined
+                          }
+                        />
+                      );
+                      return (
+                        <div key={row.id} className={index === sel ? 'space-y-2' : 'hidden'}>
+                          <div className="flex items-center justify-between gap-2 border-b border-slate-200 dark:border-slate-700 pb-1">
+                            <span className="text-[12px] font-semibold text-slate-700 dark:text-slate-200">
+                              {index + 1}. {customerAddressTypeLabel(watchedAddresses?.[index]?.AdressType as string | number | undefined)}
+                            </span>
+                            {!readOnly && (
+                              <button
+                                type="button"
+                                disabled={fields.length <= 1}
+                                onClick={() => {
+                                  remove(index);
+                                  setSelectedAddr(Math.max(0, index - 1));
+                                }}
+                                className="inline-flex items-center gap-1 text-[11px] text-red-600 hover:text-red-700 disabled:opacity-40 disabled:cursor-not-allowed"
                               >
-                                <legend className="px-1 text-[10px] font-semibold text-slate-600 dark:text-slate-300">
-                                  {g}
-                                </legend>
-                                {g === 'e-Fatura Posta Kutusu' && (
+                                <Trash2 className="w-3 h-3" />
+                                Adresi sil
+                              </button>
+                            )}
+                          </div>
+                          {ungrouped.length > 0 && <InlineFieldGrid>{ungrouped.map(renderAddr)}</InlineFieldGrid>}
+                          {groupNames.map((g) => (
+                            <fieldset
+                              key={g}
+                              className="rounded-sm border border-slate-300 dark:border-slate-600 px-3 pt-1 pb-2"
+                            >
+                              <legend className="px-1 text-[11.5px] font-semibold text-slate-700 dark:text-slate-200">
+                                {g}
+                              </legend>
+                              {g === 'e-Fatura Posta Kutusu' && (
+                                <div className="mb-1.5">
                                   <EinvoiceMukellefCheck
                                     taxNr={String(
                                       watchedAddresses?.[index]?.TaxNr ||
@@ -1048,38 +1102,38 @@ export const DynamicFormEngine: React.FC<DynamicFormEngineProps> = ({
                                       }
                                     }}
                                   />
-                                )}
-                                <div className="grid grid-cols-12 gap-2">
-                                  {af
-                                    .filter((f) => f.group === g)
-                                    .map((field) =>
-                                      field.fieldName === 'MukellefCheckStatus' ? (
-                                        <div key={`${row.id}-${field.fieldId}`} className="col-span-12 sm:col-span-8">
-                                          <label className="block text-[10px] font-semibold text-slate-500 mb-0.5">
-                                            {field.label}
-                                          </label>
-                                          <input
-                                            type="text"
-                                            readOnly
-                                            className="w-full h-8 px-2 text-[11px] border border-slate-200 rounded-md bg-slate-50 text-slate-600"
-                                            {...register(`addresses.${index}.MukellefCheckStatus`)}
-                                          />
-                                        </div>
-                                      ) : (
-                                        renderAddr(field)
-                                      ),
-                                    )}
                                 </div>
-                              </fieldset>
-                            ))}
-                          </>
-                        );
-                      })()}
-                    </div>
+                              )}
+                              <InlineFieldGrid>
+                                {af
+                                  .filter((f) => f.group === g)
+                                  .map((field) =>
+                                    field.fieldName === 'MukellefCheckStatus' ? (
+                                      <div key={`${row.id}-${field.fieldId}`} className="md:col-span-2 flex items-center gap-2 min-w-0">
+                                        <label className="w-[132px] shrink-0 text-[11.5px] leading-7 text-slate-600 dark:text-slate-300 truncate">
+                                          {field.label}
+                                        </label>
+                                        <input
+                                          type="text"
+                                          readOnly
+                                          className="flex-1 min-w-0 h-7 px-2 text-[11px] border border-slate-200 rounded-sm bg-slate-50 text-slate-600"
+                                          {...register(`addresses.${index}.MukellefCheckStatus`)}
+                                        />
+                                      </div>
+                                    ) : (
+                                      renderAddr(field)
+                                    ),
+                                  )}
+                              </InlineFieldGrid>
+                            </fieldset>
+                          ))}
+                        </div>
+                      );
+                    })}
                   </div>
-                );
-              })}
-            </div>
+                </div>
+              );
+            })()}
           </div>
         )}
 
