@@ -18,6 +18,7 @@ builder.Services.AddScoped<IDbConnection>(sp =>
 builder.Services.AddScoped<DynamicFormRepository>();
 builder.Services.AddScoped<RecordsRepository>();
 builder.Services.AddScoped<DashboardRepository>();
+builder.Services.AddScoped<CardStatementRepository>();
 builder.Services.AddScoped<ModuleOverviewRepository>();
 builder.Services.AddScoped<ProductPricesRepository>();
 builder.Services.AddScoped<JournalNumberingRepository>();

@@ -1,7 +1,23 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
-import { Plus, ArrowLeft, RefreshCw, Database, AlertTriangle } from 'lucide-react';
+import {
+  Plus,
+  ArrowLeft,
+  RefreshCw,
+  Database,
+  AlertTriangle,
+  Eye,
+  Pencil,
+  Copy,
+  Trash2,
+  FileText,
+  List,
+  ChevronRight,
+} from 'lucide-react';
 import { AppModule, MenuScreen } from '../types/formTypes';
-import { RowActions } from '../components/RowActions';
+import { RowActions, RowActionExtraItem } from '../components/RowActions';
+import { RowContextMenu, RowContextMenuItem } from '../components/RowContextMenu';
+import { CardStatementModal } from '../components/CardStatementModal';
+import { getCardStatementDef } from '../data/cardStatementKinds';
 import { ActiveStatusBadge, isActiveValue } from '../components/ActiveToggle';
 import { canScreen, getCurrentProfile, resolveScreenAuthCode } from '../data/permissions';
 import { filterRowsByAuthCode } from '../data/authCodes';
@@ -147,6 +163,12 @@ export const ModuleListPage: React.FC<ModuleListPageProps> = ({
   const [source, setSource] = useState<'db' | 'demo'>(useDb ? 'db' : 'demo');
   const [tick, setTick] = useState(0);
   const [viewTab, setViewTab] = useState<'list' | 'report'>('list');
+  const [ctxMenu, setCtxMenu] = useState<{ x: number; y: number; rowId: string | number; label: string } | null>(
+    null,
+  );
+  const [statement, setStatement] = useState<{ cardId: number; tab: string } | null>(null);
+  const closeCtxMenu = useCallback(() => setCtxMenu(null), []);
+  const stmtDef = getCardStatementDef(tableName);
 
   const typeFilterNum = useMemo(() => {
     if (screen.documentTypeFilter != null) {
@@ -248,6 +270,46 @@ export const ModuleListPage: React.FC<ModuleListPageProps> = ({
       return;
     }
     onDelete?.(rowId);
+  };
+
+  /** Kart listelerinde Ekstre / Hareketler / ek bölümler (Cari, Malzeme, Banka, Kasa, Hesap Planı…) */
+  const statementItemsFor = (rowId: string | number): RowActionExtraItem[] => {
+    const id = Number(rowId);
+    if (!stmtDef || !allowed.view || source !== 'db' || !Number.isInteger(id) || id <= 0) return [];
+    return stmtDef.items.map((it, i) => ({
+      key: `stmt-${it.key}`,
+      label: it.label,
+      icon:
+        i === 0 ? (
+          <FileText className="w-3.5 h-3.5" />
+        ) : it.key === 'hareketler' ? (
+          <List className="w-3.5 h-3.5" />
+        ) : (
+          <ChevronRight className="w-3.5 h-3.5" />
+        ),
+      onClick: () => setStatement({ cardId: id, tab: it.key }),
+    }));
+  };
+
+  const contextItemsFor = (rowId: string | number): RowContextMenuItem[] => {
+    const items: RowContextMenuItem[] = [];
+    if (allowed.view)
+      items.push({ key: 'view', label: 'İncele', icon: <Eye className="w-3.5 h-3.5" />, onClick: () => onView?.(rowId) });
+    if (allowed.update)
+      items.push({ key: 'edit', label: 'Değiştir', icon: <Pencil className="w-3.5 h-3.5" />, onClick: () => onEdit?.(rowId) });
+    if (allowed.create)
+      items.push({ key: 'copy', label: 'Kopyala', icon: <Copy className="w-3.5 h-3.5" />, onClick: () => onCopy?.(rowId) });
+    if (allowed.delete)
+      items.push({
+        key: 'delete',
+        label: 'Çıkar',
+        icon: <Trash2 className="w-3.5 h-3.5" />,
+        danger: true,
+        onClick: () => void handleDelete(rowId),
+      });
+    const stmt = statementItemsFor(rowId);
+    stmt.forEach((s, i) => items.push({ ...s, separatorBefore: i === 0 && items.length > 0 }));
+    return items;
   };
 
   if (showReportTab && viewTab === 'report' && module && onNavigate) {
@@ -427,7 +489,18 @@ export const ModuleListPage: React.FC<ModuleListPageProps> = ({
                   return (
                     <tr
                       key={String(rowId)}
-                      className="border-b border-slate-100 dark:border-slate-800 hover:bg-slate-50 dark:hover:bg-slate-800/40 transition-colors h-9 group"
+                      onContextMenu={(e) => {
+                        if (!showActions) return;
+                        e.preventDefault();
+                        const label = [pickCell(row, 'code'), pickCell(row, 'title')]
+                          .map((v) => String(v ?? '').trim())
+                          .filter(Boolean)
+                          .join(' · ');
+                        setCtxMenu({ x: e.clientX, y: e.clientY, rowId, label });
+                      }}
+                      className={`border-b border-slate-100 dark:border-slate-800 hover:bg-slate-50 dark:hover:bg-slate-800/40 transition-colors h-9 group ${
+                        ctxMenu?.rowId === rowId ? 'bg-blue-50/70 dark:bg-blue-900/20' : ''
+                      }`}
                     >
                       {showActions && (
                         <td className="px-2 py-1.5 sticky left-0 bg-white dark:bg-slate-900 group-hover:bg-slate-50 dark:group-hover:bg-slate-800/40 z-10">
@@ -439,6 +512,7 @@ export const ModuleListPage: React.FC<ModuleListPageProps> = ({
                               onDelete: () => void handleDelete(rowId),
                               onCopy: () => onCopy?.(rowId),
                             }}
+                            extraItems={statementItemsFor(rowId)}
                           />
                         </td>
                       )}
@@ -476,6 +550,26 @@ export const ModuleListPage: React.FC<ModuleListPageProps> = ({
           </table>
         </div>
       </div>
+
+      {ctxMenu && (
+        <RowContextMenu
+          x={ctxMenu.x}
+          y={ctxMenu.y}
+          title={ctxMenu.label || undefined}
+          items={contextItemsFor(ctxMenu.rowId)}
+          onClose={closeCtxMenu}
+        />
+      )}
+      {statement && stmtDef && (
+        <CardStatementModal
+          kind={stmtDef.kind}
+          cardId={statement.cardId}
+          kindTitle={stmtDef.title}
+          reportTitle={stmtDef.items.find((i) => i.key === 'ekstre')?.label ?? `${stmtDef.title} Ekstresi`}
+          initialTab={statement.tab}
+          onClose={() => setStatement(null)}
+        />
+      )}
     </div>
   );
 };

@@ -10,12 +10,21 @@ export interface RowActionHandlers {
   onCopy?: () => void;
 }
 
+export interface RowActionExtraItem {
+  key: string;
+  label: string;
+  icon?: React.ReactNode;
+  onClick: () => void;
+}
+
 interface RowActionsProps {
   allowed: Record<AuthAction, boolean>;
   handlers: RowActionHandlers;
+  /** Kart ekstre / hareket gibi ek menü öğeleri (ayırıcıdan sonra) */
+  extraItems?: RowActionExtraItem[];
 }
 
-export const RowActions: React.FC<RowActionsProps> = ({ allowed, handlers }) => {
+export const RowActions: React.FC<RowActionsProps> = ({ allowed, handlers, extraItems = [] }) => {
   const [open, setOpen] = useState(false);
   const [menuPos, setMenuPos] = useState<{ top: number; left: number } | null>(null);
   const btnRef = useRef<HTMLButtonElement>(null);
@@ -57,6 +66,7 @@ export const RowActions: React.FC<RowActionsProps> = ({ allowed, handlers }) => 
     icon: React.ReactNode;
     show: boolean;
     danger?: boolean;
+    separator?: boolean;
     onClick?: () => void;
   }[] = [
     {
@@ -82,6 +92,14 @@ export const RowActions: React.FC<RowActionsProps> = ({ allowed, handlers }) => 
       onClick: handlers.onDelete,
     },
   ].filter((i) => i.show);
+  menuItems.push(
+    ...extraItems.map((x, i) => ({
+      ...x,
+      icon: x.icon ?? null,
+      show: true,
+      separator: i === 0 && menuItems.length > 0,
+    })),
+  );
 
   const hasAny = allowed.view || menuItems.length > 0;
   if (!hasAny) return <span className="text-[10px] text-slate-300">—</span>;
@@ -123,8 +141,9 @@ export const RowActions: React.FC<RowActionsProps> = ({ allowed, handlers }) => 
                 className="min-w-[148px] rounded-md border border-slate-200 bg-white shadow-lg py-1"
               >
                 {menuItems.map((item) => (
+                  <React.Fragment key={item.key}>
+                  {item.separator && <div className="my-1 border-t border-slate-100" />}
                   <button
-                    key={item.key}
                     type="button"
                     className={`w-full flex items-center gap-2 px-2.5 py-1.5 text-[12px] text-left hover:bg-slate-50 ${
                       item.danger ? 'text-red-600' : 'text-slate-700'
@@ -137,6 +156,7 @@ export const RowActions: React.FC<RowActionsProps> = ({ allowed, handlers }) => 
                     {item.icon}
                     {item.label}
                   </button>
+                  </React.Fragment>
                 ))}
               </div>,
               document.body,
