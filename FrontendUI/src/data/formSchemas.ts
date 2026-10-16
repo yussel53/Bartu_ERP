@@ -486,8 +486,9 @@ export const FORM_SCHEMAS: Record<string, FormSchemaDto> = {
     accountLinkModule: AccountLinkModule.Customer,
     accountLinkSingle: true,
     accountLinkFields: buildAccountLinkFields({ lockType: true }),
-    /** AccountGroupID DB'de zorunlu; cari tür Type_ (Alıcı/Satıcı) ile tutulur */
-    fixedStandardFields: { AccountGroupID: 1 },
+    /** AccountGroupID DB'de zorunlu; cari tür Type_ (Alıcı/Satıcı) ile tutulur.
+     *  CardKind: 1 Müşteri (aday) · 2 Cari — aynı tablo (SqlUpdates/72) */
+    fixedStandardFields: { CardKind: 2, AccountGroupID: 1 },
     fields: [
       {
         fieldId: 30,
@@ -2521,6 +2522,18 @@ function typedDocumentSchema(
   };
 }
 
+// Müşteri kartı → CustomerCard.CardKind = 1 (satış yapılınca / «Cariye Dönüştür» ile cari olur)
+FORM_SCHEMAS.MusteriCardForm = {
+  ...FORM_SCHEMAS.CustomerCardForm,
+  formId: 775,
+  formCode: 'MusteriCardForm',
+  title: 'Müşteri Kartı',
+  fields: FORM_SCHEMAS.CustomerCardForm.fields.map((f) =>
+    f.fieldName === 'Code' ? { ...f, label: 'Müşteri Kodu' } : { ...f },
+  ),
+  fixedStandardFields: { ...(FORM_SCHEMAS.CustomerCardForm.fixedStandardFields || {}), CardKind: 1 },
+};
+
 // Sipariş → OrderVoucher.Type_
 FORM_SCHEMAS.SalesOrderForm = typedDocumentSchema('OrderVoucherForm', 'SalesOrderForm', 'Satış Siparişi', 41, 'Type_', OrderType.Satis);
 FORM_SCHEMAS.PurchaseOrderForm = typedDocumentSchema('OrderVoucherForm', 'PurchaseOrderForm', 'Alış Siparişi', 42, 'Type_', OrderType.Alis);
@@ -4258,6 +4271,7 @@ const TYPE_DEF_FIELD_BINDINGS: Record<
   BoundTransForm: [{ fieldName: 'Type_', targetTable: 'BoundTrans', moduleKey: 'finans', kind: 'voucher' }],
   PaymentTransForm: [{ fieldName: 'Type_', targetTable: 'PaymentTrans', moduleKey: 'finans', kind: 'voucher' }],
   CustomerCardForm: [{ fieldName: 'Type_', targetTable: 'CustomerCard', kind: 'customer' }],
+  MusteriCardForm: [{ fieldName: 'Type_', targetTable: 'CustomerCard', kind: 'customer' }],
   OrderVoucherForm: [{ fieldName: 'Type_', targetTable: 'OrderVoucher', kind: 'voucher' }],
   ProductVoucherForm: [{ fieldName: 'VoucherType', targetTable: 'ProductVoucher', kind: 'voucher' }],
 };

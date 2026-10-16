@@ -15,12 +15,14 @@ public sealed class CrmController : ControllerBase
     private readonly CrmRepository _repo;
     private readonly CrmMailService _mail;
     private readonly CrmMailProfileRepository _profiles;
+    private readonly CrmOrderRepository _orders;
 
-    public CrmController(CrmRepository repo, CrmMailService mail, CrmMailProfileRepository profiles)
+    public CrmController(CrmRepository repo, CrmMailService mail, CrmMailProfileRepository profiles, CrmOrderRepository orders)
     {
         _repo = repo;
         _mail = mail;
         _profiles = profiles;
+        _orders = orders;
     }
 
     private int UserId
@@ -262,6 +264,11 @@ public sealed class CrmController : ControllerBase
     [HttpPost("offers/{id:int}/status")]
     public Task<IActionResult> OfferStatus(int id, [FromBody] CloseRequest req) =>
         Run(async () => new { ok = await _repo.SetOfferStatusAsync(id, req.Status) > 0 });
+
+    /// <summary>Teklif → satış siparişi (OrderVoucher). Fırsat kazanıldı, müşteri cariye döner.</summary>
+    [HttpPost("offers/{id:int}/to-order")]
+    public Task<IActionResult> ToOrder(int id, [FromBody] CrmOfferToOrderRequest? req) =>
+        Run(async () => await _orders.ConvertAsync(id, req ?? new CrmOfferToOrderRequest(), UserId));
 
     [HttpDelete("offers/{id:int}")]
     public Task<IActionResult> DeleteOffer(int id) => Run(async () => new { ok = await _repo.DeleteOfferAsync(id) > 0 });

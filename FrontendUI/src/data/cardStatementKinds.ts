@@ -29,6 +29,11 @@ const BY_TABLE: Record<string, CardStatementKindDef> = {
       { key: 'odeme', label: 'Ödeme / Tahsilat Planı' },
       { key: 'ceksenet', label: 'Çek / Senet' },
       AYLIK,
+      // Müşteri 360° — CRM + Outlook
+      { key: 'firsatlar', label: 'Fırsatlar' },
+      { key: 'teklifler', label: 'Teklifler' },
+      { key: 'aksiyonlar', label: 'Aksiyon / Görüşme' },
+      { key: 'mailler', label: 'Yazışmalar (Outlook)' },
     ],
   },
   ProductCard: {

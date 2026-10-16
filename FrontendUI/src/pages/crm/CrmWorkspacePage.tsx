@@ -1,6 +1,7 @@
 import React from 'react';
 import {
   AlertTriangle,
+  ShoppingCart,
   Building2,
   CalendarClock,
   Check,
@@ -750,6 +751,23 @@ export function CrmWorkspacePage({ basePath }: { basePath: string }) {
                           'sep',
                           { label: 'Revize et', icon: <RotateCcw className="w-3.5 h-3.5" />, onClick: () => void actionOp(() => crmApi.reviseOffer(o.offerID), 'Revizyon oluşturuldu.'), hidden: o.status === 4 },
                           { label: 'Kopyala', icon: <Copy className="w-3.5 h-3.5" />, onClick: () => void actionOp(() => crmApi.copyOffer(o.offerID), 'Teklif kopyalandı.') },
+                          {
+                            label: o.orderVoucherID ? 'Siparişe dönüştürüldü' : 'Siparişe Dönüştür',
+                            icon: <ShoppingCart className="w-3.5 h-3.5 text-emerald-600" />,
+                            hidden: o.status === 4 || o.status === 3,
+                            onClick: () => {
+                              if (o.orderVoucherID) {
+                                flash('Bu teklif zaten satış siparişine dönüştürülmüş.');
+                                return;
+                              }
+                              if (!window.confirm(`Teklif ${o.docNum} satış siparişine dönüştürülsün mü?
+Teklif onaylanır, fırsat kazanıldı olur; müşteri cariye döner.`)) return;
+                              void actionOp(async () => {
+                                const r = await crmApi.offerToOrder(o.offerID);
+                                flash(r.message);
+                              });
+                            },
+                          },
                           'sep',
                           { label: 'Onaylandı', icon: <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600" />, onClick: () => void actionOp(() => crmApi.setOfferStatus(o.offerID, 2)), hidden: o.status === 2 },
                           { label: 'Reddedildi', icon: <XCircle className="w-3.5 h-3.5 text-rose-600" />, onClick: () => void actionOp(() => crmApi.setOfferStatus(o.offerID, 3)), hidden: o.status === 3 },

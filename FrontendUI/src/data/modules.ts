@@ -259,7 +259,7 @@ export const APP_MODULES: AppModule[] = [
             id: 'cari-kartlar',
             path: 'finans/ana-kayitlar/cari-kartlar',
             title: 'Cari Kartlar',
-            subtitle: 'CustomerCard · adres / yetkili kart içinde',
+            subtitle: 'CustomerCard · CardKind=2 · adres / yetkili kart içinde',
             formCode: 'CustomerCardForm',
             listColumns: cols(['code', 'Kod'], ['title', 'Ünvan'], ['taxNr', 'VKN'], ['type', 'Tür'], ['status', 'Durum']),
             sampleRows: [
@@ -268,6 +268,14 @@ export const APP_MODULES: AppModule[] = [
               { id: 3, code: '120.02', title: 'XYZ Ltd. Şti.', taxNr: '9988776655', type: 'Alıcı / Satıcı', status: 'Aktif', authCode: '' },
               { id: 4, code: '120.99', title: 'Gizli Cari', taxNr: '0000000001', type: 'Alıcı', status: 'Aktif', authCode: 'GIZLI' },
             ],
+          }),
+          screen({
+            id: 'musteri-kartlari',
+            path: 'finans/ana-kayitlar/musteri-kartlari',
+            title: 'Müşteri Kartları',
+            subtitle: 'CustomerCard · CardKind=1 · satış yapılınca / sağ tık «Cariye Dönüştür» ile cari olur',
+            formCode: 'MusteriCardForm',
+            listColumns: cols(['code', 'Kod'], ['title', 'Ünvan'], ['taxNr', 'VKN'], ['type', 'Tür'], ['status', 'Durum']),
           }),
           screen({
             id: 'risk-gruplari',
@@ -775,6 +783,28 @@ export const APP_MODULES: AppModule[] = [
     subtitle: 'CRM_Opportunity · CRM_Action · CRM_Offer · CRM_Meeting · CRM_MailLog (Outlook)',
     icon: 'handshake',
     groups: [
+      {
+        key: 'ana-kayitlar',
+        title: 'Ana Kayıtlar',
+        screens: [
+          {
+            id: 'crm-musteri-kartlari',
+            path: 'crm/ana-kayitlar/musteri-kartlari',
+            title: 'Müşteriler',
+            subtitle: 'CustomerCard · CardKind=1 · sağ tık: Ekstre / Fırsatlar / Teklifler / Yazışmalar / Cariye Dönüştür',
+            formCode: 'MusteriCardForm',
+            listColumns: cols(['code', 'Kod'], ['title', 'Ünvan'], ['taxNr', 'VKN'], ['type', 'Tür'], ['status', 'Durum']),
+          },
+          {
+            id: 'crm-cari-kartlar',
+            path: 'crm/ana-kayitlar/cari-kartlar',
+            title: 'Cariler',
+            subtitle: 'CustomerCard · CardKind=2 · sağ tık: Müşteri 360° (ekstre + CRM)',
+            formCode: 'CustomerCardForm',
+            listColumns: cols(['code', 'Kod'], ['title', 'Ünvan'], ['taxNr', 'VKN'], ['type', 'Tür'], ['status', 'Durum']),
+          },
+        ],
+      },
       {
         key: 'islemler',
         title: 'İşlemler',

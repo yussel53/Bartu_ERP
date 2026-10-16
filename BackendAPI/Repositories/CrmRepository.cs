@@ -119,6 +119,8 @@ public sealed class CrmOfferDto
     public DateTime CreateDate { get; set; }
     public DateTime? UpdateDate { get; set; }
     public int MailCount { get; set; }
+    /// <summary>Tekliften oluşturulan satış siparişi (SqlUpdates/72)</summary>
+    public int? OrderVoucherID { get; set; }
     public List<CrmOfferLineDto> Lines { get; set; } = new();
 }
 

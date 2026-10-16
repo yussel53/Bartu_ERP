@@ -12,6 +12,7 @@ import {
   FileText,
   List,
   ChevronRight,
+  UserCheck,
 } from 'lucide-react';
 import { AppModule, MenuScreen } from '../types/formTypes';
 import { RowActions, RowActionExtraItem } from '../components/RowActions';
@@ -25,8 +26,12 @@ import { filterRowsByOrgAuth, orgAuthSummary } from '../data/orgUnits';
 import { FORM_SCHEMAS } from '../data/formSchemas';
 import { DispatchTypeLabels } from '../data/documentTypes';
 import { listRecords, deleteRecord } from '../api/recordsApi';
+import { convertCustomerToCari } from '../api/cardStatementApi';
 import { ModuleOverviewPage } from './ModuleOverviewPage';
 import { FormTabs } from '../components/FormTabs';
+
+/** CustomerCard.Type_ (Alıcı / Satıcı) */
+const CUSTOMER_TYPE_LABELS: Record<string, string> = { '1': 'Alıcı', '2': 'Satıcı', '3': 'Alıcı / Satıcı' };
 
 function isStatusColumn(key: string, label: string): boolean {
   const k = key.toLowerCase();
@@ -272,6 +277,19 @@ export const ModuleListPage: React.FC<ModuleListPageProps> = ({
     onDelete?.(rowId);
   };
 
+  /** Müşteri (CardKind=1) listesi — sağ tık «Cariye Dönüştür» */
+  const isMusteriList = screen.formCode === 'MusteriCardForm';
+  const handleToCari = async (rowId: string | number) => {
+    if (!window.confirm('Bu müşteri cariye dönüştürülsün mü? Kart Cari Kartlar listesine taşınır.')) return;
+    try {
+      const r = await convertCustomerToCari(Number(rowId));
+      if (!r.success) alert(r.message);
+      setTick((t) => t + 1);
+    } catch (e) {
+      alert(e instanceof Error ? e.message : 'Dönüştürülemedi');
+    }
+  };
+
   /** Kart listelerinde Ekstre / Hareketler / ek bölümler (Cari, Malzeme, Banka, Kasa, Hesap Planı…) */
   const statementItemsFor = (rowId: string | number): RowActionExtraItem[] => {
     const id = Number(rowId);
@@ -309,6 +327,14 @@ export const ModuleListPage: React.FC<ModuleListPageProps> = ({
       });
     const stmt = statementItemsFor(rowId);
     stmt.forEach((s, i) => items.push({ ...s, separatorBefore: i === 0 && items.length > 0 }));
+    if (isMusteriList && allowed.update && source === 'db' && Number(rowId) > 0)
+      items.push({
+        key: 'to-cari',
+        label: 'Cariye Dönüştür',
+        icon: <UserCheck className="w-3.5 h-3.5" />,
+        separatorBefore: true,
+        onClick: () => void handleToCari(rowId),
+      });
     return items;
   };
 
@@ -523,7 +549,10 @@ export const ModuleListPage: React.FC<ModuleListPageProps> = ({
                           raw != null &&
                           raw !== ''
                         ) {
-                          const label = DispatchTypeLabels[String(raw)];
+                          const label =
+                            tableName === 'CustomerCard'
+                              ? CUSTOMER_TYPE_LABELS[String(raw)]
+                              : DispatchTypeLabels[String(raw)];
                           if (label) raw = label;
                         }
                         const showToggle =
@@ -564,7 +593,7 @@ export const ModuleListPage: React.FC<ModuleListPageProps> = ({
         <CardStatementModal
           kind={stmtDef.kind}
           cardId={statement.cardId}
-          kindTitle={stmtDef.title}
+          kindTitle={isMusteriList ? 'Müşteri' : stmtDef.title}
           reportTitle={stmtDef.items.find((i) => i.key === 'ekstre')?.label ?? `${stmtDef.title} Ekstresi`}
           initialTab={statement.tab}
           onClose={() => setStatement(null)}

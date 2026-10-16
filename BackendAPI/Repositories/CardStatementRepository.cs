@@ -268,6 +268,11 @@ public sealed class CardStatementRepository
                 await Section(res, () => CustomerProductLinesAsync(id, ct), "Malzeme Hareketleri");
                 await Section(res, () => PaymentPlanAsync("CustomerID", id, ct), "Ödeme / Tahsilat Planı");
                 await Section(res, () => CustomerBoundsAsync(id, ct), "Çek / Senet");
+                // Müşteri 360°: CRM (fırsat / teklif / aksiyon-görüşme / Outlook yazışmaları)
+                await Section(res, () => CrmOpportunitiesAsync(id, ct), "Fırsatlar");
+                await Section(res, () => CrmOffersAsync(id, ct), "Teklifler");
+                await Section(res, () => CrmActivitiesAsync(id, ct), "Aksiyon / Görüşme");
+                await Section(res, () => CrmMailsAsync(id, ct), "Yazışmalar");
                 break;
 
             case "product":
@@ -790,6 +795,131 @@ ORDER BY b.DueDate, b.BoundCardID", new { id }, ct);
                 Col("DocNo", "Belge No"), Col("Amount", "Tutar", "money"),
             },
             Rows = rows,
+        };
+    }
+
+    // ── CRM (Müşteri 360°) ──────────────────────────────────────────────
+
+    private const string OppStatusCase =
+        "CASE o.Status WHEN 0 THEN N'Açık' WHEN 1 THEN N'Kazanıldı' WHEN 2 THEN N'Kaybedildi' WHEN 3 THEN N'İptal' ELSE N'?' END";
+
+    private async Task<CardSection?> CrmOpportunitiesAsync(int id, CancellationToken ct)
+    {
+        if (!await HasColAsync("CRM_Opportunity", "CustomerCardID", ct)) return null;
+        var hasOffer = await HasAsync("CRM_Offer", ct);
+        var rows = await RowsAsync($@"
+SELECT TOP 500 o.OpportunityID AS Id, o.CreateDate AS Dt, o.Title, o.OppType, {OppStatusCase} AS StatusLabel,
+  o.Probability, o.ExpectedAmount, o.CloseDate, o.ContactName,
+  {(hasOffer ? "(SELECT COUNT(1) FROM dbo.CRM_Offer f WHERE f.OpportunityID = o.OpportunityID AND f.IsActive = 1)" : "0")} AS OfferCount,
+  LTRIM(RTRIM(ISNULL(u.Name, '') + ' ' + ISNULL(u.Surname, ''))) AS OwnerName
+FROM dbo.CRM_Opportunity o
+LEFT JOIN dbo.SystemUser u ON u.SystemUserID = o.OwnerUserID
+WHERE o.CustomerCardID = @id
+ORDER BY CASE WHEN o.Status = 0 THEN 0 ELSE 1 END, o.CreateDate DESC", new { id }, ct);
+        return new CardSection
+        {
+            Key = "firsatlar",
+            Title = "Fırsatlar",
+            Columns = new()
+            {
+                Col("Id", "No"), Col("Dt", "Tarih", "date"), Col("Title", "Başlık"), Col("OppType", "Tür"),
+                Col("StatusLabel", "Durum"), Col("Probability", "Olasılık %", "qty"),
+                Col("ExpectedAmount", "Beklenen Tutar", "money"), Col("OfferCount", "Teklif", "qty"),
+                Col("ContactName", "Kişi"), Col("OwnerName", "Sorumlu"), Col("CloseDate", "Kapanış", "date"),
+            },
+            Rows = rows,
+        };
+    }
+
+    private async Task<CardSection?> CrmOffersAsync(int id, CancellationToken ct)
+    {
+        if (!await HasAsync("CRM_Offer", ct) || !await HasColAsync("CRM_Opportunity", "CustomerCardID", ct)) return null;
+        var hasOrder = await HasColAsync("CRM_Offer", "OrderVoucherID", ct);
+        var rows = await RowsAsync($@"
+SELECT TOP 500 f.OfferDate AS Dt, CONCAT(f.DocNum, CASE WHEN f.RevisionNo > 0 THEN CONCAT(N' / R', f.RevisionNo) ELSE N'' END) AS DocNo,
+  o.Title AS OppTitle, f.Description, f.ValidityDate, f.GrandTotal,
+  CASE f.Status WHEN 0 THEN N'Taslak' WHEN 1 THEN N'Gönderildi' WHEN 2 THEN N'Onaylandı' WHEN 3 THEN N'Reddedildi' WHEN 4 THEN N'Revize edildi' ELSE N'?' END AS StatusLabel,
+  {(hasOrder ? "ov.OrderSlipNo" : "CAST(NULL AS nvarchar(50))")} AS OrderNo
+FROM dbo.CRM_Offer f
+INNER JOIN dbo.CRM_Opportunity o ON o.OpportunityID = f.OpportunityID
+{(hasOrder ? "LEFT JOIN dbo.OrderVoucher ov ON ov.OrderVoucherID = f.OrderVoucherID" : "")}
+WHERE o.CustomerCardID = @id AND f.IsActive = 1
+ORDER BY f.OfferDate DESC, f.OfferID DESC", new { id }, ct);
+        return new CardSection
+        {
+            Key = "teklifler",
+            Title = "Teklifler",
+            Columns = new()
+            {
+                Col("Dt", "Tarih", "date"), Col("DocNo", "Teklif No"), Col("OppTitle", "Fırsat"),
+                Col("Description", "Açıklama"), Col("ValidityDate", "Geçerlilik", "date"),
+                Col("GrandTotal", "Genel Toplam", "money"), Col("StatusLabel", "Durum"), Col("OrderNo", "Sipariş"),
+            },
+            Rows = rows,
+        };
+    }
+
+    private async Task<CardSection?> CrmActivitiesAsync(int id, CancellationToken ct)
+    {
+        if (!await HasColAsync("CRM_Opportunity", "CustomerCardID", ct)) return null;
+        var parts = new List<string>();
+        if (await HasAsync("CRM_Action", ct))
+            parts.Add(@"
+SELECT a.ActionDate AS Dt, N'Aksiyon' AS Kind, t.Title AS TypeLabel, o.Title AS OppTitle,
+  CAST(a.Description AS nvarchar(1000)) AS Description, a.ContactName,
+  CASE WHEN a.IsDone = 1 THEN N'Tamamlandı' ELSE N'Bekliyor' END AS StatusLabel, a.DueDate AS NextDate
+FROM dbo.CRM_Action a
+INNER JOIN dbo.CRM_Opportunity o ON o.OpportunityID = a.OpportunityID
+LEFT JOIN dbo.CRM_ActionType t ON t.ActionTypeID = a.ActionTypeID
+WHERE o.CustomerCardID = @id AND a.IsActive = 1");
+        if (await HasAsync("CRM_Meeting", ct))
+            parts.Add(@"
+SELECT m.MeetingDate, N'Görüşme', m.Channel, o.Title,
+  CAST(COALESCE(m.Subject + N' — ', N'') + ISNULL(m.Notes, N'') AS nvarchar(1000)), m.ContactName,
+  CASE m.Direction WHEN 1 THEN N'Gelen' ELSE N'Giden' END, CAST(m.NextStepDate AS date)
+FROM dbo.CRM_Meeting m
+INNER JOIN dbo.CRM_Opportunity o ON o.OpportunityID = m.OpportunityID
+WHERE o.CustomerCardID = @id");
+        if (parts.Count == 0) return null;
+        var rows = await RowsAsync($@"
+SELECT TOP 1000 * FROM ({string.Join("\nUNION ALL\n", parts)}) x ORDER BY Dt DESC", new { id }, ct);
+        return new CardSection
+        {
+            Key = "aksiyonlar",
+            Title = "Aksiyon / Görüşme",
+            Columns = new()
+            {
+                Col("Dt", "Tarih", "date"), Col("Kind", "Kayıt"), Col("TypeLabel", "Tip / Kanal"),
+                Col("OppTitle", "Fırsat"), Col("Description", "Açıklama"), Col("ContactName", "Kişi"),
+                Col("StatusLabel", "Durum"), Col("NextDate", "Vade / Sonraki", "date"),
+            },
+            Rows = rows,
+        };
+    }
+
+    private async Task<CardSection?> CrmMailsAsync(int id, CancellationToken ct)
+    {
+        if (!await HasAsync("CRM_MailLog", ct) || !await HasColAsync("CRM_Opportunity", "CustomerCardID", ct)) return null;
+        var rows = await RowsAsync(@"
+SELECT TOP 500 l.MailDate AS Dt, CASE l.Direction WHEN 1 THEN N'Giden' ELSE N'Gelen' END AS DirLabel,
+  l.Channel, l.Subject, l.MailFrom, l.MailTo, l.AttachmentNames, l.TagCode,
+  CASE l.Status WHEN 0 THEN N'Taslak' WHEN 1 THEN N'Gönderildi' WHEN 2 THEN N'Hata' WHEN 3 THEN N'Alındı' ELSE N'?' END AS StatusLabel
+FROM dbo.CRM_MailLog l
+INNER JOIN dbo.CRM_Opportunity o ON o.OpportunityID = l.OpportunityID
+WHERE o.CustomerCardID = @id
+ORDER BY l.MailDate DESC, l.MailLogID DESC", new { id }, ct);
+        return new CardSection
+        {
+            Key = "mailler",
+            Title = "Yazışmalar",
+            Columns = new()
+            {
+                Col("Dt", "Tarih", "date"), Col("DirLabel", "Yön"), Col("Channel", "Kanal"), Col("Subject", "Konu"),
+                Col("MailFrom", "Kimden"), Col("MailTo", "Kime"), Col("AttachmentNames", "Ekler"),
+                Col("TagCode", "CRM Kodu"), Col("StatusLabel", "Durum"),
+            },
+            Rows = rows,
+            Note = "Outlook eklentisinin CRM'e kaydettiği ve CRM'den gönderilen mailler (müşterinin tüm fırsatları).",
         };
     }
 

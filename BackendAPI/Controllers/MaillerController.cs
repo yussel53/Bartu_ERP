@@ -1,5 +1,8 @@
 using BartuERP.Backend.Repositories;
 using BartuERP.Backend.Services;
+using System.Data;
+using System.Globalization;
+using Dapper;
 using Microsoft.AspNetCore.Mvc;
 
 namespace BartuERP.Backend.Controllers;
@@ -21,12 +24,21 @@ public sealed class MaillerController : ControllerBase
     private readonly CrmRepository _repo;
     private readonly CrmMailService _mail;
     private readonly ILogger<MaillerController> _log;
+    private readonly CardStatementRepository _statement;
+    private readonly IDbConnection _db;
 
-    public MaillerController(CrmRepository repo, CrmMailService mail, ILogger<MaillerController> log)
+    public MaillerController(
+        CrmRepository repo,
+        CrmMailService mail,
+        ILogger<MaillerController> log,
+        CardStatementRepository statement,
+        IDbConnection db)
     {
         _repo = repo;
         _mail = mail;
         _log = log;
+        _statement = statement;
+        _db = db;
     }
 
     public sealed class MailPostRequest
@@ -204,6 +216,7 @@ public sealed class MaillerController : ControllerBase
                     vergiNo = cust.Extra,
                     email = kisiler.Count > 0 ? contacts.Select(c => c.Email).FirstOrDefault(e => !string.IsNullOrWhiteSpace(e)) ?? opp.ContactEmail : opp.ContactEmail,
                     aktif = true,
+                    tur = cust == null ? null : await CustomerKindTextAsync(cust.Id),
                 },
                 kisiler,
                 sozlesmeler = Array.Empty<object>(),
@@ -269,7 +282,8 @@ public sealed class MaillerController : ControllerBase
                     onizleme = x.Body == null ? null : x.Body[..Math.Min(300, x.Body.Length)],
                     hamVar = x.HasRaw,
                     kaynak = x.Source
-                })
+                }),
+                ozelSekmeler = cust == null ? null : await ErpTabsAsync(cust.Id)
             });
         }
         catch (CrmNeedsUpdateException ex)
@@ -280,6 +294,206 @@ public sealed class MaillerController : ControllerBase
         {
             return StatusCode(500, new { ok = false, mesaj = ex.Message });
         }
+    }
+
+    // ── v1.3: etiketsiz mail → firma eşleştirme ────────────────────────
+
+    private static readonly HashSet<string> PublicMailDomains = new(StringComparer.OrdinalIgnoreCase)
+    {
+        "gmail.com", "googlemail.com", "hotmail.com", "hotmail.com.tr", "outlook.com", "outlook.com.tr", "live.com",
+        "msn.com", "yahoo.com", "yahoo.com.tr", "yandex.com", "yandex.com.tr", "icloud.com", "me.com", "mail.ru",
+        "aol.com", "gmx.com", "proton.me", "protonmail.com", "windowslive.com",
+    };
+
+    /// <summary>
+    /// GET /api/mailler/kisi?email= — gönderen adresinden firma (cari / müşteri) + fırsatları.
+    /// Önce tam adres (yetkili e-postası, fırsat kişisi), yoksa kurumsal alan adı.
+    /// </summary>
+    [HttpGet("kisi")]
+    public async Task<IActionResult> Kisi([FromQuery] string? email)
+    {
+        try
+        {
+            var (ok, prefix) = await CheckKeyAsync();
+            if (!ok) return Unauthorized(new { ok = false, mesaj = "API anahtarı geçersiz." });
+            email = (email ?? "").Trim().ToLowerInvariant();
+            var at = email.IndexOf('@');
+            if (at <= 0 || at == email.Length - 1) return BadRequest(new { ok = false, mesaj = "Geçersiz e-posta adresi." });
+            var domain = email[(at + 1)..];
+
+            if (_db.State != ConnectionState.Open) _db.Open();
+            var hasCrm = await _db.ExecuteScalarAsync<int>(
+                "SELECT CASE WHEN OBJECT_ID(N'dbo.CRM_Opportunity', N'U') IS NULL THEN 0 ELSE 1 END") == 1;
+            string Sql(string cond) => $@"
+SELECT DISTINCT TOP 5 c.CustomerCardID AS Id
+FROM dbo.CustomerCard c
+WHERE c.CustomerCardID > 0 AND (
+  EXISTS (SELECT 1 FROM dbo.CustomerContact k WHERE k.CustomerCardID = c.CustomerCardID
+          AND (LOWER(LTRIM(RTRIM(k.Email))) {cond} OR LOWER(LTRIM(RTRIM(k.Contact))) {cond}))
+  {(hasCrm ? $"OR EXISTS (SELECT 1 FROM dbo.CRM_Opportunity o WHERE o.CustomerCardID = c.CustomerCardID AND LOWER(LTRIM(RTRIM(o.ContactEmail))) {cond})" : "")})";
+
+            var ids = (await _db.QueryAsync<int>(Sql("= @email"), new { email })).ToList();
+            var match = "adres";
+            if (ids.Count == 0 && !PublicMailDomains.Contains(domain))
+            {
+                ids = (await _db.QueryAsync<int>(Sql("LIKE @pattern"), new { pattern = "%@" + domain })).ToList();
+                match = "alan adı";
+            }
+
+            var firmalar = new List<object>();
+            foreach (var id in ids)
+            {
+                var cust = await _repo.GetCustomerAsync(id);
+                if (cust == null) continue;
+                var contacts = await _repo.ListContactsAsync(id);
+                var opps = hasCrm ? await _repo.ListCustomerOpportunitiesAsync(id, 50) : new List<CrmOpportunityDto>();
+                firmalar.Add(new
+                {
+                    id,
+                    unvan = cust.Title,
+                    kod = cust.Code,
+                    email = contacts.Select(c => c.Email).FirstOrDefault(e => !string.IsNullOrWhiteSpace(e)),
+                    tur = await CustomerKindTextAsync(id),
+                    eslesme = match,
+                    isler = opps
+                        .OrderBy(o => o.Status == 0 ? 0 : 1)
+                        .ThenByDescending(o => o.CreateDate)
+                        .Take(10)
+                        .Select(o => new
+                        {
+                            id = o.OpportunityID,
+                            kod = $"{prefix}-{o.OpportunityID}",
+                            tarih = o.CreateDate,
+                            durum = StatusText(o.Status),
+                            tur = o.OppType,
+                            not = o.Title,
+                        }),
+                });
+            }
+            return Ok(new { ok = true, email, firmalar });
+        }
+        catch (CrmNeedsUpdateException ex)
+        {
+            return StatusCode(503, new { ok = false, mesaj = ex.Message });
+        }
+        catch (Exception ex)
+        {
+            _log.LogError(ex, "Outlook kişi eşleştirme hatası");
+            return StatusCode(500, new { ok = false, mesaj = ex.Message });
+        }
+    }
+
+    private async Task<string?> CustomerKindTextAsync(int customerId)
+    {
+        try
+        {
+            if (_db.State != ConnectionState.Open) _db.Open();
+            if (await _db.ExecuteScalarAsync<int>(
+                    "SELECT CASE WHEN COL_LENGTH(N'dbo.CustomerCard', N'CardKind') IS NULL THEN 0 ELSE 1 END") == 0)
+                return "Cari";
+            var k = await _db.ExecuteScalarAsync<byte?>(
+                "SELECT CardKind FROM dbo.CustomerCard WHERE CustomerCardID = @customerId", new { customerId });
+            return k == CustomerKindRepository.Musteri ? "Müşteri" : "Cari";
+        }
+        catch
+        {
+            return null;
+        }
+    }
+
+    // ── v1.2 özel sekmeler: ERP verisi (cari ekstre, siparişler, faturalar, ödeme planı) ──
+
+    private static readonly CultureInfo Tr = new("tr-TR");
+
+    private static string TabColType(string format) => format switch
+    {
+        "date" => "tarih",
+        "money" => "para",
+        "qty" => "sayi",
+        _ => "metin",
+    };
+
+    private static object? TabValue(object? v) => v switch
+    {
+        null => null,
+        DateTime dt => dt.ToString("yyyy-MM-ddTHH:mm:ss", CultureInfo.InvariantCulture),
+        decimal or double or float or int or long or short or byte or bool => v,
+        _ => v.ToString(),
+    };
+
+    private static object SectionTab(int id, string baslik, string? aciklama, int sira, CardSection s,
+        Func<Dictionary<string, object?>, bool>? filter = null, int take = 300)
+    {
+        var rows = filter == null ? s.Rows : s.Rows.Where(filter).ToList();
+        return new
+        {
+            id,
+            baslik,
+            aciklama = aciklama ?? s.Note,
+            sira,
+            kolonlar = s.Columns.Select(c => new { ad = c.Label, tip = TabColType(c.Format) }),
+            satirlar = rows.Take(take).Select(r => s.Columns.Select(c => TabValue(r.TryGetValue(c.Key, out var v) ? v : null))),
+            kisaltildi = rows.Count > take,
+            hata = (string?)null,
+        };
+    }
+
+    /// <summary>Outlook CRM kartı özel sekmeleri — cari/müşterinin ERP özeti.</summary>
+    private async Task<List<object>> ErpTabsAsync(int customerId)
+    {
+        var tabs = new List<object>();
+        CardStatementResult st;
+        try
+        {
+            st = await _statement.GetAsync("customer", customerId, null, null);
+        }
+        catch (Exception ex)
+        {
+            tabs.Add(new
+            {
+                id = 9001, baslik = "Cari Ekstre", sira = 25,
+                kolonlar = Array.Empty<object>(), satirlar = Array.Empty<object>(), kisaltildi = false, hata = ex.Message,
+            });
+            return tabs;
+        }
+
+        var bal = st.Closing == 0
+            ? "0,00"
+            : $"{Math.Abs(st.Closing).ToString("N2", Tr)} ({(st.Closing > 0 ? "B" : "A")})";
+        const int take = 200;
+        var recent = st.Statement.AsEnumerable().Reverse().Take(take).ToList();
+        tabs.Add(new
+        {
+            id = 9001,
+            baslik = "Cari Ekstre",
+            aciklama = $"Bakiye: {bal} · Toplam borç {st.TotalDebit.ToString("N2", Tr)} · alacak {st.TotalCredit.ToString("N2", Tr)}",
+            sira = 25,
+            kolonlar = new object[]
+            {
+                new { ad = "Tarih", tip = "tarih" }, new { ad = "Belge No", tip = "metin" }, new { ad = "Belge Türü", tip = "metin" },
+                new { ad = "Tür", tip = "metin" }, new { ad = "Açıklama", tip = "metin" }, new { ad = "Borç", tip = "para" },
+                new { ad = "Alacak", tip = "para" }, new { ad = "Bakiye", tip = "para" },
+            },
+            satirlar = recent.Select(r => new object?[]
+            {
+                TabValue(r.Date), r.DocNo, r.Source, r.TypeLabel, r.Description, r.Debit, r.Credit, r.Balance,
+            }),
+            kisaltildi = st.Statement.Count > take,
+            hata = (string?)null,
+        });
+
+        var orders = st.Sections.FirstOrDefault(x => x.Key == "siparisler");
+        if (orders != null) tabs.Add(SectionTab(9002, "Siparişler", null, 26, orders));
+
+        var docs = st.Sections.FirstOrDefault(x => x.Key == "hareketler");
+        if (docs != null)
+            tabs.Add(SectionTab(9003, "Faturalar", "Cariye kesilen / cariden gelen faturalar", 27, docs,
+                r => string.Equals(r.TryGetValue("Source", out var src) ? src?.ToString() : null, "Invoice", StringComparison.OrdinalIgnoreCase)));
+
+        var plan = st.Sections.FirstOrDefault(x => x.Key == "odeme");
+        if (plan != null && plan.Rows.Count > 0) tabs.Add(SectionTab(9004, "Ödeme Planı", null, 28, plan));
+
+        return tabs;
     }
 
     [HttpGet("kayit/{id:int}")]

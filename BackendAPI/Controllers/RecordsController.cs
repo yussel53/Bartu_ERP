@@ -22,15 +22,18 @@ public sealed class RecordsController : ControllerBase
     private readonly RecordsRepository _repo;
     private readonly PostSaveRepository _postSave;
     private readonly ProcessRepository _process;
+    private readonly CustomerKindRepository _customerKind;
 
     public RecordsController(
         RecordsRepository repo,
         PostSaveRepository postSave,
-        ProcessRepository process)
+        ProcessRepository process,
+        CustomerKindRepository customerKind)
     {
         _repo = repo;
         _postSave = postSave;
         _process = process;
+        _customerKind = customerKind;
     }
 
     [HttpGet("{tableName}")]
@@ -129,6 +132,17 @@ public sealed class RecordsController : ControllerBase
                 }
             }
 
+            // Satış belgesi → müşteri cariye döner (hata kaydı bozmaz)
+            bool customerPromoted = false;
+            try
+            {
+                customerPromoted = await _customerKind.PromoteOnSaleAsync(tableName, id, ct);
+            }
+            catch
+            {
+                /* dönüşüm kayıt kaydını etkilemez */
+            }
+
             // Onay Tanımları: fiş / kart kaydı tetikleyicileri (hata kaydı bozmaz)
             int processStarted = 0;
             try
@@ -148,6 +162,7 @@ public sealed class RecordsController : ControllerBase
                 postSave = postResults,
                 postSaveOk = true,
                 processStarted,
+                customerPromoted,
             });
         }
         catch (ArgumentException ex)

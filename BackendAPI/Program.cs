@@ -19,6 +19,8 @@ builder.Services.AddScoped<DynamicFormRepository>();
 builder.Services.AddScoped<RecordsRepository>();
 builder.Services.AddScoped<DashboardRepository>();
 builder.Services.AddScoped<CardStatementRepository>();
+builder.Services.AddScoped<CustomerKindRepository>();
+builder.Services.AddScoped<CrmOrderRepository>();
 builder.Services.AddScoped<ModuleOverviewRepository>();
 builder.Services.AddScoped<ProductPricesRepository>();
 builder.Services.AddScoped<JournalNumberingRepository>();

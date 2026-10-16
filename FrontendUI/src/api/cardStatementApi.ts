@@ -74,3 +74,8 @@ export async function getCardStatement(
     `/api/card-statement/${encodeURIComponent(kind)}/${id}${qs ? `?${qs}` : ''}`,
   );
 }
+
+/** Müşteri (CardKind=1) → Cari (CardKind=2) */
+export async function convertCustomerToCari(id: number): Promise<{ success: boolean; message: string }> {
+  return apiJson<{ success: boolean; message: string }>(`/api/customers/${id}/to-cari`, { method: 'POST' });
+}

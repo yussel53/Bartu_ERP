@@ -60,6 +60,8 @@ export interface CrmOfferLine {
 }
 
 export interface CrmOffer {
+  /** Tekliften oluşturulan satış siparişi (SqlUpdates/72) */
+  orderVoucherID?: number | null;
   offerID: number;
   opportunityID: number;
   actionID?: number | null;
@@ -346,6 +348,12 @@ export const crmApi = {
   reviseOffer: (id: number) => post<{ id: number }>(`/offers/${id}/revise`),
   copyOffer: (id: number) => post<{ id: number }>(`/offers/${id}/copy`),
   setOfferStatus: (id: number, status: number) => post<{ ok: boolean }>(`/offers/${id}/status`, { status }),
+  /** Teklif → satış siparişi (OrderVoucher); fırsat kazanıldı, müşteri cariye döner */
+  offerToOrder: (id: number) =>
+    post<{ orderVoucherId: number; orderNo: string; lineCount: number; customerPromoted: boolean; message: string }>(
+      `/offers/${id}/to-order`,
+      {},
+    ),
   deleteOffer: (id: number) => del<{ ok: boolean }>(`/offers/${id}`),
   offerPrintUrl: (id: number) => `${API_BASE}/api/crm/offers/${id}/print`,
 
