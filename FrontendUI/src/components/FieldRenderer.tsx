@@ -11,7 +11,7 @@ import { ActiveToggleField, isActiveToggleField } from './ActiveToggle';
 import { LookupField, isLookupField } from './LookupField';
 import { AddressSuggestField, addressSuggestLevelForField } from './AddressSuggestField';
 import { DateField } from './DateField';
-import { useFormFieldContext } from './FormFieldContext';
+import { FieldLayoutContext, useFormFieldContext } from './FormFieldContext';
 import { attachNoMinusHandlers } from '../utils/noMinusInput';
 import { getSystemDatePlaceholder } from '../utils/dateFormat';
 
@@ -70,6 +70,8 @@ export const FieldRenderer: React.FC<FieldRendererProps> = ({
   endAction,
 }) => {
   const formCtx = useFormFieldContext();
+  /** Kurumsal görünüm: etiket solda (InlineFieldGrid içinde, tablo hücresi değilse) */
+  const inline = React.useContext(FieldLayoutContext) === 'inline' && !hideLabel;
   const setValueFn = setValue ?? formCtx?.setValue;
   const watchFn = watch ?? formCtx?.watch;
   const isUdf = field.fieldName.startsWith('U_');
@@ -77,6 +79,9 @@ export const FieldRenderer: React.FC<FieldRendererProps> = ({
     registerNameOverride ??
     (isUdf ? `additionalFields.${field.fieldName}` : `standardFields.${field.fieldName}`);
   const colSpanClass = hideLabel ? '' : (COL_SPAN_CLASSES[field.colSpan] ?? 'md:col-span-6');
+  /** İki sütunlu kurumsal ızgarada tam satır kaplayan alanlar */
+  const inlineWide =
+    (field.colSpan ?? 6) >= 9 || (field.fieldType === 'textarea' && (field.colSpan ?? 6) >= 6);
 
   let options: SelectOption[] = [];
   if (
@@ -100,15 +105,16 @@ export const FieldRenderer: React.FC<FieldRendererProps> = ({
   const addressSuggestLevel =
     field.fieldType === 'text' ? addressSuggestLevelForField(field.fieldName) : null;
 
-  const useWatermark = watermark && !hideLabel && !useActiveToggle && field.fieldType !== 'checkbox';
-  const ph = field.isRequired ? `${field.label} *` : field.label;
+  const useWatermark = watermark && !inline && !hideLabel && !useActiveToggle && field.fieldType !== 'checkbox';
+  /** Kurumsal görünümde kutu içi etiket yok (form: etiket solda · tablo: sütun başlığında) */
+  const ph = inline || (hideLabel && compact) ? '' : field.isRequired ? `${field.label} *` : field.label;
 
   const baseInputClass = `
     w-full px-2 py-1 text-[12px] leading-tight rounded border bg-white
     focus:ring-1 focus:ring-blue-500/30 focus:border-blue-500 transition-colors
     text-slate-800 dark:text-slate-100 placeholder:text-slate-400 dark:bg-slate-900/60
-    outline-none h-8
-    ${disabled ? 'bg-slate-50 text-slate-500 cursor-not-allowed' : ''}
+    outline-none ${inline ? 'h-7 rounded-sm' : hideLabel && compact ? 'h-7' : 'h-8'}
+    ${disabled ? 'bg-slate-50 text-slate-500 cursor-not-allowed' : inline && field.isRequired ? 'bg-amber-50/80 dark:bg-amber-900/10' : ''}
     ${error ? 'border-red-400 focus:ring-red-400/40' : 'border-slate-300 dark:border-slate-600'}
   `;
 
@@ -136,12 +142,28 @@ export const FieldRenderer: React.FC<FieldRendererProps> = ({
       })
     : null;
 
+  const labelText = useActiveToggle ? field.label.replace(/\s*durumu$/i, '') : field.label;
+
   return (
     <div
-      className={`${hideLabel ? 'w-full min-w-0' : `col-span-12 ${colSpanClass}`} flex flex-col gap-0.5`}
+      className={
+        inline
+          ? `${inlineWide ? 'md:col-span-2' : ''} flex ${field.fieldType === 'textarea' ? 'items-start' : 'items-center'} gap-2 min-w-0`
+          : `${hideLabel ? 'w-full min-w-0' : `col-span-12 ${colSpanClass}`} flex flex-col gap-0.5`
+      }
     >
+      {inline && (
+        <label
+          className="w-[132px] shrink-0 text-[11.5px] leading-7 text-slate-600 dark:text-slate-300 truncate"
+          title={labelText}
+        >
+          {labelText}
+          {field.isRequired && <span className="text-red-500 ml-0.5">*</span>}
+        </label>
+      )}
+      <div className={inline ? 'flex-1 min-w-0 flex flex-col gap-0.5' : 'contents'}>
       {/* Harici etiket: sadece watermark kapalıysa veya aktif toggle */}
-      {!hideLabel && !useWatermark && (
+      {!inline && !hideLabel && !useWatermark && (
         <label className="text-[10px] font-semibold text-slate-500 dark:text-slate-400 flex items-center gap-0.5 leading-none">
           {useActiveToggle ? field.label.replace(/\s*durumu$/i, '') : field.label}
           {field.isRequired && <span className="text-red-500">*</span>}
@@ -243,17 +265,19 @@ export const FieldRenderer: React.FC<FieldRendererProps> = ({
           watch={watchFn}
           required={field.isRequired}
           disabled={disabled}
-          placeholder={useWatermark ? `${ph} (${getSystemDatePlaceholder()})` : getSystemDatePlaceholder()}
+          placeholder={useWatermark && !inline ? `${ph} (${getSystemDatePlaceholder()})` : getSystemDatePlaceholder()}
           inputClassName={baseInputClass}
           title={field.label}
         />
       )}
 
       {field.fieldType === 'checkbox' && useActiveToggle && (
-        <div className="flex items-center h-8 gap-2 px-0.5">
-          <span className="text-[10px] font-semibold text-slate-500 whitespace-nowrap">
-            {field.label.replace(/\s*durumu$/i, '')}
-          </span>
+        <div className={`flex items-center ${inline ? 'h-7' : 'h-8'} gap-2 px-0.5`}>
+          {!inline && (
+            <span className="text-[10px] font-semibold text-slate-500 whitespace-nowrap">
+              {field.label.replace(/\s*durumu$/i, '')}
+            </span>
+          )}
           <ActiveToggleField
             disabled={disabled}
             size="sm"
@@ -268,7 +292,7 @@ export const FieldRenderer: React.FC<FieldRendererProps> = ({
       )}
 
       {field.fieldType === 'checkbox' && !useActiveToggle && (
-        <div className="flex items-center h-8 px-0.5">
+        <div className={`flex items-center ${inline ? 'h-7' : 'h-8'} px-0.5`}>
           <label
             className={`inline-flex items-center gap-1.5 text-[12px] ${disabled ? 'cursor-not-allowed' : 'cursor-pointer'}`}
           >
@@ -278,7 +302,7 @@ export const FieldRenderer: React.FC<FieldRendererProps> = ({
               disabled={disabled}
               {...register(registerName)}
             />
-            <span className="font-medium text-slate-700 dark:text-slate-300">{field.label}</span>
+            {!inline && <span className="font-medium text-slate-700 dark:text-slate-300">{field.label}</span>}
           </label>
         </div>
       )}
@@ -311,7 +335,7 @@ export const FieldRenderer: React.FC<FieldRendererProps> = ({
           {/* Satır Birim: boş "—" / alan adı yok; malzeme seçilince ana birim doğrudan gelir */}
           {field.fieldName !== 'UnitID' &&
             !options.some((o) => o.value === '') && (
-              <option value="">{hideLabel || compact ? '—' : ph}</option>
+              <option value="">{hideLabel || compact || inline ? '' : ph}</option>
             )}
           {options.map((opt, idx) => (
             <option key={`${opt.value}-${idx}`} value={opt.value}>
@@ -329,6 +353,7 @@ export const FieldRenderer: React.FC<FieldRendererProps> = ({
           {field.helpText}
         </span>
       )}
+      </div>
     </div>
   );
 };

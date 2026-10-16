@@ -14,7 +14,7 @@ import { FormTabs } from './FormTabs';
 import { canField } from '../data/permissions';
 import { getCurrency, getCurrencyRate, LOCAL_CURRENCY_ID, CURRENCIES } from '../data/currencies';
 import { Plus, Minus, RefreshCw } from 'lucide-react';
-import { FormFieldContext } from './FormFieldContext';
+import { FieldLayoutContext, FormFieldContext, InlineFieldGrid } from './FormFieldContext';
 import { useOrgFieldCascade } from '../hooks/useOrgFieldCascade';
 import { allocateDocumentNumber } from '../api/numberTemplateApi';
 import { getRecord } from '../api/recordsApi';
@@ -1079,7 +1079,7 @@ export const DocumentFormEngine: React.FC<DocumentFormEngineProps> = ({
   };
 
   const renderGrid = (fieldList: FormFieldDto[], isCustom = false) => (
-    <div className="grid grid-cols-12 gap-x-2 gap-y-1.5">
+    <InlineFieldGrid>
       {fieldList.map((field) => {
         const patched = patchField(field);
         const fieldReadOnly =
@@ -1097,7 +1097,7 @@ export const DocumentFormEngine: React.FC<DocumentFormEngineProps> = ({
           />
         );
       })}
-    </div>
+    </InlineFieldGrid>
   );
 
   const renderTradeField = (
@@ -1126,11 +1126,9 @@ export const DocumentFormEngine: React.FC<DocumentFormEngineProps> = ({
     if (!authBesideJournal) return meta.map((f) => renderTradeField(f));
     return meta.map((f) =>
       f.fieldName === 'journalNO' ? (
-        <div key={`auth-journal-${f.fieldId}`} className="flex gap-1 items-start">
+        <div key={`auth-journal-${f.fieldId}`} className="space-y-[5px]">
           {[...auth, f].map((x) => (
-            <div key={x.fieldName} className="flex-1 min-w-0 grid grid-cols-12">
-              {renderTradeField(x)}
-            </div>
+            <React.Fragment key={x.fieldName}>{renderTradeField(x)}</React.Fragment>
           ))}
         </div>
       ) : (
@@ -1173,7 +1171,7 @@ export const DocumentFormEngine: React.FC<DocumentFormEngineProps> = ({
             <button
               type="button"
               onClick={() => append({})}
-              className="inline-flex items-center gap-1 px-2.5 h-7 text-[12px] font-semibold text-blue-700 bg-blue-50 hover:bg-blue-100 rounded-md transition-colors"
+              className="inline-flex items-center gap-1 px-2 h-6 text-[11px] font-semibold text-slate-700 bg-white border border-slate-300 hover:bg-slate-50 rounded-sm transition-colors"
             >
               <Plus className="w-3.5 h-3.5" />
               Satır Ekle
@@ -1183,12 +1181,12 @@ export const DocumentFormEngine: React.FC<DocumentFormEngineProps> = ({
         <div
           className={`${
             opts?.fill ? 'flex-1 min-h-0 overflow-auto' : 'overflow-x-auto'
-          } rounded-md border border-slate-200 dark:border-slate-700`}
+          } rounded-sm border border-slate-300 dark:border-slate-600`}
         >
           <table className="w-full min-w-[1180px] border-collapse text-left">
             <thead>
               <tr className="bg-slate-100 dark:bg-slate-800 border-b border-slate-200 dark:border-slate-700 sticky top-0 z-[1]">
-                <th className="w-8 px-1 py-1.5 text-center text-[10px] font-semibold text-slate-500">#</th>
+                <th className="w-8 px-1 py-1 text-center text-[10px] font-semibold text-slate-500 border-r border-b border-slate-300 dark:border-slate-600">#</th>
                 {schema.lineFields.map((field) => {
                   const name = field.fieldName.toLowerCase();
                   const isPrice = field.fieldName === 'Price';
@@ -1211,7 +1209,7 @@ export const DocumentFormEngine: React.FC<DocumentFormEngineProps> = ({
                   return (
                   <th
                     key={field.fieldId}
-                    className={`px-1.5 py-1.5 text-[11px] font-semibold text-slate-600 dark:text-slate-300 whitespace-nowrap ${colClass}`}
+                    className={`px-1.5 py-1 text-[11px] font-medium text-slate-600 dark:text-slate-300 whitespace-nowrap border-r border-b border-slate-300 dark:border-slate-600 ${colClass}`}
                   >
                     {field.label}
                     {field.isRequired && <span className="text-red-500 ml-0.5">*</span>}
@@ -1227,13 +1225,13 @@ export const DocumentFormEngine: React.FC<DocumentFormEngineProps> = ({
                   key={row.id}
                   onClick={hasDistribution ? () => setSelectedLine(index) : undefined}
                   onFocusCapture={hasDistribution ? () => setSelectedLine(index) : undefined}
-                  className={`border-b border-slate-100 dark:border-slate-800 last:border-b-0 ${
+                  className={`border-b border-slate-200 dark:border-slate-700 ${
                     hasDistribution && index === activeLine
                       ? 'bg-blue-50/70 dark:bg-blue-950/30'
                       : 'hover:bg-slate-50/80 dark:hover:bg-slate-800/40'
                   } ${hasDistribution ? 'cursor-pointer' : ''}`}
                 >
-                  <td className="w-8 px-1 py-1 align-middle text-center text-[11px] text-slate-400 font-medium">
+                  <td className="w-8 px-1 py-0.5 align-middle text-center text-[11px] text-slate-500 font-medium bg-slate-50 dark:bg-slate-800/60 border-r border-slate-200 dark:border-slate-700">
                     {index + 1}
                   </td>
                   {schema.lineFields!.map((field) => {
@@ -1255,7 +1253,7 @@ export const DocumentFormEngine: React.FC<DocumentFormEngineProps> = ({
                           }
                         : field;
                     return (
-                    <td key={`${row.id}-${field.fieldId}`} className="px-1 py-1 align-middle">
+                    <td key={`${row.id}-${field.fieldId}`} className="px-1 py-0.5 align-middle border-r border-slate-200 dark:border-slate-700">
                       {isPrice ? (
                         <div className="flex items-center gap-1 min-w-0">
                           <div className="flex-1 min-w-0">
@@ -1564,7 +1562,7 @@ export const DocumentFormEngine: React.FC<DocumentFormEngineProps> = ({
       <button
         type="submit"
         disabled={isLoading}
-        className={`inline-flex items-center justify-center px-4 h-8 text-[13px] font-semibold text-white rounded-md bg-blue-600 hover:bg-blue-500 transition-colors ${
+        className={`inline-flex items-center justify-center px-5 h-7 text-[12px] font-semibold text-white rounded-sm bg-blue-700 hover:bg-blue-600 transition-colors ${
           isLoading ? 'opacity-70 cursor-not-allowed' : ''
         }`}
       >
@@ -1608,66 +1606,35 @@ export const DocumentFormEngine: React.FC<DocumentFormEngineProps> = ({
         >
           {tradeLayout && tradeParts ? (
             <>
-              {/* 1) Başlık — Belge dar | Cari geniş | Firma dar | Bölüm+Durum */}
-              <section className="rounded-md border border-slate-200 dark:border-slate-700 bg-slate-50/60 dark:bg-slate-800/30 p-2 shrink-0">
-                <div className="grid grid-cols-1 md:grid-cols-[minmax(0,2fr)_minmax(0,4.5fr)_minmax(0,2fr)_minmax(0,2.5fr)] gap-2">
-                  {/* Belge No → Tarih → Yetki */}
-                  <div className="space-y-1 min-w-0">
-                    <div className="text-[9px] font-semibold uppercase tracking-wide text-slate-500 truncate">
-                      Belge
-                    </div>
+              {/* 1) Başlık — SAP B1 düzeni: sol cari / fiş · sağ belge no, tarih, durum */}
+              <FieldLayoutContext.Provider value="inline">
+              <section className="rounded-sm border border-slate-300 dark:border-slate-600 bg-slate-50/70 dark:bg-slate-800/30 px-3 py-2 shrink-0">
+                <div className="grid grid-cols-1 lg:grid-cols-2 gap-x-10 gap-y-[5px]">
+                  {/* Sol: Cari → Adres → Ödeme planı / Fiş tipi · ardından Firma / İşyeri / Ambar */}
+                  <div className="space-y-[5px] min-w-0">
+                    {tradeParts.headerParty.length > 0
+                      ? tradeParts.headerParty.map((f) => renderTradeField(f))
+                      : null}
+                    {renderDocMeta(tradeParts.headerDocMeta, tradeParts.headerAuth)}
+                    {tradeParts.headerOrgMain.map((f) => renderTradeField(f))}
+                  </div>
+
+                  {/* Sağ: Belge No → Tarih → Durum → Yetki → Bölüm / Birim */}
+                  <div className="space-y-[5px] min-w-0">
                     {tradeParts.headerDocNumber.map((f) =>
                       renderTradeField(f, { endAction: numberAllocateBtn }),
                     )}
                     {tradeParts.headerDocDate.map((f) => renderTradeField(f))}
-                    {!authBesideJournal && tradeParts.headerAuth.map((f) => renderTradeField(f))}
-                    {numberHint && (
-                      <p className="text-[10px] text-slate-500 leading-snug">{numberHint}</p>
-                    )}
-                  </div>
-
-                  {/* Cari → Adres → Ödeme planı  |  muhasebede Fiş tipi / yevmiye */}
-                  <div className="space-y-1 min-w-0">
-                    <div className="text-[9px] font-semibold uppercase tracking-wide text-slate-500 truncate">
-                      {tradeParts.headerParty.length > 0
-                        ? 'Cari'
-                        : tradeParts.headerDocMeta.length > 0
-                          ? 'Fiş'
-                          : 'Cari'}
-                    </div>
-                    {tradeParts.headerParty.length > 0 ? (
-                      tradeParts.headerParty.map((f) => renderTradeField(f))
-                    ) : tradeParts.headerDocMeta.length > 0 ? (
-                      renderDocMeta(tradeParts.headerDocMeta, tradeParts.headerAuth)
-                    ) : (
-                      <p className="text-[11px] text-slate-400 py-1">—</p>
-                    )}
-                    {tradeParts.headerParty.length > 0 &&
-                      renderDocMeta(tradeParts.headerDocMeta, tradeParts.headerAuth)}
-                  </div>
-
-                  {/* Firma → İşyeri → Ambar */}
-                  <div className="space-y-1 min-w-0">
-                    <div className="text-[9px] font-semibold uppercase tracking-wide text-slate-500 truncate">
-                      Firma / İşyeri / Ambar
-                    </div>
-                    {tradeParts.headerOrgMain.length > 0 ? (
-                      tradeParts.headerOrgMain.map((f) => renderTradeField(f))
-                    ) : (
-                      <p className="text-[11px] text-slate-400 py-1">—</p>
-                    )}
-                  </div>
-
-                  {/* Bölüm → Birim → Durum */}
-                  <div className="space-y-1 min-w-0">
-                    <div className="text-[9px] font-semibold uppercase tracking-wide text-slate-500 truncate">
-                      Bölüm / Birim
-                    </div>
-                    {tradeParts.headerOrgSide.map((f) => renderTradeField(f))}
                     {tradeParts.headerStatus.map((f) => renderTradeField(f))}
+                    {!authBesideJournal && tradeParts.headerAuth.map((f) => renderTradeField(f))}
+                    {tradeParts.headerOrgSide.map((f) => renderTradeField(f))}
+                    {numberHint && (
+                      <p className="text-[10px] text-slate-500 leading-snug pl-[140px]">{numberHint}</p>
+                    )}
                   </div>
                 </div>
               </section>
+              </FieldLayoutContext.Provider>
 
               {/* 2) Satırlar — ortadaki boşluğu doldurur */}
               {renderLinesTable({ fill: true })}
@@ -1680,11 +1647,15 @@ export const DocumentFormEngine: React.FC<DocumentFormEngineProps> = ({
                     tabs={effectiveDetailTabs}
                     active={detailTab}
                     onChange={setDetailTab}
-                    variant="underline"
+                    variant="folder"
                     size="sm"
                   />
                 )}
-                <div className="rounded-md border border-slate-200 dark:border-slate-700 p-2.5 space-y-3">
+                <div
+                  className={`border border-slate-300 dark:border-slate-600 p-2.5 space-y-3 ${
+                    effectiveDetailTabs.length > 0 ? '-mt-2 border-t-0 rounded-b-[4px]' : 'rounded-sm'
+                  }`}
+                >
                   {detailTab === 'detaylar' && (
                     <>
                       {tradeParts.detail.length > 0 ? renderGrid(tradeParts.detail) : null}

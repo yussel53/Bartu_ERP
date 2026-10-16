@@ -10,7 +10,8 @@ import {
 } from 'react-hook-form';
 import { FormSchemaDto, DynamicFormDataDto, FormFieldDto } from '../types/formTypes';
 import { FieldRenderer } from './FieldRenderer';
-import { FormTabs } from './FormTabs';
+import { FormTabs, FormTabPanel } from './FormTabs';
+import { SubListGrid } from './SubListGrid';
 import {
   customerAddressTypeLabel,
   defaultCustomerAddressRow,
@@ -40,7 +41,7 @@ import {
   type UnitModuleFilter,
 } from '../data/productLineUnits';
 import { PriceType } from '../data/documentTypes';
-import { FormFieldContext } from './FormFieldContext';
+import { FormFieldContext, InlineFieldGrid } from './FormFieldContext';
 import { EinvoiceMukellefCheck } from './EinvoiceMukellefCheck';
 import { PostSaveHelpButton } from './PostSaveHelpButton';
 import { useOrgFieldCascade } from '../hooks/useOrgFieldCascade';
@@ -735,14 +736,14 @@ export const DynamicFormEngine: React.FC<DynamicFormEngineProps> = ({
     return (
       <div className="space-y-3">
         {ungrouped.length > 0 && (
-          <div className="grid grid-cols-12 gap-x-2 gap-y-1.5">{ungrouped.map(renderField)}</div>
+          <InlineFieldGrid>{ungrouped.map(renderField)}</InlineFieldGrid>
         )}
         {groupNames.map((g) => (
           <fieldset
             key={g}
-            className="rounded-md border border-slate-200 dark:border-slate-700 px-3 pt-2 pb-3"
+            className="rounded-sm border border-slate-300 dark:border-slate-600 px-3 pt-1 pb-2.5"
           >
-            <legend className="px-1 text-[11px] font-semibold text-slate-600 dark:text-slate-300">
+            <legend className="px-1 text-[11.5px] font-semibold text-slate-700 dark:text-slate-200">
               {g}
             </legend>
             {g === 'Dönem / e-Belge Başlangıç' && schema.tableName === 'SYS_Companies' && (
@@ -780,14 +781,24 @@ export const DynamicFormEngine: React.FC<DynamicFormEngineProps> = ({
                 </div>
               </div>
             )}
-            <div className="grid grid-cols-12 gap-x-2 gap-y-1.5">
+            <InlineFieldGrid>
               {fieldsList.filter((f) => f.group === g).map(renderField)}
-            </div>
+            </InlineFieldGrid>
           </fieldset>
         ))}
       </div>
     );
   };
+
+  /** SAP tarzı başlık: ilk kimlik alanları (Kod, Ad, Tür…) sekmelerin üstünde */
+  const identityFields = (() => {
+    const plain = general.filter((f) => !f.group && f.fieldType !== 'checkbox' && f.fieldType !== 'textarea');
+    if (general.length < 6 || plain.length < 2) return [] as FormFieldDto[];
+    return [...plain].sort((a, b) => (a.orderIndex ?? 0) - (b.orderIndex ?? 0)).slice(0, 4);
+  })();
+  const generalRest = identityFields.length
+    ? general.filter((f) => !identityFields.includes(f))
+    : general;
 
   const tabs = [
     { id: 'genel', label: 'Genel' },
@@ -846,7 +857,7 @@ export const DynamicFormEngine: React.FC<DynamicFormEngineProps> = ({
 
   return (
     <FormFieldContext.Provider value={{ setValue, watch }}>
-    <div className="w-full max-w-5xl mx-auto p-3 bg-white dark:bg-slate-900 rounded-lg border border-slate-200 dark:border-slate-700 shadow-sm">
+    <div className="w-full max-w-5xl mx-auto p-3 bg-white dark:bg-slate-900 rounded-md border border-slate-300 dark:border-slate-700 shadow-sm">
       <div className="mb-2 pb-1.5 border-b border-slate-100 dark:border-slate-800 flex items-start justify-between gap-3">
         <div className="min-w-0">
           <h2 className="text-[14px] font-semibold text-slate-800 dark:text-slate-100 leading-tight">{schema.title}</h2>
@@ -879,18 +890,31 @@ export const DynamicFormEngine: React.FC<DynamicFormEngineProps> = ({
         </div>
       </div>
 
-      <form onSubmit={handleSubmit(handleFormSubmit)} className="space-y-2">
-        {tabs.length > 1 ? (
-          <FormTabs active={tab} onChange={setTab} tabs={tabs} />
-        ) : null}
+      <form onSubmit={handleSubmit(handleFormSubmit)} className="space-y-2.5">
+        {identityFields.length > 0 && (
+          <section className="rounded-sm border border-slate-300 dark:border-slate-600 bg-slate-50/70 dark:bg-slate-800/30 px-3 py-2">
+            {renderGrid(identityFields, false)}
+          </section>
+        )}
 
-        {(tabs.length === 1 || tab === 'genel') && renderGrid(general, false)}
+        <div>
+        {tabs.length > 1 ? (
+          <FormTabs active={tab} onChange={setTab} tabs={tabs} variant="folder" size="sm" />
+        ) : null}
+        <FormTabPanel className={`${tabs.length > 1 ? '' : 'border-t rounded-t-[4px]'} space-y-2`}>
+
+        {(tabs.length === 1 || tab === 'genel') &&
+          (generalRest.length > 0 ? (
+            renderGrid(generalRest, false)
+          ) : (
+            <p className="py-3 text-center text-[11px] text-slate-400">Genel alanların tamamı başlıkta.</p>
+          ))}
 
         {tab === 'adresler' && hasAddresses && schema.addressFields && (
           <div className="space-y-2">
             <div className="flex items-center justify-between gap-2">
               <div>
-                <h3 className="text-[13px] font-semibold text-slate-700 dark:text-slate-200 flex items-center gap-1.5">
+                <h3 className="text-[12px] font-semibold text-slate-700 dark:text-slate-200 flex items-center gap-1.5">
                   <MapPin className="w-3.5 h-3.5 text-slate-500" />
                   Adresler
                 </h3>
@@ -909,7 +933,7 @@ export const DynamicFormEngine: React.FC<DynamicFormEngineProps> = ({
                       IsDefault: false,
                     })
                   }
-                  className="inline-flex items-center gap-1 px-2.5 h-7 text-[12px] font-semibold text-blue-700 bg-blue-50 hover:bg-blue-100 rounded-md transition-colors"
+                  className="inline-flex items-center gap-1 px-2 h-6 text-[11px] font-semibold text-slate-700 bg-white border border-slate-300 hover:bg-slate-50 rounded-sm transition-colors"
                 >
                   <Plus className="w-3.5 h-3.5" />
                   Adres Ekle
@@ -929,7 +953,7 @@ export const DynamicFormEngine: React.FC<DynamicFormEngineProps> = ({
                 return (
                   <div
                     key={row.id}
-                    className="relative grid grid-cols-12 gap-2 p-2.5 rounded-md bg-slate-50 dark:bg-slate-800/50 border border-slate-200 dark:border-slate-700"
+                    className="relative grid grid-cols-12 gap-1.5 px-2 py-1.5 rounded-sm bg-white dark:bg-slate-900/40 border border-slate-300 dark:border-slate-600"
                   >
                     <div className="col-span-12 flex items-center justify-between pl-0.5 mb-0.5">
                       <span className="inline-flex items-center gap-1.5 text-[11px] font-semibold text-slate-600">
@@ -1063,7 +1087,7 @@ export const DynamicFormEngine: React.FC<DynamicFormEngineProps> = ({
           <div className="space-y-2">
             <div className="flex items-center justify-between gap-2">
               <div>
-                <h3 className="text-[13px] font-semibold text-slate-700 dark:text-slate-200 flex items-center gap-1.5">
+                <h3 className="text-[12px] font-semibold text-slate-700 dark:text-slate-200 flex items-center gap-1.5">
                   <UserRound className="w-3.5 h-3.5 text-slate-500" />
                   Yetkililer
                 </h3>
@@ -1075,7 +1099,7 @@ export const DynamicFormEngine: React.FC<DynamicFormEngineProps> = ({
                 <button
                   type="button"
                   onClick={() => appendContact({})}
-                  className="inline-flex items-center gap-1 px-2.5 h-7 text-[12px] font-semibold text-blue-700 bg-blue-50 hover:bg-blue-100 rounded-md transition-colors"
+                  className="inline-flex items-center gap-1 px-2 h-6 text-[11px] font-semibold text-slate-700 bg-white border border-slate-300 hover:bg-slate-50 rounded-sm transition-colors"
                 >
                   <Plus className="w-3.5 h-3.5" />
                   Yetkili Ekle
@@ -1083,56 +1107,16 @@ export const DynamicFormEngine: React.FC<DynamicFormEngineProps> = ({
               )}
             </div>
 
-            <div className="space-y-2">
-              {contactRows.length === 0 ? (
-                <div className="py-6 text-center text-[12px] text-slate-400 border border-dashed border-slate-200 rounded-md">
-                  Yetkili yok. «Yetkili Ekle» ile ekleyebilirsiniz.
-                </div>
-              ) : (
-                contactRows.map((row, index) => (
-                  <div
-                    key={row.id}
-                    className="relative grid grid-cols-12 gap-2 p-2.5 rounded-md bg-slate-50 dark:bg-slate-800/50 border border-slate-200 dark:border-slate-700"
-                  >
-                    <div className="col-span-12 flex items-center justify-between pl-0.5 mb-0.5">
-                      <span className="inline-flex items-center gap-1.5 text-[11px] font-semibold text-slate-600">
-                        <span className="w-5 h-5 rounded bg-slate-700 text-white text-[10px] font-bold flex items-center justify-center">
-                          {index + 1}
-                        </span>
-                        Yetkili
-                      </span>
-                      {!readOnly && (
-                        <button
-                          type="button"
-                          onClick={() => removeContact(index)}
-                          className="inline-flex items-center gap-1 text-[11px] text-red-600 hover:text-red-700"
-                        >
-                          <Trash2 className="w-3 h-3" />
-                          Sil
-                        </button>
-                      )}
-                    </div>
-                    <div className="col-span-12 grid grid-cols-12 gap-2">
-                      {schema.contactFields!.map((field) => (
-                        <FieldRenderer
-                          key={`${row.id}-${field.fieldId}`}
-                          field={field}
-                          register={register as UseFormRegister<FieldValues>}
-                          registerNameOverride={`contacts.${index}.${field.fieldName}`}
-                          compact
-                          disabled={readOnly}
-                          error={
-                            get(errors, `contacts.${index}.${field.fieldName}`) as
-                              | FieldError
-                              | undefined
-                          }
-                        />
-                      ))}
-                    </div>
-                  </div>
-                ))
-              )}
-            </div>
+            <SubListGrid
+              rows={contactRows}
+              fields={schema.contactFields!}
+              prefix="contacts"
+              register={register as UseFormRegister<FieldValues>}
+              errors={errors}
+              readOnly={readOnly}
+              emptyText="Yetkili yok. «Yetkili Ekle» ile ekleyebilirsiniz."
+              onRemove={removeContact}
+            />
           </div>
         )}
 
@@ -1140,7 +1124,7 @@ export const DynamicFormEngine: React.FC<DynamicFormEngineProps> = ({
           <div className="space-y-2">
             <div className="flex items-center justify-between gap-2">
               <div>
-                <h3 className="text-[13px] font-semibold text-slate-700 dark:text-slate-200 flex items-center gap-1.5">
+                <h3 className="text-[12px] font-semibold text-slate-700 dark:text-slate-200 flex items-center gap-1.5">
                   <Landmark className="w-3.5 h-3.5 text-slate-500" />
                   Hesaplar
                 </h3>
@@ -1163,7 +1147,7 @@ export const DynamicFormEngine: React.FC<DynamicFormEngineProps> = ({
                       IsActive: true,
                     })
                   }
-                  className="inline-flex items-center gap-1 px-2.5 h-7 text-[12px] font-semibold text-blue-700 bg-blue-50 hover:bg-blue-100 rounded-md transition-colors"
+                  className="inline-flex items-center gap-1 px-2 h-6 text-[11px] font-semibold text-slate-700 bg-white border border-slate-300 hover:bg-slate-50 rounded-sm transition-colors"
                 >
                   <Plus className="w-3.5 h-3.5" />
                   Hesap Ekle
@@ -1171,56 +1155,16 @@ export const DynamicFormEngine: React.FC<DynamicFormEngineProps> = ({
               )}
             </div>
 
-            <div className="space-y-2">
-              {accountRows.length === 0 ? (
-                <div className="py-6 text-center text-[12px] text-slate-400 border border-dashed border-slate-200 rounded-md">
-                  Hesap yok. «Hesap Ekle» ile ekleyebilirsiniz.
-                </div>
-              ) : (
-                accountRows.map((row, index) => (
-                  <div
-                    key={row.id}
-                    className="relative grid grid-cols-12 gap-2 p-2.5 rounded-md bg-slate-50 dark:bg-slate-800/50 border border-slate-200 dark:border-slate-700"
-                  >
-                    <div className="col-span-12 flex items-center justify-between pl-0.5 mb-0.5">
-                      <span className="inline-flex items-center gap-1.5 text-[11px] font-semibold text-slate-600">
-                        <span className="w-5 h-5 rounded bg-slate-700 text-white text-[10px] font-bold flex items-center justify-center">
-                          {index + 1}
-                        </span>
-                        Hesap
-                      </span>
-                      {!readOnly && (
-                        <button
-                          type="button"
-                          onClick={() => removeAccount(index)}
-                          className="inline-flex items-center gap-1 text-[11px] text-red-600 hover:text-red-700"
-                        >
-                          <Trash2 className="w-3 h-3" />
-                          Sil
-                        </button>
-                      )}
-                    </div>
-                    <div className="col-span-12 grid grid-cols-12 gap-2">
-                      {schema.accountFields!.map((field) => (
-                        <FieldRenderer
-                          key={`${row.id}-${field.fieldId}`}
-                          field={field}
-                          register={register as UseFormRegister<FieldValues>}
-                          registerNameOverride={`accounts.${index}.${field.fieldName}`}
-                          compact
-                          disabled={readOnly}
-                          error={
-                            get(errors, `accounts.${index}.${field.fieldName}`) as
-                              | FieldError
-                              | undefined
-                          }
-                        />
-                      ))}
-                    </div>
-                  </div>
-                ))
-              )}
-            </div>
+            <SubListGrid
+              rows={accountRows}
+              fields={schema.accountFields!}
+              prefix="accounts"
+              register={register as UseFormRegister<FieldValues>}
+              errors={errors}
+              readOnly={readOnly}
+              emptyText="Hesap yok."
+              onRemove={removeAccount}
+            />
           </div>
         )}
 
@@ -1228,7 +1172,7 @@ export const DynamicFormEngine: React.FC<DynamicFormEngineProps> = ({
           <div className="space-y-2">
             <div className="flex items-center justify-between gap-2">
               <div>
-                <h3 className="text-[13px] font-semibold text-slate-700 dark:text-slate-200 flex items-center gap-1.5">
+                <h3 className="text-[12px] font-semibold text-slate-700 dark:text-slate-200 flex items-center gap-1.5">
                   <Barcode className="w-3.5 h-3.5 text-slate-500" />
                   Barkodlar
                 </h3>
@@ -1246,7 +1190,7 @@ export const DynamicFormEngine: React.FC<DynamicFormEngineProps> = ({
                       LineNr: barcodeRows.length + 1,
                     })
                   }
-                  className="inline-flex items-center gap-1 px-2.5 h-7 text-[12px] font-semibold text-blue-700 bg-blue-50 hover:bg-blue-100 rounded-md transition-colors"
+                  className="inline-flex items-center gap-1 px-2 h-6 text-[11px] font-semibold text-slate-700 bg-white border border-slate-300 hover:bg-slate-50 rounded-sm transition-colors"
                 >
                   <Plus className="w-3.5 h-3.5" />
                   Barkod Ekle
@@ -1254,56 +1198,16 @@ export const DynamicFormEngine: React.FC<DynamicFormEngineProps> = ({
               )}
             </div>
 
-            <div className="space-y-2">
-              {barcodeRows.length === 0 ? (
-                <div className="py-6 text-center text-[12px] text-slate-400 border border-dashed border-slate-200 rounded-md">
-                  Barkod yok. «Barkod Ekle» ile ekleyebilirsiniz.
-                </div>
-              ) : (
-                barcodeRows.map((row, index) => (
-                  <div
-                    key={row.id}
-                    className="relative grid grid-cols-12 gap-2 p-2.5 rounded-md bg-slate-50 dark:bg-slate-800/50 border border-slate-200 dark:border-slate-700"
-                  >
-                    <div className="col-span-12 flex items-center justify-between pl-0.5 mb-0.5">
-                      <span className="inline-flex items-center gap-1.5 text-[11px] font-semibold text-slate-600">
-                        <span className="w-5 h-5 rounded bg-slate-700 text-white text-[10px] font-bold flex items-center justify-center">
-                          {index + 1}
-                        </span>
-                        Barkod
-                      </span>
-                      {!readOnly && (
-                        <button
-                          type="button"
-                          onClick={() => removeBarcode(index)}
-                          className="inline-flex items-center gap-1 text-[11px] text-red-600 hover:text-red-700"
-                        >
-                          <Trash2 className="w-3 h-3" />
-                          Sil
-                        </button>
-                      )}
-                    </div>
-                    <div className="col-span-12 grid grid-cols-12 gap-2">
-                      {schema.barcodeFields!.map((field) => (
-                        <FieldRenderer
-                          key={`${row.id}-${field.fieldId}`}
-                          field={field}
-                          register={register as UseFormRegister<FieldValues>}
-                          registerNameOverride={`barcodes.${index}.${field.fieldName}`}
-                          compact
-                          disabled={readOnly}
-                          error={
-                            get(errors, `barcodes.${index}.${field.fieldName}`) as
-                              | FieldError
-                              | undefined
-                          }
-                        />
-                      ))}
-                    </div>
-                  </div>
-                ))
-              )}
-            </div>
+            <SubListGrid
+              rows={barcodeRows}
+              fields={schema.barcodeFields!}
+              prefix="barcodes"
+              register={register as UseFormRegister<FieldValues>}
+              errors={errors}
+              readOnly={readOnly}
+              emptyText="Barkod yok. «Barkod Ekle» ile ekleyebilirsiniz."
+              onRemove={removeBarcode}
+            />
           </div>
         )}
 
@@ -1325,7 +1229,7 @@ export const DynamicFormEngine: React.FC<DynamicFormEngineProps> = ({
           <div className="space-y-2">
             <div className="flex items-center justify-between gap-2">
               <div>
-                <h3 className="text-[13px] font-semibold text-slate-700 dark:text-slate-200 flex items-center gap-1.5">
+                <h3 className="text-[12px] font-semibold text-slate-700 dark:text-slate-200 flex items-center gap-1.5">
                   <Layers className="w-3.5 h-3.5 text-slate-500" />
                   Alt Malzeme / Reçete
                 </h3>
@@ -1346,7 +1250,7 @@ export const DynamicFormEngine: React.FC<DynamicFormEngineProps> = ({
                       PriceRate: '',
                     })
                   }
-                  className="inline-flex items-center gap-1 px-2.5 h-7 text-[12px] font-semibold text-blue-700 bg-blue-50 hover:bg-blue-100 rounded-md transition-colors"
+                  className="inline-flex items-center gap-1 px-2 h-6 text-[11px] font-semibold text-slate-700 bg-white border border-slate-300 hover:bg-slate-50 rounded-sm transition-colors"
                 >
                   <Plus className="w-3.5 h-3.5" />
                   Satır Ekle
@@ -1363,7 +1267,7 @@ export const DynamicFormEngine: React.FC<DynamicFormEngineProps> = ({
                 productSubRows.map((row, index) => (
                   <div
                     key={row.id}
-                    className="relative grid grid-cols-12 gap-2 p-2.5 rounded-md bg-slate-50 dark:bg-slate-800/50 border border-slate-200 dark:border-slate-700"
+                    className="relative grid grid-cols-12 gap-1.5 px-2 py-1.5 rounded-sm bg-white dark:bg-slate-900/40 border border-slate-300 dark:border-slate-600"
                   >
                     <div className="col-span-12 flex items-center justify-between pl-0.5 mb-0.5">
                       <span className="inline-flex items-center gap-1.5 text-[11px] font-semibold text-slate-600">
@@ -1383,7 +1287,7 @@ export const DynamicFormEngine: React.FC<DynamicFormEngineProps> = ({
                         </button>
                       )}
                     </div>
-                    <div className="col-span-12 grid grid-cols-12 gap-2">
+                    <div className="col-span-12 grid grid-cols-12 gap-1.5">
                       {schema.productSubFields!.map((field) => {
                         void subUnitTick;
                         const subPid = Number(
@@ -1428,7 +1332,7 @@ export const DynamicFormEngine: React.FC<DynamicFormEngineProps> = ({
           <div className="space-y-2">
             <div className="flex items-center justify-between gap-2 flex-wrap">
               <div>
-                <h3 className="text-[13px] font-semibold text-slate-700 dark:text-slate-200 flex items-center gap-1.5">
+                <h3 className="text-[12px] font-semibold text-slate-700 dark:text-slate-200 flex items-center gap-1.5">
                   <Shapes className="w-3.5 h-3.5 text-slate-500" />
                   Varyantlar
                 </h3>
@@ -1446,7 +1350,7 @@ export const DynamicFormEngine: React.FC<DynamicFormEngineProps> = ({
                       UnitID: '',
                     })
                   }
-                  className="inline-flex items-center gap-1 px-2.5 h-7 text-[12px] font-semibold text-blue-700 bg-blue-50 hover:bg-blue-100 rounded-md transition-colors"
+                  className="inline-flex items-center gap-1 px-2 h-6 text-[11px] font-semibold text-slate-700 bg-white border border-slate-300 hover:bg-slate-50 rounded-sm transition-colors"
                 >
                   <Plus className="w-3.5 h-3.5" />
                   Varyant Ekle
@@ -1522,7 +1426,7 @@ export const DynamicFormEngine: React.FC<DynamicFormEngineProps> = ({
                 variantRows.map((row, index) => (
                   <div
                     key={row.id}
-                    className="relative grid grid-cols-12 gap-2 p-2.5 rounded-md bg-slate-50 dark:bg-slate-800/50 border border-slate-200 dark:border-slate-700"
+                    className="relative grid grid-cols-12 gap-1.5 px-2 py-1.5 rounded-sm bg-white dark:bg-slate-900/40 border border-slate-300 dark:border-slate-600"
                   >
                     <div className="col-span-12 flex items-center justify-between pl-0.5 mb-0.5">
                       <span className="inline-flex items-center gap-1.5 text-[11px] font-semibold text-slate-600">
@@ -1542,7 +1446,7 @@ export const DynamicFormEngine: React.FC<DynamicFormEngineProps> = ({
                         </button>
                       )}
                     </div>
-                    <div className="col-span-12 grid grid-cols-12 gap-2">
+                    <div className="col-span-12 grid grid-cols-12 gap-1.5">
                       {schema.variantFields!.map((field) => {
                         const variantUnitInfo =
                           field.fieldName === 'UnitID'
@@ -1588,7 +1492,7 @@ export const DynamicFormEngine: React.FC<DynamicFormEngineProps> = ({
           <div className="space-y-2">
             <div className="flex items-center justify-between gap-2">
               <div>
-                <h3 className="text-[13px] font-semibold text-slate-700 dark:text-slate-200 flex items-center gap-1.5">
+                <h3 className="text-[12px] font-semibold text-slate-700 dark:text-slate-200 flex items-center gap-1.5">
                   <Building2 className="w-3.5 h-3.5 text-slate-500" />
                   Cari Malzeme
                 </h3>
@@ -1607,7 +1511,7 @@ export const DynamicFormEngine: React.FC<DynamicFormEngineProps> = ({
                       Note: '',
                     })
                   }
-                  className="inline-flex items-center gap-1 px-2.5 h-7 text-[12px] font-semibold text-blue-700 bg-blue-50 hover:bg-blue-100 rounded-md transition-colors"
+                  className="inline-flex items-center gap-1 px-2 h-6 text-[11px] font-semibold text-slate-700 bg-white border border-slate-300 hover:bg-slate-50 rounded-sm transition-colors"
                 >
                   <Plus className="w-3.5 h-3.5" />
                   Cari Ekle
@@ -1615,56 +1519,16 @@ export const DynamicFormEngine: React.FC<DynamicFormEngineProps> = ({
               )}
             </div>
 
-            <div className="space-y-2">
-              {customerAliasRows.length === 0 ? (
-                <div className="py-6 text-center text-[12px] text-slate-400 border border-dashed border-slate-200 rounded-md">
-                  Cari tanımı yok. «Cari Ekle» ile bu malzemenin cariye özel kod/adını belirtebilirsiniz.
-                </div>
-              ) : (
-                customerAliasRows.map((row, index) => (
-                  <div
-                    key={row.id}
-                    className="relative grid grid-cols-12 gap-2 p-2.5 rounded-md bg-slate-50 dark:bg-slate-800/50 border border-slate-200 dark:border-slate-700"
-                  >
-                    <div className="col-span-12 flex items-center justify-between pl-0.5 mb-0.5">
-                      <span className="inline-flex items-center gap-1.5 text-[11px] font-semibold text-slate-600">
-                        <span className="w-5 h-5 rounded bg-slate-700 text-white text-[10px] font-bold flex items-center justify-center">
-                          {index + 1}
-                        </span>
-                        Cari Malzeme
-                      </span>
-                      {!readOnly && (
-                        <button
-                          type="button"
-                          onClick={() => removeCustomerAlias(index)}
-                          className="inline-flex items-center gap-1 text-[11px] text-red-600 hover:text-red-700"
-                        >
-                          <Trash2 className="w-3 h-3" />
-                          Sil
-                        </button>
-                      )}
-                    </div>
-                    <div className="col-span-12 grid grid-cols-12 gap-2">
-                      {schema.customerAliasFields!.map((field) => (
-                        <FieldRenderer
-                          key={`${row.id}-${field.fieldId}`}
-                          field={field}
-                          register={register as UseFormRegister<FieldValues>}
-                          registerNameOverride={`customerAliases.${index}.${field.fieldName}`}
-                          compact
-                          disabled={readOnly}
-                          error={
-                            get(errors, `customerAliases.${index}.${field.fieldName}`) as
-                              | FieldError
-                              | undefined
-                          }
-                        />
-                      ))}
-                    </div>
-                  </div>
-                ))
-              )}
-            </div>
+            <SubListGrid
+              rows={customerAliasRows}
+              fields={schema.customerAliasFields!}
+              prefix="customerAliases"
+              register={register as UseFormRegister<FieldValues>}
+              errors={errors}
+              readOnly={readOnly}
+              emptyText="Kayıt yok."
+              onRemove={removeCustomerAlias}
+            />
           </div>
         )}
 
@@ -1672,7 +1536,7 @@ export const DynamicFormEngine: React.FC<DynamicFormEngineProps> = ({
           <div className={tab === 'isyerleri' ? 'space-y-2' : 'hidden'} aria-hidden={tab !== 'isyerleri'}>
             <div className="flex items-center justify-between gap-2">
               <div>
-                <h3 className="text-[13px] font-semibold text-slate-700 dark:text-slate-200 flex items-center gap-1.5">
+                <h3 className="text-[12px] font-semibold text-slate-700 dark:text-slate-200 flex items-center gap-1.5">
                   <Building2 className="w-3.5 h-3.5 text-slate-500" />
                   İşyerleri
                 </h3>
@@ -1747,7 +1611,7 @@ export const DynamicFormEngine: React.FC<DynamicFormEngineProps> = ({
                     }
                     appendWorkplace(base);
                   }}
-                  className="inline-flex items-center gap-1 px-2.5 h-7 text-[12px] font-semibold text-blue-700 bg-blue-50 hover:bg-blue-100 rounded-md transition-colors"
+                  className="inline-flex items-center gap-1 px-2 h-6 text-[11px] font-semibold text-slate-700 bg-white border border-slate-300 hover:bg-slate-50 rounded-sm transition-colors"
                 >
                   <Plus className="w-3.5 h-3.5" />
                   İşyeri Ekle
@@ -1940,7 +1804,7 @@ export const DynamicFormEngine: React.FC<DynamicFormEngineProps> = ({
           <div className="space-y-2">
             <div className="flex items-center justify-between gap-2">
               <div>
-                <h3 className="text-[13px] font-semibold text-slate-700 dark:text-slate-200 flex items-center gap-1.5">
+                <h3 className="text-[12px] font-semibold text-slate-700 dark:text-slate-200 flex items-center gap-1.5">
                   <Layers className="w-3.5 h-3.5 text-slate-500" />
                   Ambarlar
                 </h3>
@@ -1960,7 +1824,7 @@ export const DynamicFormEngine: React.FC<DynamicFormEngineProps> = ({
                       IsActive: true,
                     });
                   }}
-                  className="inline-flex items-center gap-1 px-2.5 h-7 text-[12px] font-semibold text-blue-700 bg-blue-50 hover:bg-blue-100 rounded-md transition-colors"
+                  className="inline-flex items-center gap-1 px-2 h-6 text-[11px] font-semibold text-slate-700 bg-white border border-slate-300 hover:bg-slate-50 rounded-sm transition-colors"
                 >
                   <Plus className="w-3.5 h-3.5" />
                   Ambar Ekle
@@ -1976,7 +1840,7 @@ export const DynamicFormEngine: React.FC<DynamicFormEngineProps> = ({
                 whouseRows.map((row, index) => (
                   <div
                     key={row.id}
-                    className="relative grid grid-cols-12 gap-2 p-2.5 rounded-md bg-slate-50 dark:bg-slate-800/50 border border-slate-200 dark:border-slate-700"
+                    className="relative grid grid-cols-12 gap-1.5 px-2 py-1.5 rounded-sm bg-white dark:bg-slate-900/40 border border-slate-300 dark:border-slate-600"
                   >
                     <div className="col-span-12 flex items-center justify-between pl-0.5 mb-0.5">
                       <span className="inline-flex items-center gap-1.5 text-[11px] font-semibold text-slate-600">
@@ -1996,7 +1860,7 @@ export const DynamicFormEngine: React.FC<DynamicFormEngineProps> = ({
                         </button>
                       )}
                     </div>
-                    <div className="col-span-12 grid grid-cols-12 gap-2">
+                    <div className="col-span-12 grid grid-cols-12 gap-1.5">
                       {schema.whouseFields!.map((field) => {
                         const patched =
                           field.fieldName === 'WorkplaceCode'
@@ -2039,7 +1903,7 @@ export const DynamicFormEngine: React.FC<DynamicFormEngineProps> = ({
           <div className="space-y-2">
             <div className="flex items-center justify-between gap-2">
               <div>
-                <h3 className="text-[13px] font-semibold text-slate-700 dark:text-slate-200 flex items-center gap-1.5">
+                <h3 className="text-[12px] font-semibold text-slate-700 dark:text-slate-200 flex items-center gap-1.5">
                   <BookOpen className="w-3.5 h-3.5 text-slate-500" />
                   Muhasebe Hesapları
                 </h3>
@@ -2055,7 +1919,7 @@ export const DynamicFormEngine: React.FC<DynamicFormEngineProps> = ({
                 <button
                   type="button"
                   onClick={() => appendAccountLink(defaultAccountLinkRow(linkModule))}
-                  className="inline-flex items-center gap-1 px-2.5 h-7 text-[12px] font-semibold text-blue-700 bg-blue-50 hover:bg-blue-100 rounded-md transition-colors"
+                  className="inline-flex items-center gap-1 px-2 h-6 text-[11px] font-semibold text-slate-700 bg-white border border-slate-300 hover:bg-slate-50 rounded-sm transition-colors"
                 >
                   <Plus className="w-3.5 h-3.5" />
                   Bağlantı Ekle
@@ -2116,7 +1980,7 @@ export const DynamicFormEngine: React.FC<DynamicFormEngineProps> = ({
                     return (
                       <div
                         key={row.id}
-                        className="relative grid grid-cols-12 gap-2 p-2.5 rounded-md bg-slate-50 dark:bg-slate-800/50 border border-slate-200 dark:border-slate-700"
+                        className="relative grid grid-cols-12 gap-1.5 px-2 py-1.5 rounded-sm bg-white dark:bg-slate-900/40 border border-slate-300 dark:border-slate-600"
                       >
                         <div className="col-span-12 flex items-center justify-between pl-0.5 mb-0.5">
                           <span className="inline-flex items-center gap-1.5 text-[11px] font-semibold text-slate-600">
@@ -2139,7 +2003,7 @@ export const DynamicFormEngine: React.FC<DynamicFormEngineProps> = ({
                             </button>
                           )}
                         </div>
-                        <div className="col-span-12 grid grid-cols-12 gap-2">
+                        <div className="col-span-12 grid grid-cols-12 gap-1.5">
                           {schema.accountLinkFields!.map((field) => (
                             <FieldRenderer
                               key={`${row.id}-${field.fieldId}`}
@@ -2183,7 +2047,7 @@ export const DynamicFormEngine: React.FC<DynamicFormEngineProps> = ({
           <div className="space-y-2">
             <div className="flex items-center justify-between gap-2">
               <div>
-                <h3 className="text-[13px] font-semibold text-slate-700 dark:text-slate-200 flex items-center gap-1.5">
+                <h3 className="text-[12px] font-semibold text-slate-700 dark:text-slate-200 flex items-center gap-1.5">
                   <Tags className="w-3.5 h-3.5 text-slate-500" />
                   Kod / Açıklama Listesi (AUXIL değerleri)
                 </h3>
@@ -2200,7 +2064,7 @@ export const DynamicFormEngine: React.FC<DynamicFormEngineProps> = ({
                         defaultAuxilValueRow(AUXIL_VALUE_KIND.Code, (auxilValueRows.length + 1) * 10),
                       )
                     }
-                    className="inline-flex items-center gap-1 px-2.5 h-7 text-[12px] font-semibold text-blue-700 bg-blue-50 hover:bg-blue-100 rounded-md transition-colors"
+                    className="inline-flex items-center gap-1 px-2 h-6 text-[11px] font-semibold text-slate-700 bg-white border border-slate-300 hover:bg-slate-50 rounded-sm transition-colors"
                   >
                     <Plus className="w-3.5 h-3.5" />
                     Kod Değeri
@@ -2233,7 +2097,7 @@ export const DynamicFormEngine: React.FC<DynamicFormEngineProps> = ({
                 auxilValueRows.map((row, index) => (
                   <div
                     key={row.id}
-                    className="relative grid grid-cols-12 gap-2 p-2.5 rounded-md bg-slate-50 dark:bg-slate-800/50 border border-slate-200 dark:border-slate-700"
+                    className="relative grid grid-cols-12 gap-1.5 px-2 py-1.5 rounded-sm bg-white dark:bg-slate-900/40 border border-slate-300 dark:border-slate-600"
                   >
                     <div className="col-span-12 flex items-center justify-between pl-0.5 mb-0.5">
                       <span className="inline-flex items-center gap-1.5 text-[11px] font-semibold text-slate-600">
@@ -2253,7 +2117,7 @@ export const DynamicFormEngine: React.FC<DynamicFormEngineProps> = ({
                         </button>
                       )}
                     </div>
-                    <div className="col-span-12 grid grid-cols-12 gap-2">
+                    <div className="col-span-12 grid grid-cols-12 gap-1.5">
                       {schema.auxilValueFields!.map((field) => (
                         <FieldRenderer
                           key={`${row.id}-${field.fieldId}`}
@@ -2290,13 +2154,15 @@ export const DynamicFormEngine: React.FC<DynamicFormEngineProps> = ({
             </div>
           )
         )}
+        </FormTabPanel>
+        </div>
 
         {!readOnly && (
-          <div className="pt-3 border-t border-slate-100 dark:border-slate-800 flex justify-end">
+          <div className="pt-2 flex justify-end">
             <button
               type="submit"
               disabled={isLoading}
-              className={`inline-flex items-center justify-center px-4 h-8 text-[13px] font-semibold text-white rounded-md bg-blue-600 hover:bg-blue-500 transition-colors ${
+              className={`inline-flex items-center justify-center px-5 h-7 text-[12px] font-semibold text-white rounded-sm bg-blue-700 hover:bg-blue-600 transition-colors ${
                 isLoading ? 'opacity-70 cursor-not-allowed' : ''
               }`}
             >

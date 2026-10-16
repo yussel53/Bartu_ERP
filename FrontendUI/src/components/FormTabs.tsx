@@ -11,7 +11,7 @@ interface FormTabsProps {
   active: string;
   onChange: (id: string) => void;
   /** sm: daha sıkı; pill: yuvarlak seçim */
-  variant?: 'underline' | 'pill' | 'segment';
+  variant?: 'underline' | 'pill' | 'segment' | 'folder';
   size?: 'sm' | 'md';
   /** Alt boşluk / border yok (iç içe kullanım) */
   flush?: boolean;
@@ -51,6 +51,36 @@ export const FormTabs: React.FC<FormTabsProps> = ({
               {tab.label}
               {tab.count != null && tab.count > 0 && (
                 <span className="ml-1 text-[10px] font-bold text-slate-400">{tab.count}</span>
+              )}
+            </button>
+          );
+        })}
+      </div>
+    );
+  }
+
+  /** Kurumsal (SAP B1 tarzı) klasör sekmesi — altına <FormTabPanel> konur */
+  if (variant === 'folder') {
+    return (
+      <div
+        className={`flex items-end gap-0.5 overflow-x-auto overflow-y-hidden shadow-[inset_0_-1px_0_rgb(203_213_225)] dark:shadow-[inset_0_-1px_0_rgb(71_85_105)] ${className}`}
+      >
+        {tabs.map((tab) => {
+          const isActive = tab.id === active;
+          return (
+            <button
+              key={tab.id}
+              type="button"
+              onClick={() => onChange(tab.id)}
+              className={`px-3.5 h-7 ${text} font-medium border rounded-t-[4px] whitespace-nowrap shrink-0 transition-colors ${
+                isActive
+                  ? 'bg-white dark:bg-slate-900 border-slate-300 border-b-white dark:border-slate-600 dark:border-b-slate-900 text-slate-900 dark:text-white'
+                  : 'bg-slate-100 dark:bg-slate-800 border-slate-200 border-b-slate-300 dark:border-slate-700 dark:border-b-slate-600 text-slate-600 hover:bg-slate-50 hover:text-slate-800'
+              }`}
+            >
+              {tab.label}
+              {tab.count != null && tab.count > 0 && (
+                <span className="ml-1 text-[10px] font-semibold text-slate-400">{tab.count}</span>
               )}
             </button>
           );
@@ -112,3 +142,15 @@ export const FormTabs: React.FC<FormTabsProps> = ({
     </div>
   );
 };
+
+/** Klasör sekmesinin içerik çerçevesi */
+export const FormTabPanel: React.FC<{ children: React.ReactNode; className?: string }> = ({
+  children,
+  className = '',
+}) => (
+  <div
+    className={`border border-t-0 border-slate-300 dark:border-slate-600 rounded-b-[4px] bg-white dark:bg-slate-900 p-3 ${className}`}
+  >
+    {children}
+  </div>
+);
