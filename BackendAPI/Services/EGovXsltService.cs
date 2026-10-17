@@ -168,7 +168,7 @@ internal static class SampleUbl
                     <cac:TaxCategory><cac:TaxScheme><cbc:Name>KDV</cbc:Name><cbc:TaxTypeCode>0015</cbc:TaxTypeCode></cac:TaxScheme></cac:TaxCategory>
                   </cac:TaxSubtotal>
                 </cac:TaxTotal>
-                <cac:Item><cbc:Name>{name}</cbc:Name><cac:SellersItemIdentification><cbc:ID>STK-{no:000}</cbc:ID></cac:SellersItemIdentification></cac:Item>
+                <cac:Item><cbc:Description>{name} açıklaması</cbc:Description><cbc:Name>{name}</cbc:Name><cac:SellersItemIdentification><cbc:ID>STK-{no:000}</cbc:ID></cac:SellersItemIdentification></cac:Item>
                 <cac:Price><cbc:PriceAmount currencyID="TRY">{p}</cbc:PriceAmount></cac:Price>
               </cac:InvoiceLine>
             """;
@@ -254,13 +254,13 @@ internal static class SampleUbl
             <cbc:ID>1</cbc:ID>
             <cbc:DeliveredQuantity unitCode="C62">2</cbc:DeliveredQuantity>
             <cac:OrderLineReference><cbc:LineID>1</cbc:LineID></cac:OrderLineReference>
-            <cac:Item><cbc:Name>Örnek Ürün A</cbc:Name><cac:SellersItemIdentification><cbc:ID>STK-001</cbc:ID></cac:SellersItemIdentification></cac:Item>
+            <cac:Item><cbc:Description>Örnek Ürün A açıklaması</cbc:Description><cbc:Name>Örnek Ürün A</cbc:Name><cac:SellersItemIdentification><cbc:ID>STK-001</cbc:ID></cac:SellersItemIdentification></cac:Item>
           </cac:DespatchLine>
           <cac:DespatchLine>
             <cbc:ID>2</cbc:ID>
             <cbc:DeliveredQuantity unitCode="KGM">15.5</cbc:DeliveredQuantity>
             <cac:OrderLineReference><cbc:LineID>2</cbc:LineID></cac:OrderLineReference>
-            <cac:Item><cbc:Name>Örnek Ürün C</cbc:Name><cac:SellersItemIdentification><cbc:ID>STK-003</cbc:ID></cac:SellersItemIdentification></cac:Item>
+            <cac:Item><cbc:Description>Örnek Ürün C açıklaması</cbc:Description><cbc:Name>Örnek Ürün C</cbc:Name><cac:SellersItemIdentification><cbc:ID>STK-003</cbc:ID></cac:SellersItemIdentification></cac:Item>
           </cac:DespatchLine>
         </DespatchAdvice>
         """;

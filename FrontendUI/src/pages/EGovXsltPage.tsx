@@ -265,13 +265,14 @@ export const EGovXsltPage: React.FC<{ onBack: () => void }> = ({ onBack }) => {
           </button>
         </div>
         <p className="mt-1 text-[10px] text-slate-400">
-          .xslt / .xsl · en fazla 5 MB · yüklenirken derlenerek doğrulanır. Script ve dış dosya erişimi kullanan tasarımlar kabul edilmez.
+          .xslt / .xsl · en fazla 5 MB · yüklenirken derlenerek doğrulanır. XSLT içinde msxsl:script ve dış dosya erişimi kabul edilmez; önizleme yalıtılmış çerçevede çalışır.
         </p>
       </section>
 
-      <div className="grid grid-cols-1 xl:grid-cols-[minmax(0,1fr)_minmax(0,1fr)] gap-3">
+      {/* Tasarımlar A4 genişliğinde: liste üstte, önizleme altta tam genişlik */}
+      <div className="space-y-3">
         {/* Liste */}
-        <section className="rounded-sm border border-slate-300 bg-white dark:bg-slate-900 overflow-hidden self-start">
+        <section className="rounded-sm border border-slate-300 bg-white dark:bg-slate-900 overflow-hidden">
           <div className="flex items-center justify-between px-2.5 py-1.5 bg-slate-50 border-b border-slate-300">
             <span className="text-[12px] font-semibold text-slate-700">{kindLabel} tasarımları</span>
             <button type="button" onClick={() => void load()} className="inline-flex items-center gap-1 text-[11px] text-slate-600 hover:text-slate-900">
@@ -393,7 +394,7 @@ export const EGovXsltPage: React.FC<{ onBack: () => void }> = ({ onBack }) => {
         </section>
 
         {/* Önizleme */}
-        <section className="rounded-sm border border-slate-300 bg-white dark:bg-slate-900 flex flex-col min-h-[560px]">
+        <section className="rounded-sm border border-slate-300 bg-white dark:bg-slate-900 flex flex-col h-[1000px]">
           <div className="flex flex-wrap items-center justify-between gap-2 px-2.5 py-1.5 bg-slate-50 border-b border-slate-300">
             <span className="text-[12px] font-semibold text-slate-700">
               Önizleme{previewId ? ` · ${rows.find((r) => r.eGovXsltTemplateID === previewId)?.title ?? ''}` : ''}
@@ -420,8 +421,9 @@ export const EGovXsltPage: React.FC<{ onBack: () => void }> = ({ onBack }) => {
             {previewError ? (
               <div className="m-3 rounded-sm border border-red-200 bg-red-50 px-2.5 py-1.5 text-[12px] text-red-700">{previewError}</div>
             ) : previewHtml != null ? (
-              // sandbox="" → tasarımdaki script'ler çalışmaz, uygulama kökenine erişemez
-              <iframe title="XSLT önizleme" sandbox="" srcDoc={previewHtml} className="absolute inset-0 w-full h-full bg-white" />
+              // allow-scripts (QR kod çizimi için) ama allow-same-origin YOK → script ayrı/opak kökende çalışır,
+              // uygulama sayfasına, çerezlere ve depolamaya erişemez; yönlendirme ve açılır pencere de kapalı
+              <iframe title="XSLT önizleme" sandbox="allow-scripts" srcDoc={previewHtml} className="absolute inset-0 w-full h-full bg-white" />
             ) : (
               <div className="absolute inset-0 flex flex-col items-center justify-center gap-1 text-[12px] text-slate-400">
                 <FileUp className="w-6 h-6" />

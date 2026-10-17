@@ -123,8 +123,8 @@ public sealed class EGovXsltController : ControllerBase
         try
         {
             var html = EGovXsltService.Transform(t.XsltContent, xml);
-            // Yüklenen tasarımın ürettiği HTML uygulama kökeninde script çalıştıramasın
-            Response.Headers["Content-Security-Policy"] = "sandbox";
+            // Doğrudan açılırsa da opak kökende çalışsın: QR kod script'i çalışır, uygulama kökenine erişemez
+            Response.Headers["Content-Security-Policy"] = "sandbox allow-scripts";
             return Content(html, "text/html; charset=utf-8");
         }
         catch (Exception ex)
