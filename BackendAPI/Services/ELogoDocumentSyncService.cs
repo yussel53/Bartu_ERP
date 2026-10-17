@@ -329,14 +329,11 @@ public sealed class ELogoDocumentSyncService
         if (string.IsNullOrWhiteSpace(url))
             return "https://pb.elogo.com.tr/PostBoxService.svc";
 
+        // EdocumentService (gönderim) ve connect.elogo PostBox adresi liste/PDF için çalışmaz:
+        // connect.elogo.com.tr/services/PostBoxService.svc → 302/404. Prod PostBox: pb.elogo.com.tr
         if (url.Contains("EdocumentService", StringComparison.OrdinalIgnoreCase)
-            || url.Contains("EDocumentService", StringComparison.OrdinalIgnoreCase))
-        {
-            // connect.elogo.com.tr → PostBox adayları; prod pb.elogo tercih
-            if (url.Contains("connect.elogo.com.tr", StringComparison.OrdinalIgnoreCase))
-                return "https://connect.elogo.com.tr/services/PostBoxService.svc";
+            || url.Contains("connect.elogo.com.tr", StringComparison.OrdinalIgnoreCase))
             return "https://pb.elogo.com.tr/PostBoxService.svc";
-        }
 
         return url;
     }
