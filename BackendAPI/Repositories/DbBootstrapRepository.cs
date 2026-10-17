@@ -370,6 +370,8 @@ END";
         try
         {
             var sql = await File.ReadAllTextAsync(path, Encoding.UTF8, ct);
+            // Script icindeki USE [xxx] satirlari atlanir — baglanti zaten secili DB'ye acik
+            sql = Regex.Replace(sql, @"^\s*USE\s+\[?[^\]\r\n]+\]?\s*;?\s*$", "", RegexOptions.Multiline | RegexOptions.IgnoreCase);
             await using var conn = new SqlConnection(settings.BuildConnectionString());
             await conn.OpenAsync(ct);
 
