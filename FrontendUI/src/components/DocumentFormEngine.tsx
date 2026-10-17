@@ -1611,17 +1611,23 @@ export const DocumentFormEngine: React.FC<DocumentFormEngineProps> = ({
               <InlineColsContext.Provider value={3}>
               <section className="rounded-sm border border-slate-300 dark:border-slate-600 bg-slate-50/70 dark:bg-slate-800/30 px-3 py-2 shrink-0">
                 <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-x-6 gap-y-[5px] max-w-[1320px]">
-                  {/* 1: Cari → Adres → Ödeme planı · muhasebede Fiş tipi / yevmiye */}
-                  <div className="space-y-[5px] min-w-0">
-                    {tradeParts.headerParty.map((f) => renderTradeField(f))}
-                    {renderDocMeta(tradeParts.headerDocMeta, tradeParts.headerAuth)}
-                  </div>
-
-                  {/* 2: Firma → İşyeri → Ambar → Bölüm → Birim */}
-                  <div className="space-y-[5px] min-w-0">
-                    {tradeParts.headerOrgMain.map((f) => renderTradeField(f))}
-                    {tradeParts.headerOrgSide.map((f) => renderTradeField(f))}
-                  </div>
+                  {(() => {
+                    // Sol iki sütun: Cari / fiş tipi / firma–işyeri–ambar–bölüm–birim sırası korunarak
+                    // eşit bölünür → başlık hiçbir fişte uzun bir sütun halinde aşağı uzamaz.
+                    const left: React.ReactNode[] = [
+                      ...tradeParts.headerParty.map((f) => renderTradeField(f)),
+                      ...renderDocMeta(tradeParts.headerDocMeta, tradeParts.headerAuth),
+                      ...tradeParts.headerOrgMain.map((f) => renderTradeField(f)),
+                      ...tradeParts.headerOrgSide.map((f) => renderTradeField(f)),
+                    ];
+                    const half = Math.ceil(left.length / 2);
+                    return (
+                      <>
+                        <div className="space-y-[5px] min-w-0">{left.slice(0, half)}</div>
+                        <div className="space-y-[5px] min-w-0">{left.slice(half)}</div>
+                      </>
+                    );
+                  })()}
 
                   {/* 3: Belge No → Tarih → Durum → Yetki */}
                   <div className="space-y-[5px] min-w-0">
