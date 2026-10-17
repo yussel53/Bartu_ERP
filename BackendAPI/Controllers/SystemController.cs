@@ -2,6 +2,8 @@ using System.Data;
 using System.Globalization;
 using System.Text.RegularExpressions;
 using Dapper;
+using BartuERP.Backend.Repositories;
+using BartuERP.Backend.Services;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 
@@ -13,6 +15,8 @@ public sealed class SystemInfoDto
     public string Culture { get; set; } = "tr-TR";
     /** setting | os */
     public string DateFormatSource { get; set; } = "os";
+    /** Çalışan sürüm: numara, git commit, derleme zamanı */
+    public AppVersionInfo? Version { get; set; }
 }
 
 /// <summary>
@@ -46,7 +50,74 @@ public sealed class SystemController : ControllerBase
             DateFormat = normalized,
             Culture = culture.Name,
             DateFormatSource = !string.IsNullOrWhiteSpace(fromSetting) ? "setting" : "os",
+            Version = AppUpdateService.CurrentVersion(),
         });
+    }
+
+    // ── Güncelleme / yedek / uyarılar (yönetici) ─────────────────────────
+
+    /// <summary>Yönetici bandı: yeni sürüm hazır mı, bekleyen SQL scripti var mı</summary>
+    [Authorize(Policy = AuthClaims.AdminPolicy)]
+    [HttpGet("notices")]
+    public async Task<IActionResult> Notices(
+        [FromServices] AppUpdateService update,
+        [FromServices] DbUpdateRepository dbUpdates,
+        CancellationToken ct)
+    {
+        var u = update.Status();
+        int pending = 0;
+        try
+        {
+            pending = (await dbUpdates.GetStatusAsync(ct)).PendingCount;
+        }
+        catch
+        {
+            // durum okunamazsa bant yalnız sürümü gösterir
+        }
+        return Ok(new
+        {
+            updateAvailable = u.UpdateAvailable,
+            canApply = u.CanApply,
+            updateMessage = u.Message,
+            stagingBuildTime = u.Staging?.BuildTime,
+            pendingSql = pending,
+        });
+    }
+
+    [Authorize(Policy = AuthClaims.AdminPolicy)]
+    [HttpGet("update")]
+    public IActionResult UpdateStatus([FromServices] AppUpdateService update) => Ok(update.Status());
+
+    /// <summary>Yeni sürümü yükle — servis birkaç saniye içinde yeniden başlar</summary>
+    [Authorize(Policy = AuthClaims.AdminPolicy)]
+    [HttpPost("update/apply")]
+    public IActionResult UpdateApply([FromServices] AppUpdateService update)
+    {
+        var (ok, message) = update.Apply(User.Identity?.Name);
+        return ok ? Ok(new { success = true, message }) : BadRequest(new { success = false, message });
+    }
+
+    [Authorize(Policy = AuthClaims.AdminPolicy)]
+    [HttpGet("backup")]
+    public async Task<IActionResult> BackupList([FromServices] DbBackupService backup, CancellationToken ct)
+    {
+        try
+        {
+            var (folder, files) = await backup.ListAsync(ct);
+            return Ok(new { folder, files });
+        }
+        catch (Exception ex)
+        {
+            return StatusCode(500, new { message = ex.Message });
+        }
+    }
+
+    [Authorize(Policy = AuthClaims.AdminPolicy)]
+    [HttpPost("backup")]
+    public async Task<IActionResult> BackupNow([FromServices] DbBackupService backup, CancellationToken ct)
+    {
+        var r = await backup.BackupAsync("elle", ct);
+        return r.Ok ? Ok(r) : BadRequest(r);
     }
 
     private async Task<string?> TryGetSettingDateFormatAsync(CancellationToken ct)

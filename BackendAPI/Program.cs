@@ -19,6 +19,10 @@ builder.Services.AddControllers(o =>
 
 // Giriş (JWT): erişim anahtarı HttpOnly çerezde (bartu_at) veya "Authorization: Bearer"; tüm uçlar varsayılan olarak yetki ister
 builder.Services.AddScoped<AuthService>();
+// Uygulama içinden güncelleme (iis-site-staging → servis) + veritabanı yedeği (gece 02:00 ve SQL öncesi)
+builder.Services.AddSingleton<AppUpdateService>();
+builder.Services.AddScoped<DbBackupService>();
+builder.Services.AddHostedService<DbBackupJob>();
 builder.Services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
     .AddJwtBearer(o =>
     {

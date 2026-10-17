@@ -26,6 +26,24 @@ import { exitApp } from '../utils/exitApp';
 import { useAppModules } from '../contexts/AppModulesContext';
 import { useAuth } from './AuthGate';
 import { appConfirm } from '../utils/appConfirm';
+import { SystemNoticeBanner } from './SystemNoticeBanner';
+import { getLoadedSystemInfo } from '../api/systemApi';
+
+/** Çalışan sürüm: numara · commit · derleme zamanı */
+const VersionLine: React.FC = () => {
+  const v = getLoadedSystemInfo()?.version;
+  if (!v) return null;
+  const built = v.buildTime
+    ? new Date(v.buildTime).toLocaleString('tr-TR', { day: '2-digit', month: '2-digit', year: '2-digit', hour: '2-digit', minute: '2-digit' })
+    : '';
+  return (
+    <div className="px-2 pt-1 text-[9px] text-slate-400 truncate" title={`Sürüm ${v.version} · ${v.commit ?? ''} · ${built}`}>
+      v{v.version}
+      {v.commit ? ` · ${v.commit}` : ''}
+      {built ? ` · ${built}` : ''}
+    </div>
+  );
+};
 
 /** Oturumdaki kullanıcı: ad, şifre değiştir, oturumu kapat */
 const UserBlock: React.FC = () => {
@@ -334,6 +352,7 @@ export const AppShell: React.FC<AppShellProps> = ({ currentPath, onNavigate, chi
             <LogOut className="w-3.5 h-3.5 shrink-0" />
             Çıkış
           </button>
+          <VersionLine />
         </div>
       </aside>
 
@@ -356,7 +375,10 @@ export const AppShell: React.FC<AppShellProps> = ({ currentPath, onNavigate, chi
             <LogOut className="w-4 h-4" />
           </button>
         </header>
-        <main className="flex-1 p-2 sm:p-3 lg:p-4">{children}</main>
+        <main className="flex-1 p-2 sm:p-3 lg:p-4">
+          <SystemNoticeBanner />
+          {children}
+        </main>
       </div>
     </div>
   );

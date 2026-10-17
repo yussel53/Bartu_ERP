@@ -13,6 +13,7 @@ import {
 import { apiJson, ApiError } from '../config/api';
 import { DbSettingsFormPanel, DbSettingsForm } from '../components/DbSettingsFormPanel';
 import { appConfirm } from '../utils/appConfirm';
+import { SystemMaintenancePanel } from '../components/SystemMaintenancePanel';
 
 export type DbAdminTab = 'connection' | 'create' | 'updates';
 
@@ -543,6 +544,7 @@ export const DatabaseAdminPage: React.FC<Props> = ({ onBack, initialTab = 'conne
 
       {tab === 'updates' && (
         <div className="space-y-4">
+          <SystemMaintenancePanel />
           <div className="flex items-start justify-between gap-3">
             <p className="text-[12px] text-slate-500">
               Numaralı scriptler: <code className="text-[11px] bg-slate-100 px-1 rounded">SqlUpdates/01_xxx.sql</code>
