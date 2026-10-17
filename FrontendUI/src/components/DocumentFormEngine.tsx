@@ -27,6 +27,7 @@ import {
   parsePastedDate,
 } from '../utils/linePaste';
 import { lookupSourceForField } from '../api/lookupApi';
+import { resolveBarcode } from '../api/barcodesApi';
 import { getCurrentProfile, getCurrentUserId } from '../data/permissions';
 import { ORG_COMPANIES, ORG_WORKPLACES, ORG_WAREHOUSES } from '../data/orgUnits';
 import { attachNoMinusHandlers } from '../utils/noMinusInput';
@@ -610,6 +611,42 @@ export const DocumentFormEngine: React.FC<DocumentFormEngineProps> = ({
     name: 'lines',
   });
 
+  // ── Barkod okutma: malzeme satıra, birim barkodunda miktar barkoddan ──
+  const [scanText, setScanText] = React.useState('');
+  const scanProductField = (schema.lineFields || []).find((f) =>
+    ['ItemsID', 'ProductCardID'].includes(f.fieldName),
+  )?.fieldName;
+  const handleScan = React.useCallback(async () => {
+    const code = scanText.trim();
+    if (!code || !scanProductField) return;
+    setScanText('');
+    try {
+      const r = await resolveBarcode(code);
+      if (!r.found) {
+        setPasteMsg({ kind: 'warn', text: `Barkod bulunamadı: ${code}` });
+        return;
+      }
+      const lines = (getValues('lines') as Record<string, unknown>[] | undefined) || [];
+      let idx = lines.findIndex((l) => !String((l || {})[scanProductField] ?? '').trim());
+      if (idx === -1) {
+        idx = lines.length;
+        append({});
+        await new Promise((res) => window.setTimeout(res, 0));
+      }
+      setValue(`lines.${idx}.${scanProductField}`, String(r.productCardID), { shouldDirty: true });
+      // Malzeme seçimi birim / fiyat varsayılanını doldurduktan sonra miktarı yaz
+      await new Promise((res) => window.setTimeout(res, 500));
+      setValue(`lines.${idx}.Quantity`, r.quantity ?? 1, { shouldDirty: true });
+      setPasteMsg({
+        kind: 'ok',
+        text: `${code} → ${r.productCode ?? ''} ${r.productTitle ?? ''}`.trim() +
+          (r.quantity != null ? ` · miktar ${r.quantity.toLocaleString('tr-TR')} (birim barkodu)` : ''),
+      });
+    } catch (e) {
+      setPasteMsg({ kind: 'warn', text: e instanceof Error ? e.message : 'Barkod okunamadı' });
+    }
+  }, [scanText, scanProductField, getValues, append, setValue]);
+
   // ── Excel'den kalem yapıştırma ─────────────────────────────────────
   const [pasteMsg, setPasteMsg] = React.useState<{ kind: 'ok' | 'warn'; text: string } | null>(null);
   const [pasteOpen, setPasteOpen] = React.useState(false);
@@ -647,9 +684,12 @@ export const DocumentFormEngine: React.FC<DocumentFormEngineProps> = ({
       const notFound = new Set<string>();
       const late: { path: string; value: unknown }[] = [];
       let written = 0;
+      const qtyField = cols.find((f) => f.fieldName === 'Quantity');
 
       for (let r = 0; r < grid.length; r++) {
         const rowIdx = startRow + r;
+        const rowFields = grid[r].map((_, c) => (header ? header[c] : cols[startCol + c])?.fieldName);
+        const qtyPasted = rowFields.includes('Quantity') && grid[r][rowFields.indexOf('Quantity')] !== '';
         for (let c = 0; c < grid[r].length; c++) {
           const field = header ? header[c] : cols[startCol + c];
           if (!field || field.isReadOnly || PASTE_SKIP.has(field.fieldName)) continue;
@@ -666,6 +706,11 @@ export const DocumentFormEngine: React.FC<DocumentFormEngineProps> = ({
               continue;
             }
             value = id;
+            // Birim barkodu: miktar barkodun içinde (satırda ayrıca miktar yoksa)
+            const bq = resolve.barcodeQty.get(raw.trim());
+            if (bq != null && qtyField && !qtyPasted) {
+              late.push({ path: `lines.${rowIdx}.Quantity`, value: bq });
+            }
           } else if (field.fieldType === 'number') {
             const n = parseLocaleNumber(raw);
             if (n == null) continue;
@@ -1351,7 +1396,22 @@ export const DocumentFormEngine: React.FC<DocumentFormEngineProps> = ({
           </h3>
           {!readOnly && (
             <div className="flex items-center gap-1.5">
-              <span className="hidden lg:inline text-[10px] text-slate-400">
+              {scanProductField && (
+                <input
+                  value={scanText}
+                  onChange={(e) => setScanText(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter') {
+                      e.preventDefault();
+                      void handleScan();
+                    }
+                  }}
+                  placeholder="Barkod okut + Enter"
+                  title="Barkod okutun: malzeme satıra eklenir; birim barkodunda (27000000500) miktar barkoddan okunur"
+                  className="w-40 h-6 px-1.5 text-[11px] rounded-sm border border-slate-300 bg-white dark:bg-slate-900 outline-none focus:border-blue-500"
+                />
+              )}
+              <span className="hidden xl:inline text-[10px] text-slate-400">
                 İpucu: Excel'den kopyalayıp bir hücreye tıklayıp Ctrl+V
               </span>
               <button

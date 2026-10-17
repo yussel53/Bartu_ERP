@@ -8,6 +8,7 @@ import { FormFieldDto } from '../types/formTypes';
 import { listRecords } from '../api/recordsApi';
 import { loadLookupOptions, lookupSourceForField, LookupOption } from '../api/lookupApi';
 import { displayToIso } from './dateFormat';
+import { resolveBarcode } from '../api/barcodesApi';
 
 /** Panodaki tabloyu hücrelere böl (Excel: \t ve \r\n; tırnaklı hücre içi satır sonu desteklenir) */
 export function parseClipboardGrid(text: string): string[][] {
@@ -124,7 +125,9 @@ function optionTitle(o: LookupOption): string {
 /** Lookup alanında koddan / addan / barkoddan kayıt ID'si (bulunamazsa null) — sonuçlar önbelleğe alınır */
 export function createLookupResolver() {
   const cache = new Map<string, Promise<string | null>>();
-  return (fieldName: string, text: string): Promise<string | null> => {
+  /** Birim barkodundan okunan miktarlar (metin → miktar) */
+  const barcodeQty = new Map<string, number>();
+  const resolve = (fieldName: string, text: string): Promise<string | null> => {
     const key = `${fieldName}|${text.toLocaleLowerCase('tr-TR')}`;
     const hit = cache.get(key);
     if (hit) return hit;
@@ -156,17 +159,14 @@ export function createLookupResolver() {
           /* yoksay */
         }
       }
-      // Malzeme: barkod
+      // Malzeme: barkod (birim barkodunda miktar da okunur: 27000000500 → 500)
       if (PRODUCT_FIELDS.has(fieldName)) {
         try {
-          const res = await listRecords('ProductBarcode', {
-            pk: 'ProductBarcodeID',
-            filterColumn: 'Barcode',
-            filterValue: want,
-            take: 2,
-          });
-          const row = (res.rows as Record<string, unknown>[])[0];
-          if (row && row.ProductCardID != null) return String(row.ProductCardID);
+          const r = await resolveBarcode(want);
+          if (r.found) {
+            if (r.quantity != null) barcodeQty.set(want, r.quantity);
+            return String(r.productCardID);
+          }
         } catch {
           /* yoksay */
         }
@@ -176,6 +176,7 @@ export function createLookupResolver() {
     cache.set(key, p);
     return p;
   };
+  return Object.assign(resolve, { barcodeQty });
 }
 
 /** Basit select: değer veya etiketle eşle («1 — Satış», «Satış», «1») */

@@ -23,17 +23,20 @@ public sealed class RecordsController : ControllerBase
     private readonly PostSaveRepository _postSave;
     private readonly ProcessRepository _process;
     private readonly CustomerKindRepository _customerKind;
+    private readonly BarcodeRepository _barcodes;
 
     public RecordsController(
         RecordsRepository repo,
         PostSaveRepository postSave,
         ProcessRepository process,
-        CustomerKindRepository customerKind)
+        CustomerKindRepository customerKind,
+        BarcodeRepository barcodes)
     {
         _repo = repo;
         _postSave = postSave;
         _process = process;
         _customerKind = customerKind;
+        _barcodes = barcodes;
     }
 
     [HttpGet("{tableName}")]
@@ -98,7 +101,27 @@ public sealed class RecordsController : ControllerBase
     {
         try
         {
+            // Malzeme barkodu benzersizdir (SqlUpdates/77) — kayıttan önce anlaşılır mesajla reddet
+            var barcodeRows = tableName.Equals("ProductCard", StringComparison.OrdinalIgnoreCase)
+                ? body.Barcodes
+                : tableName.Equals("ProductBarcode", StringComparison.OrdinalIgnoreCase) && body.StandardFields != null
+                    ? new List<Dictionary<string, object?>> { body.StandardFields }
+                    : null;
+            if (barcodeRows is { Count: > 0 })
+            {
+                var productId = tableName.Equals("ProductCard", StringComparison.OrdinalIgnoreCase)
+                    ? body.RecordId
+                    : int.TryParse(Convert.ToString(body.StandardFields!.FirstOrDefault(kv =>
+                        kv.Key.Equals("ProductCardID", StringComparison.OrdinalIgnoreCase)).Value), out var pcid) ? pcid : 0;
+                var conflicts = await _barcodes.ValidateAsync(productId, barcodeRows);
+                if (conflicts.Count > 0)
+                    return BadRequest(new { success = false, message = BarcodeRepository.Describe(conflicts), barcodeConflicts = conflicts });
+            }
+
             var (ok, id, message) = await _repo.SaveAsync(tableName, pk, body, ct);
+            // Veritabanı tetikleyicisi (TR_ProductBarcode_Unique, hata 51077) — eşzamanlı kayıtta son güvence
+            if (!ok && message != null && message.Contains("TR_ProductBarcode_Unique", StringComparison.OrdinalIgnoreCase))
+                message = "Barkod benzersiz olmalı — girilen barkod başka bir malzemede kayıtlı.";
             if (!ok) return BadRequest(new { success = false, message, recordId = id });
 
             var actions = new List<PostSaveActionDto>();

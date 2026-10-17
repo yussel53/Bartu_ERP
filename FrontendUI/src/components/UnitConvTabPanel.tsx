@@ -13,6 +13,7 @@ import { ArrowLeftRight, Barcode, MapPinned, Plus, Ruler, Trash2 } from 'lucide-
 import { FormFieldDto } from '../types/formTypes';
 import { FieldRenderer } from './FieldRenderer';
 import { parseUnitSelectOptions, unitLabel } from '../data/productUnitConvs';
+import { BarcodeConflict, checkBarcodes } from '../api/barcodesApi';
 
 interface UnitConvTabPanelProps {
   control: Control<FieldValues>;
@@ -24,6 +25,8 @@ interface UnitConvTabPanelProps {
   unitConvFields: FormFieldDto[];
   barcodeFields: FormFieldDto[];
   defaultUnitId: unknown;
+  /** Kaydedilen malzeme (yeni kartta 0) — barkod benzersizlik kontrolünde kendi barkodları hariç tutulur */
+  productId?: number;
 }
 
 const CONV_FIELDS = new Set(['UnitID', 'MainQty', 'UnitQty']);
@@ -157,11 +160,34 @@ export const UnitConvTabPanel: React.FC<UnitConvTabPanelProps> = ({
   unitConvFields,
   barcodeFields,
   defaultUnitId,
+  productId = 0,
 }) => {
   const { fields, append, remove } = useFieldArray({
     control,
     name: 'unitConvs',
   });
+
+  // Barkod benzersizdir: girilen barkodları kaydetmeden kontrol et (başka malzemede / bu kartta tekrar)
+  const allBarcodes = ((watch('unitConvs') as { barcodes?: Record<string, unknown>[] }[] | undefined) || [])
+    .flatMap((u) => u.barcodes || [])
+    .filter((b) => String(b?.Barcode ?? '').trim() !== '');
+  const barcodeKey = JSON.stringify(
+    allBarcodes.map((b) => [String(b.Barcode).trim(), b.Type, b.QtyDigits, b.HasCheckDigit]),
+  );
+  const [conflicts, setConflicts] = React.useState<BarcodeConflict[]>([]);
+  React.useEffect(() => {
+    if (readOnly || allBarcodes.length === 0) {
+      setConflicts([]);
+      return;
+    }
+    const t = window.setTimeout(() => {
+      void checkBarcodes(productId, allBarcodes)
+        .then(setConflicts)
+        .catch(() => setConflicts([]));
+    }, 500);
+    return () => window.clearTimeout(t);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [barcodeKey, productId, readOnly]);
 
   const [selected, setSelected] = React.useState(0);
   const mainId = String(defaultUnitId ?? '').trim();
@@ -241,6 +267,19 @@ export const UnitConvTabPanel: React.FC<UnitConvTabPanelProps> = ({
 
   return (
     <div className="space-y-2">
+      {conflicts.length > 0 && (
+        <div className="rounded-sm border border-red-300 bg-red-50 px-2.5 py-1.5 text-[11px] text-red-700">
+          <b>Barkod benzersiz olmalı — bu kart kaydedilemez:</b>
+          <ul className="mt-0.5 list-disc pl-4">
+            {conflicts.map((c, i) => (
+              <li key={i}>
+                <b>{c.barcode}</b> · {c.reason}
+                {c.productCode ? ` (${c.productCode} ${c.productTitle ?? ''})` : ''}
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
       <div className="flex items-start justify-between gap-2">
         <div>
           <h3 className="text-[13px] font-semibold text-slate-700 dark:text-slate-200 flex items-center gap-1.5">

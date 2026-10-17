@@ -1370,6 +1370,7 @@ export const DynamicFormEngine: React.FC<DynamicFormEngineProps> = ({
             unitConvFields={schema.unitConvFields}
             barcodeFields={schema.barcodeFields}
             defaultUnitId={watchedDefaultUnitId}
+            productId={Number(initialData?.recordId) || 0}
           />
         )}
 
