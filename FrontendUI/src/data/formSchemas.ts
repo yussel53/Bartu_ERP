@@ -2640,6 +2640,7 @@ FORM_SCHEMAS.SalesInvoiceForm = invoiceModuleSchema(
   [
     { label: 'Satış Faturası', value: InvoiceType.Satis },
     { label: 'Satış İade Faturası', value: InvoiceType.SatisIade },
+    { label: 'Satış Fiyat Farkı Faturası (Alınan)', value: InvoiceType.SatisFiyatFarki },
   ],
   InvoiceType.Satis,
 );
@@ -2650,6 +2651,8 @@ FORM_SCHEMAS.PurchaseInvoiceForm = invoiceModuleSchema(
   [
     { label: 'Alış Faturası', value: InvoiceType.Alis },
     { label: 'Alış İade Faturası', value: InvoiceType.AlisIade },
+    { label: 'Alınan Hizmet Faturası', value: InvoiceType.AlinanHizmet },
+    { label: 'Satınalma Fiyat Farkı Faturası', value: InvoiceType.AlisFiyatFarki },
   ],
   InvoiceType.Alis,
 );

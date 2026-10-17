@@ -188,7 +188,7 @@ ORDER BY p.CreatedAt DESC, p.ProductPriceID DESC",
         // Fatura satırları (ProductTrans.InvoiceID)
         if (await TableExistsAsync("ProductTrans", ct) && await TableExistsAsync("Invoice", ct))
         {
-            var invTypes = sales ? "1" : "2"; // 1 satış / 2 alış (iade hariç)
+            var invTypes = sales ? "1" : "2, 5"; // 1 satış / 2 alış + 5 alınan hizmet (iade, fiyat farkı hariç)
             var inv = await _db.QueryAsync<HistoryRow>(new CommandDefinition(
                 $@"
 SELECT TOP 1

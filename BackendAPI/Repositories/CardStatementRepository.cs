@@ -110,6 +110,7 @@ public sealed class CardStatementRepository
     private static readonly Dictionary<int, string> InvoiceTypes = new()
     {
         [1] = "Satış Faturası", [2] = "Alış Faturası", [3] = "Satış İade Faturası", [4] = "Alış İade Faturası",
+        [5] = "Alınan Hizmet Faturası", [6] = "Satınalma Fiyat Farkı Faturası", [7] = "Satış Fiyat Farkı Faturası",
     };
 
     private static readonly Dictionary<int, string> OrderTypes = new()
@@ -578,7 +579,7 @@ SELECT
   CAST(i.[{invType}] AS int) AS TypeCode,
   CAST(i.Description AS nvarchar(max)) AS Description,
   CASE WHEN i.[{invType}] IN (1,4) THEN ISNULL(s.Tot, 0) ELSE 0 END AS Debit,
-  CASE WHEN i.[{invType}] IN (2,3) THEN ISNULL(s.Tot, 0) ELSE 0 END AS Credit,
+  CASE WHEN i.[{invType}] IN (2,3,5,6,7) THEN ISNULL(s.Tot, 0) ELSE 0 END AS Credit,
   s.Tot AS Amount,
   i.InvoiceID AS SourceId,
   i.CustomerID AS CustId
@@ -1236,7 +1237,7 @@ WHERE t.ProductCardID = @id AND p.CustomerID IS NOT NULL AND ISNULL(p.Status_, 1
         var invType = await InvoiceTypeColAsync(ct);
         if (invType != null && await HasColAsync("ProductTrans", "InvoiceID", ct) && await HasColAsync("Invoice", "CustomerID", ct))
             parts.Add($@"
-SELECT i.CustomerID, CASE WHEN i.[{invType}] = 1 THEN 1 ELSE 0 END, CASE WHEN i.[{invType}] = 2 THEN 1 ELSE 0 END,
+SELECT i.CustomerID, CASE WHEN i.[{invType}] = 1 THEN 1 ELSE 0 END, CASE WHEN i.[{invType}] IN (2, 5) THEN 1 ELSE 0 END,
   {qty}, CAST(ISNULL(t.TotalPrice, 0) AS float)
 FROM dbo.ProductTrans t INNER JOIN dbo.Invoice i ON i.InvoiceID = t.InvoiceID
 WHERE t.ProductCardID = @id AND t.ProductVoucherID IS NULL AND i.CustomerID IS NOT NULL");
