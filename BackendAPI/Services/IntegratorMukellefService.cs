@@ -80,9 +80,9 @@ public sealed class IntegratorMukellefService
             return result;
         }
 
-        var url = string.IsNullOrWhiteSpace(req.IntegratorWsUrl)
-            ? "https://pb.elogo.com.tr/PostBoxService.svc"
-            : req.IntegratorWsUrl!.Trim();
+        // Firma kartındaki WS URL çoğunlukla EDocumentService (connect.elogo) — o servis IPostBoxService
+        // sözleşmesini kabul etmez (ActionNotSupported). Belge çekmedeki gibi PostBox adresine çevrilir.
+        var url = ELogoDocumentSyncService.ResolvePostBoxUrl(req.IntegratorWsUrl);
 
         var client = _httpFactory.CreateClient("IntegratorEFatura");
         string? sessionId = null;

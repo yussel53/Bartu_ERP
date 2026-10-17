@@ -44,6 +44,7 @@ import {
 import { PriceType } from '../data/documentTypes';
 import { FormFieldContext, InlineFieldGrid } from './FormFieldContext';
 import { EinvoiceMukellefCheck } from './EinvoiceMukellefCheck';
+import { useEInvoiceIntegrator } from '../hooks/useEInvoiceIntegrator';
 import { PostSaveHelpButton } from './PostSaveHelpButton';
 import { useOrgFieldCascade } from '../hooks/useOrgFieldCascade';
 import { defaultAuxilValueRow, AUXIL_VALUE_KIND } from '../data/auxilCodes';
@@ -540,6 +541,9 @@ export const DynamicFormEngine: React.FC<DynamicFormEngineProps> = ({
       companyRecordId,
     ],
   );
+
+  // Cari kart adres mükellef kontrolü: firma entegratörü (e-Logo PostBox), yoksa yerel / GİB listesi
+  const cardIntegrator = useEInvoiceIntegrator(schema.tableName === 'CustomerCard');
 
   const workplaceCodeOptionsJson = React.useMemo(() => {
     const rows = watchedWorkplaces || [];
@@ -1132,6 +1136,7 @@ export const DynamicFormEngine: React.FC<DynamicFormEngineProps> = ({
                                         watchedCardTaxNr ||
                                         '',
                                     )}
+                                    integrator={cardIntegrator}
                                     disabled={readOnly}
                                     onApplied={({ postLabel, senderLabel, title, unitType, status, entryDate }) => {
                                       if (entryDate && hasEinvoiceEntryDate && !String(watch('standardFields.EinvoiceEntryDate') || '').trim()) {
