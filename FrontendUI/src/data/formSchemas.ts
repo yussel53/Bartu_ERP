@@ -2196,6 +2196,7 @@ export const FORM_SCHEMAS: Record<string, FormSchemaDto> = {
       { fieldId: 353, fieldName: 'Rate', label: 'Kur', fieldType: 'number', isRequired: true, colSpan: 2, orderIndex: 4, defaultValue: '1' },
       { fieldId: 354, fieldName: 'IsLocal', label: 'Yerel (TL)', fieldType: 'checkbox', isRequired: false, colSpan: 2, orderIndex: 5 },
       { fieldId: 355, fieldName: 'IsActive', label: 'Aktif', fieldType: 'checkbox', isRequired: false, colSpan: 2, orderIndex: 6 },
+      { fieldId: 356, fieldName: 'AutoRate', label: "TCMB'den otomatik indir", fieldType: 'checkbox', isRequired: false, colSpan: 4, orderIndex: 7 },
     ],
   },
 

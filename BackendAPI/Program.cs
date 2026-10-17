@@ -22,6 +22,14 @@ builder.Services.AddScoped<CardStatementRepository>();
 builder.Services.AddScoped<CustomerKindRepository>();
 builder.Services.AddScoped<CrmOrderRepository>();
 builder.Services.AddScoped<FormLayoutRepository>();
+builder.Services.AddScoped<TcmbRateService>();
+builder.Services.AddHttpClient("Tcmb", client =>
+{
+    client.Timeout = TimeSpan.FromSeconds(20);
+    client.DefaultRequestHeaders.UserAgent.ParseAdd("KaviSoft-ERP/1.0");
+});
+// Günlük TCMB kur indirme (her 30 dk kontrol)
+builder.Services.AddHostedService<CurrencyRateJob>();
 builder.Services.AddScoped<ModuleOverviewRepository>();
 builder.Services.AddScoped<ProductPricesRepository>();
 builder.Services.AddScoped<JournalNumberingRepository>();

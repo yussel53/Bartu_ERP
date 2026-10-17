@@ -1570,6 +1570,13 @@ export const APP_MODULES: AppModule[] = [
               { id: 3, code: 'EUR', title: 'Euro', symbol: '€', rate: '37,2000', local: 'Hayır', status: 'Aktif' },
             ],
           }),
+          {
+            id: 'doviz-kurlari',
+            path: 'sistem/tanimlar/doviz-kurlari',
+            title: 'Döviz Kurları',
+            subtitle: 'TCMB günlük kurlar · SYS_CurrencyRate · otomatik indirilecek dövizler',
+            isCurrencyRates: true,
+          },
           screen({
             id: 'adres',
             path: 'sistem/tanimlar/adres',

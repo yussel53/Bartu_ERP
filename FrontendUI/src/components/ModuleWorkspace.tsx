@@ -2,6 +2,7 @@ import React from 'react';
 import { AppModule, MenuGroup, MenuScreen } from '../types/formTypes';
 import { FormTabs } from './FormTabs';
 import { ModuleListPage } from '../pages/ModuleListPage';
+import { CurrencyRatesPage } from '../pages/CurrencyRatesPage';
 import { ExtraFieldsAdminPage } from '../pages/ExtraFieldsAdminPage';
 import { UserPermissionsPage } from '../pages/UserPermissionsPage';
 import { ExternalEmbedPage } from '../pages/ExternalEmbedPage';
@@ -123,6 +124,9 @@ export const ModuleWorkspace: React.FC<ModuleWorkspaceProps> = ({
           onBack={() => onNavigate(module.path)}
         />
       );
+    }
+    if (activeScreen.isCurrencyRates) {
+      return <CurrencyRatesPage onBack={() => onNavigate(module.path)} />;
     }
     if (activeScreen.isJournalNumbering) {
       return <JournalNumberingPage onBack={() => onNavigate(module.path)} />;
