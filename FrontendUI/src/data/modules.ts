@@ -49,6 +49,8 @@ function egovBox(opts: {
   docKind: number;
   direction: number;
   archived?: boolean;
+  /** Gelen e-fatura onay aşaması (EGOV_GELEN_FATURA_ONAY) */
+  stage?: 'new' | 'pending' | 'approved' | 'saved';
   sampleRows?: Record<string, string | number>[];
 }): MenuScreen {
   const archived = Boolean(opts.archived);
@@ -59,11 +61,11 @@ function egovBox(opts: {
     title: opts.title,
     subtitle: `EGovDocument · DocKind=${opts.docKind} · Direction=${opts.direction} (${dirLabel})${
       archived ? ' · IsArchived=1' : ''
-    }`,
+    }${opts.stage ? ` · Onay: ${opts.stage}` : ''}`,
     formCode: opts.formCode,
     listColumns: egovDocCols,
     sampleRows: opts.sampleRows,
-    egovList: { docKind: opts.docKind, direction: opts.direction, archived },
+    egovList: { docKind: opts.docKind, direction: opts.direction, archived, stage: opts.stage },
   });
 }
 
@@ -1012,6 +1014,7 @@ export const APP_MODULES: AppModule[] = [
             formCode: 'EInvoiceInForm',
             docKind: EGovDocKind.EFatura,
             direction: EGovDirection.Gelen,
+            stage: 'new',
             sampleRows: [
               {
                 id: 1,
@@ -1034,6 +1037,33 @@ export const APP_MODULES: AppModule[] = [
                 status: 'Onaylandı',
               },
             ],
+          }),
+          egovBox({
+            id: 'efatura-onay-bekleyen',
+            path: 'edevlet/e-fatura/onay-bekleyenler',
+            title: 'Onay Bekleyenler',
+            formCode: 'EInvoiceInForm',
+            docKind: EGovDocKind.EFatura,
+            direction: EGovDirection.Gelen,
+            stage: 'pending',
+          }),
+          egovBox({
+            id: 'efatura-onaylanan',
+            path: 'edevlet/e-fatura/onaylananlar',
+            title: 'Onaylananlar',
+            formCode: 'EInvoiceInForm',
+            docKind: EGovDocKind.EFatura,
+            direction: EGovDirection.Gelen,
+            stage: 'approved',
+          }),
+          egovBox({
+            id: 'efatura-kaydedilen',
+            path: 'edevlet/e-fatura/kaydedilenler',
+            title: 'Kaydedilenler',
+            formCode: 'EInvoiceInForm',
+            docKind: EGovDocKind.EFatura,
+            direction: EGovDirection.Gelen,
+            stage: 'saved',
           }),
           egovBox({
             id: 'efatura-giden',

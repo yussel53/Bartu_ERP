@@ -19,7 +19,15 @@ export interface EGovDocumentRow {
   processInstanceID?: number | null;
   hasPdf: boolean;
   hasXml: boolean;
+  /** Gelen e-fatura onay aşaması */
+  approvalStage?: EGovApprovalStage | null;
+  approvalComment?: string | null;
+  pendingTaskID?: number | null;
+  pendingRoleName?: string | null;
 }
+
+/** new · pending · approved · rejected · saved */
+export type EGovApprovalStage = 'new' | 'pending' | 'approved' | 'rejected' | 'saved';
 
 export interface EGovDocumentList {
   total: number;
@@ -37,6 +45,8 @@ export interface EGovDocumentListParams {
   to?: string | null;
   search?: string | null;
   status?: string | null;
+  /** Gelen e-fatura liste aşaması (new = yeni + reddedilen) */
+  stage?: 'new' | 'pending' | 'approved' | 'saved' | null;
   take?: number;
 }
 
@@ -50,6 +60,7 @@ export function listEGovDocuments(p: EGovDocumentListParams): Promise<EGovDocume
   if (p.to) qs.set('to', p.to);
   if (p.search?.trim()) qs.set('search', p.search.trim());
   if (p.status != null) qs.set('status', p.status);
+  if (p.stage) qs.set('stage', p.stage);
   if (p.take) qs.set('take', String(p.take));
   return apiJson<EGovDocumentList>(`/api/egov/documents?${qs.toString()}`);
 }

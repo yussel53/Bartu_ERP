@@ -25,6 +25,7 @@ public sealed class EGovDocumentsController : ControllerBase
         [FromQuery] DateTime? to = null,
         [FromQuery] string? search = null,
         [FromQuery] string? status = null,
+        [FromQuery] string? stage = null,
         [FromQuery] int take = 500,
         CancellationToken ct = default)
     {
@@ -41,6 +42,7 @@ public sealed class EGovDocumentsController : ControllerBase
                 To = to,
                 Search = search,
                 Status = status,
+                Stage = stage,
                 Take = take,
             }, ct));
         }

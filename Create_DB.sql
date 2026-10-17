@@ -639,7 +639,7 @@ CREATE TABLE [dbo].[Invoice](
 	[InvoiceID] [int] NOT NULL,
 	[InvoiceType] [tinyint] NULL,
 	[InvoiceDate] [datetime] NULL,
-	[DocumentNýmber] [nvarchar](50) NULL,
+	[DocumentNumber] [nvarchar](50) NULL,
 	[CompanyID] [int] NULL,
 	[DepartmentID] [int] NULL,
 	[Type_] [tinyint] NULL,
