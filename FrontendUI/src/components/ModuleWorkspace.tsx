@@ -34,10 +34,6 @@ interface ModuleWorkspaceProps {
   overlay?: React.ReactNode;
 }
 
-function flattenScreens(screens: MenuScreen[]): MenuScreen[] {
-  return screens.flatMap((s) => [s, ...(s.children ? flattenScreens(s.children) : [])]);
-}
-
 export function findScreenInModule(
   module: AppModule,
   path: string,

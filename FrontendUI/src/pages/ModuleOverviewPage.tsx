@@ -149,7 +149,7 @@ export const ModuleOverviewPage: React.FC<ModuleOverviewPageProps> = ({
               legend: { display: false },
               tooltip: {
                 callbacks: {
-                  label: (ctx) => {
+                  label: (ctx: { dataIndex: number }) => {
                     const s = data.statusSlices[ctx.dataIndex];
                     return `${s.label}: ${s.count} · ${formatMoneyTr(s.amount)}`;
                   },
@@ -161,7 +161,10 @@ export const ModuleOverviewPage: React.FC<ModuleOverviewPageProps> = ({
           plugins: [
             {
               id: 'centerText',
-              afterDraw(chart) {
+              afterDraw(chart: {
+                ctx: CanvasRenderingContext2D;
+                chartArea?: { left: number; right: number; top: number; bottom: number };
+              }) {
                 const { ctx, chartArea } = chart;
                 if (!chartArea) return;
                 const x = (chartArea.left + chartArea.right) / 2;
@@ -204,7 +207,7 @@ export const ModuleOverviewPage: React.FC<ModuleOverviewPageProps> = ({
               y: {
                 ticks: {
                   font: { size: 10 },
-                  callback: (v) => formatMoneyTr(Number(v)),
+                  callback: (v: string | number) => formatMoneyTr(Number(v)),
                 },
               },
             },

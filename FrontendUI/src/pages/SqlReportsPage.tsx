@@ -37,6 +37,7 @@ import {
   reportToSave,
   runSqlReport,
   updateSqlReport,
+  updateSqlReportMenu,
   type SqlReport,
   type SqlReportFilterDef,
   type SqlReportMenu,

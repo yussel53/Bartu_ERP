@@ -176,12 +176,12 @@ export const DynamicFormEngine: React.FC<DynamicFormEngineProps> = ({
       auxilValues: initialData?.auxilValues?.length ? initialData.auxilValues : [],
       workplaces: initialData?.workplaces?.length
         ? initialData.workplaces
-        : hasWorkplaces && !(initialData?.recordId > 0)
+        : hasWorkplaces && !((initialData?.recordId ?? 0) > 0)
           ? [{ Code: '0', Title: 'Merkez', IsActive: true }]
           : [],
       whouses: initialData?.whouses?.length
         ? initialData.whouses
-        : hasWhouses && !(initialData?.recordId > 0)
+        : hasWhouses && !((initialData?.recordId ?? 0) > 0)
           ? [{ WhouseCode: '0', Name: 'Merkez', WorkplaceCode: '0', IsActive: true }]
           : [],
     },
@@ -603,7 +603,7 @@ export const DynamicFormEngine: React.FC<DynamicFormEngineProps> = ({
         : undefined,
       auxilCodes: hasAuxilCodes
         ? ((data.auxilCodes as Record<string, unknown>[]) || [])
-            .map((row, i) => ({
+            .map((row, i): Record<string, unknown> => ({
               ...row,
               LineNr: Number(row.LineNr) || i + 1,
             }))
@@ -615,7 +615,7 @@ export const DynamicFormEngine: React.FC<DynamicFormEngineProps> = ({
         : undefined,
       auxilValues: hasAuxilValues
         ? ((data.auxilValues as Record<string, unknown>[]) || [])
-            .map((row, i) => ({
+            .map((row, i): Record<string, unknown> => ({
               ...row,
               ValueKind: Number(row.ValueKind) || AUXIL_VALUE_KIND.Code,
               SortOrder: Number(row.SortOrder) || (i + 1) * 10,

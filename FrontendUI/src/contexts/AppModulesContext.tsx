@@ -3,7 +3,7 @@ import type { AppModule } from '../types/formTypes';
 import { APP_MODULES } from '../data/modules';
 import { injectSqlReportMenus } from '../data/injectSqlReportMenus';
 import { listSqlReportMenus } from '../api/sqlReportsApi';
-import { getCurrentProfile, getCurrentUserId, refreshEffectiveAuth } from '../data/permissions';
+import { getCurrentUserId, refreshEffectiveAuth } from '../data/permissions';
 
 interface AppModulesContextValue {
   modules: AppModule[];
