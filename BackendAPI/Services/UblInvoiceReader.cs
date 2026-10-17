@@ -27,6 +27,8 @@ public sealed class UblInvoiceLine
     public decimal LineAmount { get; set; }
     public decimal TaxRate { get; set; }
     public decimal TaxAmount { get; set; }
+    /// <summary>KDV matrahı (TaxSubtotal/TaxableAmount); yoksa null</summary>
+    public decimal? TaxableAmount { get; set; }
 }
 
 public sealed class UblInvoice
@@ -112,6 +114,7 @@ public static class UblInvoiceReader
                 LineAmount = Num(l.Element(Cbc + "LineExtensionAmount")?.Value) ?? 0,
                 TaxRate = Num(kdv?.Element(Cbc + "Percent")?.Value) ?? 0,
                 TaxAmount = Num(kdv?.Element(Cbc + "TaxAmount")?.Value) ?? 0,
+                TaxableAmount = Num(kdv?.Element(Cbc + "TaxableAmount")?.Value),
             });
         }
         return inv;

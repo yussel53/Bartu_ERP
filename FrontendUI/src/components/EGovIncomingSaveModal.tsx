@@ -98,6 +98,9 @@ export const EGovIncomingSaveModal: React.FC<Props> = ({ egovId, userId, onClose
   const [companyId, setCompanyId] = useState('');
   const [whouseId, setWhouseId] = useState('');
   const [mapping, setMapping] = useState<Record<number, string>>({});
+  /** Faturaya yazılmayacak satırlar (bilgi satırları varsayılan olarak burada) */
+  const [excluded, setExcluded] = useState<Set<number>>(new Set());
+  const [reloadTick, setReloadTick] = useState(0);
 
   useEffect(() => {
     let off = false;
@@ -114,11 +117,17 @@ export const EGovIncomingSaveModal: React.FC<Props> = ({ egovId, userId, onClose
         setProducts(prod ?? []);
         setCompanies(comp ?? []);
         setWhouses(wh ?? []);
-        if (comp?.length === 1) setCompanyId(comp[0].value);
-        if (wh?.length === 1) setWhouseId(wh[0].value);
-        const m: Record<number, string> = {};
-        for (const l of pv.preview.lines) if (l.productCardID) m[l.lineNo] = String(l.productCardID);
-        setMapping(m);
+        // Yeniden yüklemede (cari kart açıldıktan sonra) kullanıcı seçimleri korunur
+        if (reloadTick === 0) {
+          if (comp?.length === 1) setCompanyId(comp[0].value);
+          if (wh?.length === 1) setWhouseId(wh[0].value);
+          setExcluded(new Set(pv.preview.lines.filter((l) => l.isInfoLine).map((l) => l.lineNo)));
+        }
+        setMapping((cur) => {
+          const m: Record<number, string> = { ...cur };
+          for (const l of pv.preview.lines) if (l.productCardID && !m[l.lineNo]) m[l.lineNo] = String(l.productCardID);
+          return m;
+        });
       } catch (e) {
         if (!off) setLoadError(e instanceof Error ? e.message : 'Fatura okunamadı');
       }
@@ -126,12 +135,23 @@ export const EGovIncomingSaveModal: React.FC<Props> = ({ egovId, userId, onClose
     return () => {
       off = true;
     };
-  }, [egovId]);
+  }, [egovId, reloadTick]);
 
   const lines = preview?.lines ?? [];
-  const autoCount = lines.filter((l) => l.productCardID && mapping[l.lineNo] === String(l.productCardID)).length;
-  const unmapped = lines.filter((l) => !mapping[l.lineNo]).length;
-  const canSave = !!preview?.supplierCardID && !!whouseId && unmapped === 0 && lines.length > 0 && !busy;
+  const included = lines.filter((l) => !excluded.has(l.lineNo));
+  const autoCount = included.filter((l) => l.productCardID && mapping[l.lineNo] === String(l.productCardID)).length;
+  const unmapped = included.filter((l) => !mapping[l.lineNo]).length;
+  const includedTotal = included.reduce((a, l) => a + l.lineAmount, 0);
+  const totalsDiffer = !!preview && Math.abs(includedTotal - preview.lineExtensionAmount) > 0.01;
+  const canSave = !!preview?.supplierCardID && !!whouseId && unmapped === 0 && included.length > 0 && !busy;
+
+  const toggleLine = (lineNo: number) =>
+    setExcluded((s) => {
+      const n = new Set(s);
+      if (n.has(lineNo)) n.delete(lineNo);
+      else n.add(lineNo);
+      return n;
+    });
 
   const save = async () => {
     if (!preview) return;
@@ -142,7 +162,11 @@ export const EGovIncomingSaveModal: React.FC<Props> = ({ egovId, userId, onClose
         userId,
         companyId: companyId ? Number(companyId) : null,
         whouseId: Number(whouseId),
-        lines: lines.map((l) => ({ lineNo: l.lineNo, productCardID: Number(mapping[l.lineNo]) })),
+        lines: lines.map((l) =>
+          excluded.has(l.lineNo)
+            ? { lineNo: l.lineNo, productCardID: 0, exclude: true }
+            : { lineNo: l.lineNo, productCardID: Number(mapping[l.lineNo]) },
+        ),
       });
       onSaved(r.message);
     } catch (e) {
@@ -252,6 +276,7 @@ export const EGovIncomingSaveModal: React.FC<Props> = ({ egovId, userId, onClose
                 <table className="w-full text-[12px] border-collapse">
                   <thead className="bg-slate-100">
                     <tr>
+                      <th className={th} title="Faturaya dahil">Dahil</th>
                       <th className={th}>#</th>
                       <th className={th}>Tedarikçi Kodu</th>
                       <th className={th}>Tedarikçi Malzeme Adı</th>
@@ -266,13 +291,27 @@ export const EGovIncomingSaveModal: React.FC<Props> = ({ egovId, userId, onClose
                   <tbody>
                     {lines.map((l) => {
                       const auto = l.productCardID && mapping[l.lineNo] === String(l.productCardID);
+                      const out = excluded.has(l.lineNo);
                       return (
-                        <tr key={l.lineNo}>
+                        <tr key={l.lineNo} className={out ? 'bg-slate-50 text-slate-400' : ''}>
+                          <td className={`${td} text-center`}>
+                            <input
+                              type="checkbox"
+                              checked={!out}
+                              onChange={() => toggleLine(l.lineNo)}
+                              title={out ? 'Faturaya dahil et' : 'Faturaya yazma'}
+                            />
+                          </td>
                           <td className={td}>{l.lineNo}</td>
                           <td className={`${td} font-mono text-[11px]`}>{l.sellerCode ?? <span className="text-slate-400">—</span>}</td>
                           <td className={td}>
-                            <div className="font-medium">{l.name}</div>
+                            <div className={out ? 'line-through' : 'font-medium'}>{l.name}</div>
                             {l.description && <div className="text-[11px] text-slate-500">{l.description}</div>}
+                            {l.isInfoLine && (
+                              <div className="mt-0.5 inline-flex items-center gap-1 px-1.5 py-px rounded-sm border text-[10px] bg-amber-50 text-amber-800 border-amber-200 no-underline">
+                                <AlertTriangle className="w-3 h-3" /> {l.infoReason || 'Bilgi satırı'}
+                              </div>
+                            )}
                           </td>
                           <td className={tdR}>
                             {fmt(l.quantity, 2)} <span className="text-[10px] text-slate-400">{l.unitCode}</span>
@@ -284,6 +323,9 @@ export const EGovIncomingSaveModal: React.FC<Props> = ({ egovId, userId, onClose
                             %{fmt(l.taxRate, 0)} · {fmt(l.taxAmount)}
                           </td>
                           <td className={td}>
+                            {out ? (
+                              <span className="text-[11px]">Faturaya yazılmayacak</span>
+                            ) : (
                             <div className="flex items-center gap-1.5">
                               <ProductPicker
                                 options={products}
@@ -298,6 +340,7 @@ export const EGovIncomingSaveModal: React.FC<Props> = ({ egovId, userId, onClose
                                 <span className="text-[10px] text-blue-700 whitespace-nowrap">yeni eşleme</span>
                               ) : null}
                             </div>
+                            )}
                           </td>
                         </tr>
                       );
@@ -305,8 +348,16 @@ export const EGovIncomingSaveModal: React.FC<Props> = ({ egovId, userId, onClose
                   </tbody>
                   <tfoot className="bg-slate-50">
                     <tr>
-                      <td colSpan={6} className={`${td} text-right text-slate-500`}>
-                        Mal/hizmet · KDV · Ödenecek ({preview.currency})
+                      <td colSpan={7} className={`${td} text-right text-slate-500`}>
+                        Faturaya yazılacak satırlar ({included.length}/{lines.length})
+                      </td>
+                      <td className={`${tdR} font-semibold ${totalsDiffer ? 'text-red-700' : 'text-emerald-700'}`}>{fmt(includedTotal)}</td>
+                      <td className={tdR} />
+                      <td className={td} />
+                    </tr>
+                    <tr>
+                      <td colSpan={7} className={`${td} text-right text-slate-500`}>
+                        e-Fatura toplamı: Mal/hizmet · KDV · Ödenecek ({preview.currency})
                       </td>
                       <td className={`${tdR} font-semibold`}>{fmt(preview.lineExtensionAmount)}</td>
                       <td className={`${tdR} font-semibold`}>{fmt(preview.taxTotal)}</td>
@@ -316,6 +367,15 @@ export const EGovIncomingSaveModal: React.FC<Props> = ({ egovId, userId, onClose
                 </table>
               </div>
 
+              {totalsDiffer && (
+                <div className="flex items-start gap-1.5 rounded-sm border border-amber-200 bg-amber-50 px-2.5 py-1.5 text-[12px] text-amber-800">
+                  <AlertTriangle className="w-3.5 h-3.5 mt-0.5 shrink-0" />
+                  <span>
+                    Faturaya yazılacak satırların toplamı ({fmt(includedTotal)}) e-Fatura mal/hizmet toplamını (
+                    {fmt(preview.lineExtensionAmount)}) tutmuyor. Toplama dahil olmayan bilgi satırlarını «Dahil» kutusundan çıkarın.
+                  </span>
+                </div>
+              )}
               <p className="text-[11px] text-slate-500">
                 {autoCount} satır malzeme–cari bağlantısından otomatik eşleşti
                 {unmapped > 0 ? ` · ${unmapped} satır için malzeme seçin` : ''}. Seçimler malzeme kartındaki cari bağlantılarına
@@ -351,7 +411,11 @@ export const EGovIncomingSaveModal: React.FC<Props> = ({ egovId, userId, onClose
     {partyOpen && (
       <EGovPartyCardModal
         egovId={egovId}
-        onClose={() => setPartyOpen(false)}
+        onClose={() => {
+          setPartyOpen(false);
+          // Cari kart açıldıysa tedarikçi eşleşmesini yenile
+          setReloadTick((t) => t + 1);
+        }}
       />
     )}
     </>

@@ -34,6 +34,12 @@ public sealed class EGovIncomingPreviewLine
     public decimal LineAmount { get; set; }
     public decimal TaxRate { get; set; }
     public decimal TaxAmount { get; set; }
+    /// <summary>
+    /// Fatura toplamına dahil olmayan bilgi satırı (ör. «Kartlı Ödeme Hizmetine Konu Toplam Tutar»):
+    /// kayıtta varsayılan olarak dışarıda bırakılır, kullanıcı dahil edebilir.
+    /// </summary>
+    public bool IsInfoLine { get; set; }
+    public string? InfoReason { get; set; }
     /// <summary>Malzeme–cari bağlantısından bulunan malzeme</summary>
     public int? ProductCardID { get; set; }
     public string? ProductCode { get; set; }
@@ -58,6 +64,10 @@ public sealed class EGovIncomingPreview
     public decimal PayableAmount { get; set; }
     /// <summary>Invoice.InvoiceType: 2 Alış Faturası · 3 Satış İade (gelen IADE faturası)</summary>
     public int InvoiceType { get; set; }
+    /// <summary>Satırların mal/hizmet tutarı toplamı (LineExtensionAmount toplamı)</summary>
+    public decimal LinesTotal { get; set; }
+    /// <summary>Satır toplamı fatura toplamını tutmuyor ve bilgi satırlarıyla açıklanamıyor</summary>
+    public bool TotalsMismatch { get; set; }
     public List<EGovIncomingPreviewLine> Lines { get; set; } = new();
 }
 
@@ -65,6 +75,8 @@ public sealed class EGovIncomingSaveLine
 {
     public int LineNo { get; set; }
     public int ProductCardID { get; set; }
+    /// <summary>true: satır faturaya yazılmaz (bilgi satırı), eşleme gerekmez</summary>
+    public bool Exclude { get; set; }
 }
 
 public sealed class EGovIncomingSaveRequest
@@ -349,7 +361,36 @@ public sealed class EGovIncomingRepository
             }
             p.Lines.Add(line);
         }
+        MarkInfoLines(p, ubl);
         return (p, null);
+    }
+
+    /// <summary>
+    /// Satır toplamı faturanın mal/hizmet toplamını (LegalMonetaryTotal/LineExtensionAmount) tutmuyorsa,
+    /// tutarı olup KDV matrahı açıkça 0 olan satırlar farkı tam karşılıyorsa onları bilgi satırı sayar.
+    /// Örn. TÜVTURK: «Kartlı Ödeme Hizmetine Konu Toplam Tutar» satırı toplama dahil değildir.
+    /// </summary>
+    private static void MarkInfoLines(EGovIncomingPreview p, UblInvoice ubl)
+    {
+        const decimal tol = 0.01m;
+        p.LinesTotal = p.Lines.Sum(l => l.LineAmount);
+        var diff = p.LinesTotal - p.LineExtensionAmount;
+        if (Math.Abs(diff) <= tol || p.LineExtensionAmount == 0) return;
+
+        var candidates = p.Lines
+            .Where(l => l.LineAmount != 0 && l.TaxAmount == 0
+                        && ubl.Lines.FirstOrDefault(u => u.LineNo == l.LineNo)?.TaxableAmount == 0)
+            .ToList();
+        if (candidates.Count > 0 && Math.Abs(candidates.Sum(l => l.LineAmount) - diff) <= tol)
+        {
+            foreach (var l in candidates)
+            {
+                l.IsInfoLine = true;
+                l.InfoReason = "Fatura toplamına dahil değil (KDV matrahı 0) — bilgi satırı";
+            }
+            return;
+        }
+        p.TotalsMismatch = true;
     }
 
     /// <summary>Tedarikçinin kodu varsa kodla, yoksa malzeme adıyla eşleşen aktif bağlantı.</summary>
@@ -385,9 +426,12 @@ public sealed class EGovIncomingRepository
         if (p is null) return (false, 0, error ?? "Belge okunamadı.", null);
         if (p.SupplierCardID is not int supplierId)
             return (false, 0, $"Tedarikçi cari kartı bulunamadı (VKN/TCKN {p.SupplierTaxNr}). Önce cari kartı açın.", null);
-        if (p.Lines.Count == 0) return (false, 0, "Faturada satır yok.", null);
+        // Kullanıcının dışarıda bıraktığı satırlar (bilgi satırları) faturaya yazılmaz, eşleme istemez
+        var excluded = req.Lines.Where(l => l.Exclude).Select(l => l.LineNo).ToHashSet();
+        p.Lines.RemoveAll(l => excluded.Contains(l.LineNo));
+        if (p.Lines.Count == 0) return (false, 0, "Faturaya yazılacak satır yok.", null);
 
-        var chosen = req.Lines.Where(l => l.ProductCardID > 0).ToDictionary(l => l.LineNo, l => l.ProductCardID);
+        var chosen = req.Lines.Where(l => !l.Exclude && l.ProductCardID > 0).ToDictionary(l => l.LineNo, l => l.ProductCardID);
         var missing = p.Lines.Where(l => !chosen.ContainsKey(l.LineNo)).Select(l => l.LineNo).ToList();
         if (missing.Count > 0) return (false, 0, $"Eşlenmemiş satır var: {string.Join(", ", missing)}.", null);
 
