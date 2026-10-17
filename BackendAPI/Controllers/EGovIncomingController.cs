@@ -7,6 +7,8 @@ public sealed class EGovIncomingActionDto
 {
     public int UserId { get; set; }
     public string? Comment { get; set; }
+    /// <summary>Onaya gönderirken: SYS_ApprovalGroup.ApprovalGroupID</summary>
+    public int? GroupId { get; set; }
 }
 
 /// <summary>
@@ -33,7 +35,7 @@ public sealed class EGovIncomingController : ControllerBase
     {
         try
         {
-            var (ok, message) = await _repo.SendAsync(id, dto.UserId, dto.Comment, ct);
+            var (ok, message) = await _repo.SendAsync(id, dto.UserId, dto.Comment, dto.GroupId, ct);
             return ok ? Ok(new { success = true, message }) : BadRequest(new { message });
         }
         catch (Exception ex)

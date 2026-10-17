@@ -18,6 +18,7 @@ public sealed class EGovIncomingState
     public int? PendingTaskID { get; set; }
     public int? PendingRoleId { get; set; }
     public int? PendingUserId { get; set; }
+    public int? PendingGroupId { get; set; }
 }
 
 public sealed class EGovIncomingPreviewLine
@@ -87,8 +88,11 @@ public sealed class EGovIncomingRepository
     public const string MissingSetupMessage =
         "Gelen e-fatura onay süreci tanımlı değil — Veritabanı Güncelleme ekranından 76_egov_incoming_approval.sql uygulayın.";
 
-    /// <summary>EGovDocument e için onay aşaması (alias: ap, pt). Süreç tabloları yoksa kullanılmaz.</summary>
-    public const string StageApplySql = $"""
+    /// <summary>
+    /// EGovDocument e için onay aşaması (alias: ap, pt). Süreç tabloları yoksa kullanılmaz.
+    /// groups: 78_approval_groups.sql uygulanmışsa görevin onay grubu da okunur (pt.RoleName = grup adı, yoksa rol adı).
+    /// </summary>
+    public static string StageApplySql(bool groups) => $"""
         OUTER APPLY (
           SELECT TOP 1 pi.ProcessInstanceID, pi.Status, pi.LastComment
           FROM dbo.SYS_ProcessInstance pi
@@ -97,13 +101,25 @@ public sealed class EGovIncomingRepository
           ORDER BY pi.ProcessInstanceID DESC
         ) ap
         OUTER APPLY (
-          SELECT TOP 1 t.ProcessTaskID, t.AssignedRoleId, t.AssignedUserId, r.Name AS RoleName
+          SELECT TOP 1 t.ProcessTaskID, t.AssignedRoleId, t.AssignedUserId,
+                 {(groups ? "t.AssignedGroupId, COALESCE(g.Name, r.Name)" : "CAST(NULL AS int) AS AssignedGroupId, r.Name")} AS RoleName
           FROM dbo.SYS_ProcessTask t
           LEFT JOIN dbo.SYS_Role r ON r.Id = t.AssignedRoleId
+          {(groups ? "LEFT JOIN dbo.SYS_ApprovalGroup g ON g.ApprovalGroupID = t.AssignedGroupId" : "")}
           WHERE t.ProcessInstanceID = ap.ProcessInstanceID AND t.Status = N'Pending'
           ORDER BY t.ProcessTaskID DESC
         ) pt
         """;
+
+    /// <summary>78_approval_groups.sql uygulanmış mı (grup tabloları + SYS_ProcessTask.AssignedGroupId)</summary>
+    public static async Task<bool> HasGroupsAsync(IDbConnection db, CancellationToken ct) =>
+        await db.ExecuteScalarAsync<int>(new CommandDefinition(
+            """
+            SELECT CASE WHEN OBJECT_ID(N'dbo.SYS_ApprovalGroup', N'U') IS NOT NULL
+                         AND OBJECT_ID(N'dbo.SYS_ApprovalGroupMember', N'U') IS NOT NULL
+                         AND COL_LENGTH(N'dbo.SYS_ProcessTask', N'AssignedGroupId') IS NOT NULL
+                        THEN 1 ELSE 0 END
+            """, cancellationToken: ct)) == 1;
 
     public const string StageExprSql = """
         CASE WHEN e.InvoiceID IS NOT NULL THEN 'saved'
@@ -116,12 +132,14 @@ public sealed class EGovIncomingRepository
     private readonly IDbConnection _db;
     private readonly ProcessRepository _process;
     private readonly RecordsRepository _records;
+    private readonly ApprovalGroupRepository _groups;
 
-    public EGovIncomingRepository(IDbConnection db, ProcessRepository process, RecordsRepository records)
+    public EGovIncomingRepository(IDbConnection db, ProcessRepository process, RecordsRepository records, ApprovalGroupRepository groups)
     {
         _db = db;
         _process = process;
         _records = records;
+        _groups = groups;
     }
 
     public async Task<bool> ReadyAsync(CancellationToken ct = default)
@@ -138,23 +156,39 @@ public sealed class EGovIncomingRepository
     public async Task<EGovIncomingState?> GetStateAsync(int id, CancellationToken ct = default)
     {
         Open();
+        var groups = await HasGroupsAsync(_db, ct);
         return await _db.QuerySingleOrDefaultAsync<EGovIncomingState>(new CommandDefinition(
             $"""
             SELECT e.EGovDocumentID, e.DocKind, e.Direction, e.DocumentNo, e.CustomerTitle, e.InvoiceID,
                    {StageExprSql} AS Stage,
                    ap.ProcessInstanceID AS ApprovalInstanceID,
-                   pt.ProcessTaskID AS PendingTaskID, pt.AssignedRoleId AS PendingRoleId, pt.AssignedUserId AS PendingUserId
+                   pt.ProcessTaskID AS PendingTaskID, pt.AssignedRoleId AS PendingRoleId, pt.AssignedUserId AS PendingUserId,
+                   pt.AssignedGroupId AS PendingGroupId
             FROM dbo.EGovDocument e
-            {StageApplySql}
+            {StageApplySql(groups)}
             WHERE e.EGovDocumentID = @id
             """, new { id }, cancellationToken: ct));
     }
 
     // ─── Onay ────────────────────────────────────────────────────────────────
 
-    public async Task<(bool Ok, string Message)> SendAsync(int id, int userId, string? note, CancellationToken ct = default)
+    /// <summary>
+    /// Onaya gönderir. Onay açıklaması zorunlu. Onay grupları kuruluysa (78) görev seçilen gruba atanır —
+    /// grubun herhangi bir üyesi sonuçlandırır; kurulu değilse süreç adımındaki role gider.
+    /// </summary>
+    public async Task<(bool Ok, string Message)> SendAsync(int id, int userId, string? note, int? groupId, CancellationToken ct = default)
     {
         if (!await ReadyAsync(ct)) return (false, MissingSetupMessage);
+        if (string.IsNullOrWhiteSpace(note)) return (false, "Onay açıklaması zorunlu.");
+        var groups = await HasGroupsAsync(_db, ct);
+        string? groupName = null;
+        if (groups)
+        {
+            if (groupId is not > 0) return (false, "Onay grubu seçin.");
+            var (usable, name, error) = await _groups.CheckUsableAsync(groupId.Value, ct);
+            if (!usable) return (false, error!);
+            groupName = name;
+        }
         var s = await GetStateAsync(id, ct);
         if (s is null) return (false, $"e-Belge #{id} bulunamadı.");
         if (s.Direction != 1 || s.DocKind is not (1 or 2)) return (false, "Yalnız gelen e-fatura / e-arşiv faturalar onaya gönderilir.");
@@ -175,13 +209,20 @@ public sealed class EGovIncomingRepository
             Title = $"Gelen e-Fatura · {s.DocumentNo} · {s.CustomerTitle}",
             StartedBy = userId > 0 ? userId : null,
         }, ct);
-        if (!string.IsNullOrWhiteSpace(note))
+        await _db.ExecuteAsync(new CommandDefinition(
+            "UPDATE dbo.SYS_ProcessInstance SET LastComment = @note WHERE ProcessInstanceID = @iid",
+            new { note = note.Trim(), iid = inst.ProcessInstanceID }, cancellationToken: ct));
+        if (groups)
         {
+            // Görev role değil gruba: grubun herhangi bir üyesi onaylar / reddeder
             await _db.ExecuteAsync(new CommandDefinition(
-                "UPDATE dbo.SYS_ProcessInstance SET LastComment = @note WHERE ProcessInstanceID = @iid",
-                new { note = note.Trim(), iid = inst.ProcessInstanceID }, cancellationToken: ct));
+                """
+                UPDATE dbo.SYS_ProcessTask
+                SET AssignedGroupId = @groupId, AssignedRoleId = NULL, AssignedUserId = NULL
+                WHERE ProcessInstanceID = @iid AND Status = N'Pending'
+                """, new { groupId, iid = inst.ProcessInstanceID }, cancellationToken: ct));
         }
-        return (true, "Onaya gönderildi.");
+        return (true, groupName is null ? "Onaya gönderildi." : $"«{groupName}» grubunun onayına gönderildi.");
     }
 
     /// <summary>approve=true onaylar, false reddeder (gerekçe zorunlu). Kullanıcı görevin rolünde ya da yönetici olmalı.</summary>
@@ -191,8 +232,10 @@ public sealed class EGovIncomingRepository
         if (s is null) return (false, 404, $"e-Belge #{id} bulunamadı.");
         if (s.Stage != "pending" || s.PendingTaskID is null) return (false, 400, "Belge onay beklemiyor.");
         if (!approve && string.IsNullOrWhiteSpace(comment)) return (false, 400, "Red gerekçesi zorunlu.");
-        if (!await CanActAsync(userId, s.PendingRoleId, s.PendingUserId, ct))
-            return (false, 403, "Bu onay sizin rolünüze atanmamış.");
+        if (!await CanActAsync(userId, s.PendingRoleId, s.PendingUserId, s.PendingGroupId, ct))
+            return (false, 403, s.PendingGroupId is not null
+                ? "Bu onay grubunda değilsiniz."
+                : "Bu onay sizin rolünüze atanmamış.");
 
         var req = new ProcessTaskActionRequest { UserId = userId, Comment = comment?.Trim() };
         if (approve) await _process.ApproveTaskAsync(s.PendingTaskID.Value, req, ct);
@@ -205,10 +248,18 @@ public sealed class EGovIncomingRepository
         return (true, 200, msg);
     }
 
-    private async Task<bool> CanActAsync(int userId, int? roleId, int? assignedUserId, CancellationToken ct)
+    /// <summary>Atanan kullanıcı, atanan grubun üyesi, atanan rolün sahibi ya da yönetici (admin) sonuçlandırabilir.</summary>
+    private async Task<bool> CanActAsync(int userId, int? roleId, int? assignedUserId, int? groupId, CancellationToken ct)
     {
         if (userId <= 0) return false;
         if (assignedUserId is int u && u == userId) return true;
+        if (groupId is int g)
+        {
+            var member = await _db.ExecuteScalarAsync<int>(new CommandDefinition(
+                "SELECT COUNT(*) FROM dbo.SYS_ApprovalGroupMember WHERE ApprovalGroupID = @g AND SystemUserID = @userId",
+                new { g, userId }, cancellationToken: ct));
+            if (member > 0) return true;
+        }
         return await _db.ExecuteScalarAsync<int>(new CommandDefinition(
             """
             SELECT CASE WHEN EXISTS (
@@ -216,8 +267,8 @@ public sealed class EGovIncomingRepository
               JOIN dbo.SYS_Role r ON r.Id = ur.RoleId
               WHERE ur.SystemUserID = @userId AND r.IsActive = 1
                 AND (r.IsAdmin = 1 OR r.Code = N'ADMIN' OR (@roleId IS NOT NULL AND r.Id = @roleId))
-            ) OR (@roleId IS NULL AND @assignedUserId IS NULL) THEN 1 ELSE 0 END
-            """, new { userId, roleId, assignedUserId }, cancellationToken: ct)) == 1;
+            ) OR (@roleId IS NULL AND @assignedUserId IS NULL AND @groupId IS NULL) THEN 1 ELSE 0 END
+            """, new { userId, roleId, assignedUserId, groupId }, cancellationToken: ct)) == 1;
     }
 
     // ─── Kayıt önizleme / eşleme ─────────────────────────────────────────────

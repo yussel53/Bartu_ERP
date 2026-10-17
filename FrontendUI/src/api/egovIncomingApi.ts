@@ -41,8 +41,9 @@ export interface EGovIncomingPreview {
 
 type Result = { success: boolean; message: string };
 
-export function sendEGovIncoming(id: number, userId: number, comment?: string): Promise<Result> {
-  return apiJson(`/api/egov/incoming/${id}/send`, { method: 'POST', body: JSON.stringify({ userId, comment }) });
+/** comment: onay açıklaması (zorunlu) · groupId: onay grubu (SYS_ApprovalGroup) */
+export function sendEGovIncoming(id: number, userId: number, comment: string, groupId?: number | null): Promise<Result> {
+  return apiJson(`/api/egov/incoming/${id}/send`, { method: 'POST', body: JSON.stringify({ userId, comment, groupId }) });
 }
 
 export function approveEGovIncoming(id: number, userId: number, comment?: string): Promise<Result> {

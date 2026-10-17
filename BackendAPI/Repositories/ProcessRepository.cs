@@ -479,7 +479,21 @@ public sealed class ProcessRepository
             ) THEN 1 ELSE 0 END
             """, new { userId }, cancellationToken: ct));
 
-        var tasks = (await _db.QueryAsync<ProcessTaskDto>(new CommandDefinition("""
+        // Onay grupları (78_approval_groups.sql): gruba atanan görev yalnız grup üyelerine düşer
+        var hasGroups = await ColumnExistsAsync("SYS_ProcessTask", "AssignedGroupId", ct)
+            && await _db.ExecuteScalarAsync<int>(new CommandDefinition(
+                "SELECT CASE WHEN OBJECT_ID(N'dbo.SYS_ApprovalGroupMember', N'U') IS NULL THEN 0 ELSE 1 END",
+                cancellationToken: ct)) == 1;
+        var groupFilter = hasGroups
+            ? """
+                OR (t.AssignedUserId IS NULL AND t.AssignedRoleId IS NULL AND t.AssignedGroupId IS NULL)
+                OR (t.AssignedGroupId IS NOT NULL AND EXISTS (
+                      SELECT 1 FROM dbo.SYS_ApprovalGroupMember m
+                      WHERE m.ApprovalGroupID = t.AssignedGroupId AND m.SystemUserID = @userId))
+              """
+            : "OR (t.AssignedUserId IS NULL AND t.AssignedRoleId IS NULL)";
+
+        var tasks = (await _db.QueryAsync<ProcessTaskDto>(new CommandDefinition($"""
             SELECT
               t.ProcessTaskID, t.ProcessInstanceID, t.ProcessStepID, t.Status,
               t.AssignedRoleId, t.AssignedUserId, t.ClaimedBy, t.DueAt,
@@ -497,7 +511,7 @@ public sealed class ProcessRepository
               AND (
                 @isAdmin = 1
                 OR t.AssignedUserId = @userId
-                OR (t.AssignedUserId IS NULL AND t.AssignedRoleId IS NULL)
+                {groupFilter}
                 OR (t.AssignedRoleId IS NOT NULL AND t.AssignedRoleId IN @roleIds)
               )
             ORDER BY t.CreatedAt DESC
