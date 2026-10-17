@@ -127,6 +127,9 @@ app.MapControllers();
 
 if (Directory.Exists(www))
 {
+    // Bilinmeyen /api adresi index.html değil 404 döner (eski backend'de yeni ekran sessizce çökmesin)
+    app.MapFallback("/api/{**rest}", (HttpContext ctx) =>
+        Results.NotFound(new { message = $"API ucu bulunamadı: {ctx.Request.Path} — backend güncel olmayabilir." }));
     app.MapFallbackToFile("index.html");
 }
 

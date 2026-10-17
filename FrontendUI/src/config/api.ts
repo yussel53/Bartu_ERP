@@ -44,6 +44,14 @@ export async function apiJson<T>(path: string, init?: RequestInit): Promise<T> {
     },
     ...init,
   });
+  // Bilinmeyen API adresine eski sunucu SPA sayfasını (HTML) 200 ile döndürebilir — sessizce {} kabul etme
+  if (res.ok && (res.headers.get('content-type') || '').includes('text/html')) {
+    throw new ApiError(
+      `Sunucu bu işlemi tanımıyor (${path.split('?')[0]}) — backend güncel değil olabilir.`,
+      404,
+      null,
+    );
+  }
   const data = await res.json().catch(() => ({}));
   if (!res.ok) {
     throw new ApiError(extractErrorMessage(data, res.statusText), res.status, data);
