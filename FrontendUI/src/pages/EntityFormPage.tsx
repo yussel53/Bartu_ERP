@@ -1,5 +1,15 @@
-import React, { useCallback, useEffect, useRef, useState } from 'react';
-import { ArrowLeft, X } from 'lucide-react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { ArrowLeft, LayoutTemplate, X } from 'lucide-react';
+import { FormLayoutDesigner } from '../components/FormLayoutDesigner';
+import { FormLayoutRow, resolveFormLayouts } from '../api/formLayoutsApi';
+import {
+  applyFormLayout,
+  FormLayoutDef,
+  mergeLayoutWithSchema,
+  parseLayoutJson,
+  storedLayoutChoice,
+  storeLayoutChoice,
+} from '../data/formLayout';
 import { DocumentFormEngine } from '../components/DocumentFormEngine';
 import { DynamicFormEngine } from '../components/DynamicFormEngine';
 import { AccountLinkFormEngine } from '../components/AccountLinkFormEngine';
@@ -190,6 +200,66 @@ export const EntityFormPage: React.FC<EntityFormPageProps> = ({
   const [loading, setLoading] = useState(true);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [loadError, setLoadError] = useState<string | null>(null);
+
+  // ── Ekran tasarımları (kullanıcı / rol bazında) ────────────────────
+  const layoutUser = useMemo(() => getCurrentProfile(), []);
+  const [layouts, setLayouts] = useState<FormLayoutRow[]>([]);
+  const [layoutsReady, setLayoutsReady] = useState(true);
+  const [activeLayoutId, setActiveLayoutId] = useState<number | null>(null);
+  const [designOpen, setDesignOpen] = useState(false);
+  const [designDef, setDesignDef] = useState<FormLayoutDef | null>(null);
+  const [designLayout, setDesignLayout] = useState<FormLayoutRow | null>(null);
+
+  const loadLayouts = useCallback(
+    async (prefer?: number | null) => {
+      try {
+        const r = await resolveFormLayouts(formCode, {
+          userId: layoutUser.userId,
+          roleIds: layoutUser.roleIds,
+          isAdmin: layoutUser.isAdmin,
+        });
+        setLayoutsReady(r.ready);
+        setLayouts(r.layouts);
+        const ids = new Set(r.layouts.map((l) => l.layoutID));
+        const stored = storedLayoutChoice(formCode, layoutUser.userId);
+        let pick: number | null =
+          prefer !== undefined ? prefer : stored !== undefined ? stored : (r.preferredId ?? null);
+        if (pick != null && !ids.has(pick)) pick = r.preferredId ?? null;
+        setActiveLayoutId(pick);
+      } catch {
+        setLayouts([]);
+        setLayoutsReady(false);
+        setActiveLayoutId(null);
+      }
+    },
+    [formCode, layoutUser],
+  );
+
+  useEffect(() => {
+    void loadLayouts();
+  }, [loadLayouts]);
+
+  const activeLayout = layouts.find((l) => l.layoutID === activeLayoutId) || null;
+  /** Ekranda kullanılan şema: tasarım modu → çalışma kopyası; değilse seçili tasarım; yoksa standart */
+  const viewSchema = useMemo(() => {
+    if (!schema) return null;
+    if (designOpen && designDef) return applyFormLayout(schema, designDef);
+    return activeLayout ? applyFormLayout(schema, parseLayoutJson(activeLayout.layoutJson)) : schema;
+  }, [schema, designOpen, designDef, activeLayout]);
+
+  const openDesigner = async () => {
+    if (!schema) return;
+    if (!layoutsReady) {
+      await appConfirm(
+        'Ekran tasarımı tabloları veritabanında yok.\nSistem → Veritabanı Güncelleme ekranından 73_form_layouts.sql uygulayın.',
+        { title: 'Ekran tasarımı', okLabel: 'Tamam', cancelLabel: 'Kapat', danger: false },
+      );
+      return;
+    }
+    setDesignLayout(activeLayout);
+    setDesignDef(mergeLayoutWithSchema(schema, parseLayoutJson(activeLayout?.layoutJson)));
+    setDesignOpen(true);
+  };
   const readOnly = mode === 'view';
   const titleForTray = screenTitle || formCode;
 
@@ -476,7 +546,21 @@ export const EntityFormPage: React.FC<EntityFormPageProps> = ({
   const modeLabel = mode === 'view' ? 'İncele' : mode === 'edit' ? 'Değiştir' : 'Yeni';
 
   return (
-    <div className="relative">
+    <div className={`relative ${designOpen ? 'sm:pr-[420px]' : ''}`}>
+      {designOpen && designDef && (
+        <FormLayoutDesigner
+          baseSchema={schema}
+          layout={designLayout}
+          def={designDef}
+          onDefChange={setDesignDef}
+          onSaved={(id) => {
+            setDesignOpen(false);
+            storeLayoutChoice(formCode, layoutUser.userId, id);
+            void loadLayouts(id);
+          }}
+          onClose={() => setDesignOpen(false)}
+        />
+      )}
       {!embedded && (
         <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
           <button
@@ -495,6 +579,40 @@ export const EntityFormPage: React.FC<EntityFormPageProps> = ({
               <span className="text-[10px] font-normal text-slate-400">(fiş açık kalır)</span>
             ) : null}
           </button>
+          <div className="flex items-center gap-1.5 ml-auto">
+            {layouts.length > 0 && !designOpen && (
+              <label className="inline-flex items-center gap-1 text-[11px] text-slate-500">
+                Tasarım
+                <select
+                  value={activeLayoutId ?? 'std'}
+                  onChange={(e) => {
+                    const v = e.target.value === 'std' ? null : Number(e.target.value);
+                    setActiveLayoutId(v);
+                    storeLayoutChoice(formCode, layoutUser.userId, v);
+                  }}
+                  className="h-7 px-1.5 text-[11px] rounded-sm border border-slate-300 bg-white text-slate-700"
+                >
+                  <option value="std">Standart</option>
+                  {layouts.map((l) => (
+                    <option key={l.layoutID} value={l.layoutID}>
+                      {l.name}
+                      {l.isDefault ? ' (varsayılan)' : ''}
+                    </option>
+                  ))}
+                </select>
+              </label>
+            )}
+            {layoutUser.isAdmin && !designOpen && (
+              <button
+                type="button"
+                onClick={() => void openDesigner()}
+                title="Bu ekranın tasarımını düzenle (alan sırası, görünürlük, etiket, kullanıcı / rol ataması)"
+                className="inline-flex items-center gap-1 px-2 h-7 text-[11px] font-semibold text-slate-700 bg-white border border-slate-300 hover:bg-slate-50 rounded-sm"
+              >
+                <LayoutTemplate className="w-3.5 h-3.5" />
+                Tasarla
+              </button>
+            )}
           {trackDraft && (
             <button
               type="button"
@@ -505,6 +623,7 @@ export const EntityFormPage: React.FC<EntityFormPageProps> = ({
               İptal
             </button>
           )}
+          </div>
         </div>
       )}
       {!embedded && (
@@ -522,7 +641,7 @@ export const EntityFormPage: React.FC<EntityFormPageProps> = ({
 
       {useAccountLinkEngine ? (
         <AccountLinkFormEngine
-          schema={schema}
+          schema={viewSchema ?? schema}
           initialData={initialData}
           onSubmit={handleSubmit}
           onLiveChange={trackDraft ? handleLiveChange : undefined}
@@ -531,7 +650,7 @@ export const EntityFormPage: React.FC<EntityFormPageProps> = ({
         />
       ) : useDocumentEngine ? (
         <DocumentFormEngine
-          schema={schema}
+          schema={viewSchema ?? schema}
           initialData={initialData}
           onSubmit={handleSubmit}
           onLiveChange={trackDraft ? handleLiveChange : undefined}
@@ -540,7 +659,7 @@ export const EntityFormPage: React.FC<EntityFormPageProps> = ({
         />
       ) : (
         <DynamicFormEngine
-          schema={schema}
+          schema={viewSchema ?? schema}
           initialData={initialData}
           onSubmit={handleSubmit}
           onLiveChange={trackDraft ? handleLiveChange : undefined}
