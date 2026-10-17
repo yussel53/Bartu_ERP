@@ -7,8 +7,9 @@
 --   7 e-Müstahsil Makbuzu · 8 e-Serbest Meslek Makbuzu · 9 e-Fatura İhracat · 10 e-İrsaliye Ambar
 --   11 e-Fatura İhraç Kayıtlı · 12 e-Arşiv İhraç Kayıtlı · 13 e-Arşiv İade · 14 İlaç ve Tıbbi Cihaz
 -- RuleType (şablon tipi):
---   1 Öndeğer · 2 Alıcı Cari VKN/TCKN · 3 Fatura Özel Kodu · 4 Parametre · 5 Cari Hesap Kodu
+--   1 Öndeğer · 2 Alıcı Cari VKN/TCKN · 3 Fatura Özel Kodu · 5 Cari Hesap Kodu
 --   6 İş Yeri Kodu · 7 Organizasyonel Birimler · 8 Ambar Kodu
+--   (4 kullanılmıyor — portal tarafındaki «Parametre» tipi ERP'de yok)
 -- Seçim: belge türünün aktif kurallarından değeri belgeyle eşleşenler, Öncelik küçükten büyüğe;
 -- eşleşen yoksa Öndeğer; o da yoksa entegratörün (e-Logo) varsayılan tasarımı.
 
