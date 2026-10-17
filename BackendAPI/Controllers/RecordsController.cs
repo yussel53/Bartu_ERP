@@ -1,4 +1,5 @@
 using BartuERP.Backend.Repositories;
+using BartuERP.Backend.Services;
 using Microsoft.AspNetCore.Mvc;
 
 namespace BartuERP.Backend.Controllers;
@@ -92,6 +93,27 @@ public sealed class RecordsController : ControllerBase
         }
     }
 
+    /// <summary>Kullanıcı / rol / yetki / firma (entegratör şifresi) kartları: kayıt ve silme yalnız yönetici</summary>
+    private static readonly HashSet<string> AdminOnlyTables = new(StringComparer.OrdinalIgnoreCase)
+    {
+        "SystemUser", "SYS_Users", "SYS_Role", "SYS_UserRole", "SYS_UserAuthCode", "SYS_UserOrgAuth",
+        "SYS_Companies", "SYS_Workplace", "SYS_SqlReportAuth", "SYS_SqlReportRoleAuth", "SYS_DbUpdates",
+    };
+
+    /// <summary>Kullanıcı kartında girilen şifre özetlenerek saklanır (düz metin asla yazılmaz); kilit açılır</summary>
+    private static string? HashUserPassword(Dictionary<string, object?> fields)
+    {
+        var key = fields.Keys.FirstOrDefault(k => k.Equals("Password", StringComparison.OrdinalIgnoreCase));
+        var value = key == null ? null : Convert.ToString(fields[key]);
+        if (key == null || string.IsNullOrEmpty(value) || AuthService.IsHashed(value)) return null;
+        if (AuthService.PasswordPolicyError(value) is { } err) return err;
+        fields[key] = AuthService.HashPassword(value);
+        fields["PasswordChangedAt"] = DateTime.Now;
+        fields["FailedLoginCount"] = 0;
+        fields["LockedUntil"] = null;
+        return null;
+    }
+
     [HttpPost("{tableName}")]
     public async Task<IActionResult> Save(
         string tableName,
@@ -101,6 +123,12 @@ public sealed class RecordsController : ControllerBase
     {
         try
         {
+            if (AdminOnlyTables.Contains(tableName) && !User.IsAdmin())
+                return StatusCode(403, new { success = false, message = "Bu kartı yalnızca yönetici değiştirebilir." });
+            if (tableName.Equals("SystemUser", StringComparison.OrdinalIgnoreCase) && body.StandardFields != null
+                && HashUserPassword(body.StandardFields) is { } pwdError)
+                return BadRequest(new { success = false, message = pwdError });
+
             // Malzeme barkodu benzersizdir (SqlUpdates/77) — kayıttan önce anlaşılır mesajla reddet
             var barcodeRows = tableName.Equals("ProductCard", StringComparison.OrdinalIgnoreCase)
                 ? body.Barcodes
@@ -291,6 +319,8 @@ public sealed class RecordsController : ControllerBase
     {
         try
         {
+            if (AdminOnlyTables.Contains(tableName) && !User.IsAdmin())
+                return StatusCode(403, new { success = false, message = "Bu kartı yalnızca yönetici silebilir." });
             var (ok, message) = await _repo.DeleteAsync(tableName, pk, id, ct);
             if (!ok) return BadRequest(new { success = false, message });
             return Ok(new { success = true, message });

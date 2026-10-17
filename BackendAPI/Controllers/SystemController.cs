@@ -2,6 +2,7 @@ using System.Data;
 using System.Globalization;
 using System.Text.RegularExpressions;
 using Dapper;
+using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 
 namespace BartuERP.Backend.Controllers;
@@ -28,6 +29,8 @@ public sealed class SystemController : ControllerBase
         _db = db;
     }
 
+    /// <summary>Tarih biçimi — giriş ekranından önce okunur (yetkisiz)</summary>
+    [AllowAnonymous]
     [HttpGet("info")]
     public async Task<ActionResult<SystemInfoDto>> Info(CancellationToken ct)
     {

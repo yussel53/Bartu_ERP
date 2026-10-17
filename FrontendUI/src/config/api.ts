@@ -58,3 +58,39 @@ export async function apiJson<T>(path: string, init?: RequestInit): Promise<T> {
   }
   return data as T;
 }
+
+/** Oturum süresi doldu: AuthGate bu olayla giriş penceresini açar */
+export const AUTH_REQUIRED_EVENT = 'bartu:auth-required';
+
+let refreshing: Promise<boolean> | null = null;
+
+/**
+ * Tüm /api isteklerinde (fetch, apiJson, indirme): 401 gelirse yenileme anahtarıyla bir kez oturum
+ * yenilenir ve istek tekrarlanır; olmazsa giriş penceresi istenir. Erişim anahtarı HttpOnly çerezdedir.
+ */
+export function installAuthFetch(): void {
+  const w = window as Window & { __bartuAuthFetch?: boolean };
+  if (w.__bartuAuthFetch) return;
+  w.__bartuAuthFetch = true;
+  const orig = window.fetch.bind(window);
+
+  const tryRefresh = () => {
+    refreshing ??= orig(`${API_BASE}/api/auth/refresh`, { method: 'POST' })
+      .then((r) => r.ok)
+      .catch(() => false)
+      .finally(() => {
+        setTimeout(() => (refreshing = null), 0);
+      });
+    return refreshing;
+  };
+
+  window.fetch = async (input: RequestInfo | URL, init?: RequestInit) => {
+    const res = await orig(input, init);
+    if (res.status !== 401) return res;
+    const url = typeof input === 'string' ? input : input instanceof URL ? input.href : input.url;
+    if (!url.includes('/api/') || url.includes('/api/auth/')) return res;
+    if (await tryRefresh()) return orig(input, init);
+    window.dispatchEvent(new Event(AUTH_REQUIRED_EVENT));
+    return res;
+  };
+}

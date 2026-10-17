@@ -1,4 +1,6 @@
 using BartuERP.Backend.Repositories;
+using BartuERP.Backend.Services;
+using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 
 namespace BartuERP.Backend.Controllers;
@@ -42,6 +44,7 @@ public sealed class RolesController : ControllerBase
         }
     }
 
+    [Authorize(Policy = AuthClaims.AdminPolicy)]
     [HttpPost]
     public async Task<ActionResult<RoleDto>> Create([FromBody] RoleSaveDto dto, CancellationToken ct)
     {
@@ -55,6 +58,7 @@ public sealed class RolesController : ControllerBase
         }
     }
 
+    [Authorize(Policy = AuthClaims.AdminPolicy)]
     [HttpPut("{id:int}")]
     public async Task<ActionResult<RoleDto>> Update(int id, [FromBody] RoleSaveDto dto, CancellationToken ct)
     {
@@ -68,6 +72,7 @@ public sealed class RolesController : ControllerBase
         }
     }
 
+    [Authorize(Policy = AuthClaims.AdminPolicy)]
     [HttpDelete("{id:int}")]
     public async Task<ActionResult> Delete(int id, CancellationToken ct)
     {
@@ -82,6 +87,7 @@ public sealed class RolesController : ControllerBase
         }
     }
 
+    [Authorize(Policy = AuthClaims.AdminPolicy)]
     [HttpGet("by-user/{userId:int}")]
     public async Task<ActionResult<UserRoleAssignmentDto>> GetUserRoles(int userId, CancellationToken ct)
     {
@@ -95,6 +101,7 @@ public sealed class RolesController : ControllerBase
         }
     }
 
+    [Authorize(Policy = AuthClaims.AdminPolicy)]
     [HttpPut("by-user/{userId:int}")]
     public async Task<ActionResult<UserRoleAssignmentDto>> SaveUserRoles(
         int userId,
@@ -114,6 +121,9 @@ public sealed class RolesController : ControllerBase
     [HttpGet("effective/{userId:int}")]
     public async Task<ActionResult<EffectiveAuthDto>> Effective(int userId, CancellationToken ct)
     {
+        // Başka kullanıcının yetkisini yalnız yönetici görür
+        if (!User.IsAdmin() && userId != User.UserId())
+            return StatusCode(403, new { message = "Bu işlem yalnızca yönetici içindir." });
         try
         {
             return Ok(await _repo.GetEffectiveAuthAsync(userId, ct));

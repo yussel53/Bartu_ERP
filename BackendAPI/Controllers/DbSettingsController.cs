@@ -1,4 +1,5 @@
 using BartuERP.Backend.Services;
+using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 
 namespace BartuERP.Backend.Controllers;
@@ -27,6 +28,8 @@ public sealed class DbSettingsStatusDto
 
 [ApiController]
 [Route("api/db-settings")]
+[AllowAnonymous]
+[SetupOrAdmin]
 public sealed class DbSettingsController : ControllerBase
 {
     private readonly DbConnectionStore _store;
@@ -36,6 +39,7 @@ public sealed class DbSettingsController : ControllerBase
         _store = store;
     }
 
+    [SkipSetupCheck]
     [HttpGet("status")]
     public async Task<ActionResult<DbSettingsStatusDto>> Status(CancellationToken ct)
     {

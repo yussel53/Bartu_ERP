@@ -3,6 +3,7 @@ using BartuERP.Backend.Services;
 using System.Data;
 using System.Globalization;
 using Dapper;
+using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 
 namespace BartuERP.Backend.Controllers;
@@ -15,10 +16,11 @@ namespace BartuERP.Backend.Controllers;
 ///   GET  /api/mailler/{kod}           CRM Kartı (firma, kişiler, fırsat, aksiyonlar, teklifler, yazışmalar)
 ///   GET  /api/mailler/kayit/{id}      tek yazışma
 ///   GET  /api/mailler/kayit/{id}/dosya ham .msg/.eml
-/// Kimlik: CRM_Setting.ApiKey doluysa "X-Api-Key" başlığı zorunlu.
+/// Kimlik: oturum açmış kullanıcı ya da CRM_Setting.ApiKey ile "X-Api-Key" başlığı (anahtar boşsa eklenti erişemez).
 /// </summary>
 [ApiController]
 [Route("api/mailler")]
+[AllowAnonymous]
 public sealed class MaillerController : ControllerBase
 {
     private readonly CrmRepository _repo;
@@ -62,8 +64,9 @@ public sealed class MaillerController : ControllerBase
     private async Task<(bool Ok, string Prefix)> CheckKeyAsync()
     {
         var prefix = await _mail.GetPrefixAsync();
+        if (User.UserId() > 0) return (true, prefix);
         var key = (await _repo.GetSettingAsync("ApiKey"))?.Trim();
-        if (string.IsNullOrEmpty(key)) return (true, prefix);
+        if (string.IsNullOrEmpty(key)) return (false, prefix);
         var given = Request.Headers["X-Api-Key"].FirstOrDefault()?.Trim();
         return (string.Equals(given, key, StringComparison.Ordinal), prefix);
     }

@@ -1,10 +1,14 @@
 using BartuERP.Backend.Repositories;
+using Microsoft.AspNetCore.Authorization;
+using BartuERP.Backend.Services;
 using Microsoft.AspNetCore.Mvc;
 
 namespace BartuERP.Backend.Controllers;
 
 [ApiController]
 [Route("api/db-bootstrap")]
+[AllowAnonymous]
+[SetupOrAdmin]
 public sealed class DbBootstrapController : ControllerBase
 {
     private readonly DbBootstrapRepository _repo;
@@ -14,6 +18,7 @@ public sealed class DbBootstrapController : ControllerBase
         _repo = repo;
     }
 
+    [SkipSetupCheck]
     [HttpGet("status")]
     public async Task<ActionResult<DbBootstrapStatus>> Status(CancellationToken ct)
     {

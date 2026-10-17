@@ -1,10 +1,14 @@
 using BartuERP.Backend.Repositories;
+using Microsoft.AspNetCore.Authorization;
+using BartuERP.Backend.Services;
 using Microsoft.AspNetCore.Mvc;
 
 namespace BartuERP.Backend.Controllers;
 
 [ApiController]
 [Route("api/db-updates")]
+[AllowAnonymous]
+[SetupOrAdmin]
 public sealed class DbUpdatesController : ControllerBase
 {
     private readonly DbUpdateRepository _repo;

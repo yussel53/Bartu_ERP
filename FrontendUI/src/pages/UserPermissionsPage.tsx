@@ -7,7 +7,6 @@ import {
   FieldAuthFlags,
   getAuthProfile,
   saveAuthProfile,
-  setCurrentUserId,
   getCurrentUserId,
   UserAuthProfile,
   fieldKey,
@@ -332,7 +331,6 @@ export const UserPermissionsPage: React.FC<Props> = ({ onBack }) => {
         await loadRoles();
         setSavedMsg('Rol yetkileri kaydedildi.');
       } else {
-        setCurrentUserId(userId);
         const uid = Number(userId) || 0;
         if (uid > 0) {
           await saveUserRoles(uid, userRoleIds);

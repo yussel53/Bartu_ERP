@@ -18,10 +18,54 @@ import {
   PieChart,
   GitBranch,
   Handshake,
+  KeyRound,
+  UserCircle2,
 } from 'lucide-react';
 import { AppModule, MenuScreen } from '../types/formTypes';
 import { exitApp } from '../utils/exitApp';
 import { useAppModules } from '../contexts/AppModulesContext';
+import { useAuth } from './AuthGate';
+import { appConfirm } from '../utils/appConfirm';
+
+/** Oturumdaki kullanıcı: ad, şifre değiştir, oturumu kapat */
+const UserBlock: React.FC = () => {
+  const auth = useAuth();
+  if (!auth) return null;
+  const { user } = auth;
+  return (
+    <div className="flex items-center gap-1.5 px-2 h-8 mb-0.5 rounded-md bg-slate-50 dark:bg-slate-900">
+      <UserCircle2 className="w-4 h-4 shrink-0 text-slate-500" />
+      <div className="min-w-0 flex-1 leading-tight">
+        <div className="truncate text-[11px] font-semibold text-slate-700 dark:text-slate-200" title={user.displayName}>
+          {user.displayName || user.userName}
+        </div>
+        <div className="truncate text-[10px] text-slate-500">
+          {user.userName}
+          {user.isAdmin ? ' · Yönetici' : ''}
+        </div>
+      </div>
+      <button
+        type="button"
+        onClick={auth.openChangePassword}
+        className="p-1 rounded text-slate-500 hover:text-blue-700 hover:bg-blue-50"
+        title="Şifre değiştir"
+      >
+        <KeyRound className="w-3.5 h-3.5" />
+      </button>
+      <button
+        type="button"
+        onClick={async () => {
+          if (await appConfirm('Oturum kapatılsın mı? Kaydedilmemiş açık fişler kaybolur.', { title: 'Oturumu kapat', okLabel: 'Kapat' }))
+            await auth.logout();
+        }}
+        className="p-1 rounded text-slate-500 hover:text-red-700 hover:bg-red-50"
+        title="Oturumu kapat"
+      >
+        <LogOut className="w-3.5 h-3.5" />
+      </button>
+    </div>
+  );
+};
 
 const MODULE_ICONS = {
   package: Package,
@@ -280,6 +324,7 @@ export const AppShell: React.FC<AppShellProps> = ({ currentPath, onNavigate, chi
         </nav>
 
         <div className="shrink-0 pt-1.5 mt-1 border-t border-slate-100 dark:border-slate-800">
+          <UserBlock />
           <button
             type="button"
             onClick={() => exitApp()}

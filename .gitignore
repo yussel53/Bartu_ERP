@@ -47,3 +47,5 @@ iis-site.bak-*/
 _claude_build/
 *.bak
 deploy-swap.log
+# JWT imza anahtarı (yerel, ilk açılışta üretilir)
+**/Data/jwt.key

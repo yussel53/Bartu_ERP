@@ -1,4 +1,7 @@
 using System.Data;
+using Dapper;
+using Microsoft.AspNetCore.Authentication.JwtBearer;
+using Microsoft.AspNetCore.Authorization;
 using Microsoft.Data.SqlClient;
 using BartuERP.Backend.Repositories;
 using BartuERP.Backend.Services;
@@ -8,7 +11,34 @@ var builder = WebApplication.CreateBuilder(args);
 // Windows Service / IIS (ANCM out-of-process) — makine acilisinda otomatik
 builder.Host.UseWindowsService();
 
-builder.Services.AddControllers(o => o.SuppressImplicitRequiredAttributeForNonNullableReferenceTypes = true);
+builder.Services.AddControllers(o =>
+{
+    o.SuppressImplicitRequiredAttributeForNonNullableReferenceTypes = true;
+    o.Filters.Add<TokenUserFilter>();
+});
+
+// Giriş (JWT): erişim anahtarı HttpOnly çerezde (bartu_at) veya "Authorization: Bearer"; tüm uçlar varsayılan olarak yetki ister
+builder.Services.AddScoped<AuthService>();
+builder.Services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
+    .AddJwtBearer(o =>
+    {
+        o.MapInboundClaims = false;
+        o.TokenValidationParameters = AuthService.ValidationParameters(builder.Environment.ContentRootPath);
+        o.Events = new JwtBearerEvents
+        {
+            OnMessageReceived = ctx =>
+            {
+                if (string.IsNullOrEmpty(ctx.Token))
+                    ctx.Token = ctx.Request.Cookies[AuthClaims.AccessCookie];
+                return Task.CompletedTask;
+            },
+        };
+    });
+builder.Services.AddAuthorization(o =>
+{
+    o.FallbackPolicy = new AuthorizationPolicyBuilder().RequireAuthenticatedUser().Build();
+    o.AddPolicy(AuthClaims.AdminPolicy, p => p.RequireClaim(AuthClaims.Admin, "1"));
+});
 builder.Services.AddSingleton<DbConnectionStore>();
 builder.Services.AddScoped<IDbConnection>(sp =>
 {
@@ -117,9 +147,8 @@ else
 }
 
 app.UseCors("Frontend");
-app.UseAuthorization();
 
-// Frontend build (wwwroot) — IIS gerekmeden tek süreçte yayın
+// Frontend build (wwwroot) — IIS gerekmeden tek süreçte yayın (giriş ekranı yetkisiz açılmalı: yetkiden önce)
 var www = Path.Combine(app.Environment.ContentRootPath, "wwwroot");
 if (Directory.Exists(www))
 {
@@ -127,14 +156,51 @@ if (Directory.Exists(www))
     app.UseStaticFiles();
 }
 
+app.UseAuthentication();
+// Oturum açmış istekte X-User-Id başlığı token'daki kullanıcıdır (istemcinin gönderdiği yok sayılır)
+app.Use(async (ctx, next) =>
+{
+    var uid = ctx.User.UserId();
+    if (uid > 0) ctx.Request.Headers["X-User-Id"] = uid.ToString();
+    else ctx.Request.Headers.Remove("X-User-Id");
+    await next();
+});
+app.UseAuthorization();
+
 app.MapControllers();
 
 if (Directory.Exists(www))
 {
     // Bilinmeyen /api adresi index.html değil 404 döner (eski backend'de yeni ekran sessizce çökmesin)
     app.MapFallback("/api/{**rest}", (HttpContext ctx) =>
-        Results.NotFound(new { message = $"API ucu bulunamadı: {ctx.Request.Path} — backend güncel olmayabilir." }));
-    app.MapFallbackToFile("index.html");
+        Results.NotFound(new { message = $"API ucu bulunamadı: {ctx.Request.Path} — backend güncel olmayabilir." }))
+        .AllowAnonymous();
+    app.MapFallbackToFile("index.html").AllowAnonymous();
+}
+
+// Giriş şeması (SqlUpdates/79) yoksa açılışta uygula — giriş yapılamadan güncelleme ekranına ulaşılamaz
+using (var scope = app.Services.CreateScope())
+{
+    try
+    {
+        var sp = scope.ServiceProvider;
+        if (sp.GetRequiredService<DbConnectionStore>().IsConfigured())
+        {
+            var db = sp.GetRequiredService<IDbConnection>();
+            db.Open();
+            var missing = db.ExecuteScalar<int>(
+                "SELECT CASE WHEN OBJECT_ID(N'dbo.SystemUser', N'U') IS NOT NULL AND OBJECT_ID(N'dbo.SYS_AuthRefreshToken', N'U') IS NULL THEN 1 ELSE 0 END") == 1;
+            if (missing)
+            {
+                var r = await sp.GetRequiredService<DbUpdateRepository>().ApplyAsync("79_sys_auth_login.sql", "startup");
+                app.Logger.LogInformation("Giriş şeması (79) uygulandı: {Ok} {Msg}", r.Success, r.Message);
+            }
+        }
+    }
+    catch (Exception ex)
+    {
+        app.Logger.LogWarning(ex, "Giriş şeması kontrolü yapılamadı");
+    }
 }
 
 app.Run();

@@ -1,4 +1,6 @@
 using BartuERP.Backend.Repositories;
+using BartuERP.Backend.Services;
+using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 
 namespace BartuERP.Backend.Controllers;
@@ -69,6 +71,7 @@ public sealed class SqlReportsController : ControllerBase
         }
     }
 
+    [Authorize(Policy = AuthClaims.AdminPolicy)]
     [HttpPut("{id:int}/auth")]
     public async Task<ActionResult<SqlReportAuthStateDto>> SaveAuth(
         int id,
@@ -98,6 +101,7 @@ public sealed class SqlReportsController : ControllerBase
         }
     }
 
+    [Authorize(Policy = AuthClaims.AdminPolicy)]
     [HttpPut("auth/by-user/{userId:int}")]
     public async Task<ActionResult<SqlReportUserAuthStateDto>> SaveUserAuth(
         int userId,
@@ -114,6 +118,7 @@ public sealed class SqlReportsController : ControllerBase
         }
     }
 
+    [Authorize(Policy = AuthClaims.AdminPolicy)]
     [HttpPost("menus")]
     public async Task<ActionResult<SqlReportMenuDto>> CreateMenu([FromBody] SqlReportMenuSaveDto dto, CancellationToken ct)
     {
@@ -127,6 +132,7 @@ public sealed class SqlReportsController : ControllerBase
         }
     }
 
+    [Authorize(Policy = AuthClaims.AdminPolicy)]
     [HttpPut("menus/{id:int}")]
     public async Task<ActionResult<SqlReportMenuDto>> UpdateMenu(int id, [FromBody] SqlReportMenuSaveDto dto, CancellationToken ct)
     {
@@ -140,6 +146,7 @@ public sealed class SqlReportsController : ControllerBase
         }
     }
 
+    [Authorize(Policy = AuthClaims.AdminPolicy)]
     [HttpDelete("menus/{id:int}")]
     public async Task<ActionResult> DeleteMenu(int id, CancellationToken ct)
     {
@@ -175,6 +182,7 @@ public sealed class SqlReportsController : ControllerBase
         }
     }
 
+    [Authorize(Policy = AuthClaims.AdminPolicy)]
     [HttpPost("import")]
     public async Task<ActionResult<SqlReportImportResult>> Import([FromBody] SqlReportPackageDto package, CancellationToken ct)
     {
@@ -203,6 +211,7 @@ public sealed class SqlReportsController : ControllerBase
         }
     }
 
+    [Authorize(Policy = AuthClaims.AdminPolicy)]
     [HttpPost]
     public async Task<ActionResult<SqlReportDto>> Create([FromBody] SqlReportSaveDto dto, CancellationToken ct)
     {
@@ -217,6 +226,7 @@ public sealed class SqlReportsController : ControllerBase
         }
     }
 
+    [Authorize(Policy = AuthClaims.AdminPolicy)]
     [HttpPut("{id:int}")]
     public async Task<ActionResult<SqlReportDto>> Update(int id, [FromBody] SqlReportSaveDto dto, CancellationToken ct)
     {
@@ -231,6 +241,7 @@ public sealed class SqlReportsController : ControllerBase
         }
     }
 
+    [Authorize(Policy = AuthClaims.AdminPolicy)]
     [HttpDelete("{id:int}")]
     public async Task<ActionResult> Delete(int id, CancellationToken ct)
     {
@@ -245,6 +256,7 @@ public sealed class SqlReportsController : ControllerBase
         }
     }
 
+    [Authorize(Policy = AuthClaims.AdminPolicy)]
     [HttpPost("run")]
     public async Task<ActionResult<SqlReportRunResult>> Run([FromBody] SqlReportRunRequest req, CancellationToken ct)
     {

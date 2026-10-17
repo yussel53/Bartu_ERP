@@ -1,6 +1,7 @@
 import { useEffect, useState, type ReactNode } from 'react';
 import { AppShell } from './components/AppShell';
 import { DbConnectionGate } from './components/DbConnectionGate';
+import { AuthGate } from './components/AuthGate';
 import { OpenDocumentsTray } from './components/OpenDocumentsTray';
 import { HomePage } from './pages/HomePage';
 import { DashboardPage } from './pages/DashboardPage';
@@ -211,12 +212,14 @@ function AppRoutes() {
 
   return (
     <DbConnectionGate>
-      <OpenDocumentsProvider>
-        <AppShell currentPath={path} onNavigate={navigate}>
-          {content}
-        </AppShell>
-        <OpenDocumentsTray onNavigate={navigate} />
-      </OpenDocumentsProvider>
+      <AuthGate>
+        <OpenDocumentsProvider>
+          <AppShell currentPath={path} onNavigate={navigate}>
+            {content}
+          </AppShell>
+          <OpenDocumentsTray onNavigate={navigate} />
+        </OpenDocumentsProvider>
+      </AuthGate>
     </DbConnectionGate>
   );
 }
