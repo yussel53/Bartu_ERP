@@ -10,6 +10,7 @@ import {
 } from '../api/cardStatementApi';
 import { displayToIso, getSystemDatePlaceholder } from '../utils/dateFormat';
 import { downloadCsv, fmtBalance, fmtCell, fmtDate, fmtNum } from '../utils/cardStatementFormat';
+import { FilterInput, FilterSummary, SortLabel, useGridSortFilter } from './GridSortFilter';
 
 interface CardStatementModalProps {
   kind: CardStatementKind;
@@ -123,11 +124,6 @@ export const CardStatementModal: React.FC<CardStatementModalProps> = ({
     );
   };
 
-  const th = 'px-2 py-1.5 text-left font-semibold text-slate-600 dark:text-slate-300 whitespace-nowrap';
-  const thR = 'px-2 py-1.5 text-right font-semibold text-slate-600 dark:text-slate-300 whitespace-nowrap';
-  const td = 'px-2 py-1 text-slate-700 dark:text-slate-200 whitespace-nowrap';
-  const tdR = 'px-2 py-1 text-right tabular-nums text-slate-700 dark:text-slate-200 whitespace-nowrap';
-
   return (
     <div
       className="fixed inset-0 z-[90] flex items-center justify-center p-4 bg-slate-900/40"
@@ -214,54 +210,81 @@ export const CardStatementModal: React.FC<CardStatementModalProps> = ({
               rangeTo={range.to}
             />
           ) : activeSection ? (
-            <>
-              {activeSection.note && (
-                <p className="px-3 py-1.5 text-[11px] text-slate-500 bg-slate-50 dark:bg-slate-800/40">
-                  {activeSection.note}
-                </p>
-              )}
-              <table className="min-w-full text-[12px]">
-                <thead className="sticky top-0 bg-slate-50 dark:bg-slate-800">
-                  <tr className="border-b border-slate-200 dark:border-slate-700">
-                    {activeSection.columns.map((c) => (
-                      <th key={c.key} className={c.format === 'money' || c.format === 'qty' ? thR : th}>
-                        {c.label}
-                      </th>
-                    ))}
-                  </tr>
-                </thead>
-                <tbody>
-                  {activeSection.rows.length === 0 ? (
-                    <tr>
-                      <td colSpan={activeSection.columns.length} className="px-3 py-6 text-center text-slate-400">
-                        Kayıt yok
-                      </td>
-                    </tr>
-                  ) : (
-                    activeSection.rows.map((r, i) => (
-                      <tr
-                        key={i}
-                        className="border-b border-slate-100 dark:border-slate-800 hover:bg-slate-50 dark:hover:bg-slate-800/40"
-                      >
-                        {activeSection.columns.map((c) => (
-                          <td
-                            key={c.key}
-                            className={c.format === 'money' || c.format === 'qty' ? tdR : `${td} max-w-[260px] truncate`}
-                          >
-                            {fmtCell(r[c.key], c)}
-                          </td>
-                        ))}
-                      </tr>
-                    ))
-                  )}
-                </tbody>
-              </table>
-            </>
+            <SectionTable key={activeSection.key} section={activeSection} />
           ) : (
             <p className="px-3 py-8 text-center text-[12px] text-slate-400">Bu kart için bu bölümde kayıt yok.</p>
           )}
         </div>
       </div>
     </div>
+  );
+};
+
+/** Bölüm tablosu (Hareketler, Siparişler…) — başlığa tıklayınca sıralama, başlık altında filtre */
+const SectionTable: React.FC<{ section: CardSection }> = ({ section }) => {
+  const isNum = (c: CardSection['columns'][number]) => c.format === 'money' || c.format === 'qty';
+  const grid = useGridSortFilter(section.rows, (r, key) => {
+    const col = section.columns.find((c) => c.key === key);
+    return col ? fmtCell(r[key], col) : String(r[key] ?? '');
+  });
+  const th = 'px-2 py-1.5 font-semibold text-slate-600 dark:text-slate-300 whitespace-nowrap';
+  const td = 'px-2 py-1 text-slate-700 dark:text-slate-200 whitespace-nowrap';
+  return (
+    <>
+      {section.note && (
+        <p className="px-3 py-1.5 text-[11px] text-slate-500 bg-slate-50 dark:bg-slate-800/40">{section.note}</p>
+      )}
+      <table className="min-w-full text-[12px]">
+        <thead className="sticky top-0 bg-slate-50 dark:bg-slate-800 z-[1]">
+          <tr className="border-b border-slate-200 dark:border-slate-700">
+            {section.columns.map((c) => (
+              <th key={c.key} className={`${th} ${isNum(c) ? 'text-right' : 'text-left'}`}>
+                <SortLabel
+                  label={c.label}
+                  colKey={c.key}
+                  sort={grid.sort}
+                  onSort={grid.toggleSort}
+                  align={isNum(c) ? 'right' : 'left'}
+                />
+              </th>
+            ))}
+          </tr>
+          <tr className="border-b border-slate-200 dark:border-slate-700 bg-slate-50/80 dark:bg-slate-800/60">
+            {section.columns.map((c) => (
+              <th key={c.key} className="px-1.5 py-1 font-normal">
+                <FilterInput colKey={c.key} value={grid.filters[c.key] ?? ''} onChange={grid.setFilter} numeric={isNum(c)} />
+              </th>
+            ))}
+          </tr>
+        </thead>
+        <tbody>
+          {grid.view.length === 0 ? (
+            <tr>
+              <td colSpan={section.columns.length} className="px-3 py-6 text-center text-slate-400">
+                {section.rows.length === 0 ? 'Kayıt yok' : 'Filtreye uyan kayıt yok'}
+              </td>
+            </tr>
+          ) : (
+            grid.view.map((r, i) => (
+              <tr key={i} className="border-b border-slate-100 dark:border-slate-800 hover:bg-slate-50 dark:hover:bg-slate-800/40">
+                {section.columns.map((c) => (
+                  <td
+                    key={c.key}
+                    className={isNum(c) ? `${td} text-right tabular-nums` : `${td} max-w-[260px] truncate`}
+                  >
+                    {fmtCell(r[c.key], c)}
+                  </td>
+                ))}
+              </tr>
+            ))
+          )}
+        </tbody>
+      </table>
+      {grid.hasFilter && (
+        <div className="px-3 py-1.5 border-t border-slate-100">
+          <FilterSummary shown={grid.view.length} total={section.rows.length} active onClear={grid.clear} />
+        </div>
+      )}
+    </>
   );
 };

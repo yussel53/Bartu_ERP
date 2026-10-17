@@ -16,6 +16,13 @@ import {
 } from 'lucide-react';
 import { AppModule, MenuScreen } from '../types/formTypes';
 import { RowActions, RowActionExtraItem } from '../components/RowActions';
+import {
+  FilterInput,
+  FilterSummary,
+  isNumericColumn,
+  SortLabel,
+  useGridSortFilter,
+} from '../components/GridSortFilter';
 import { RowContextMenu, RowContextMenuItem } from '../components/RowContextMenu';
 import { CardStatementModal } from '../components/CardStatementModal';
 import { getCardStatementDef } from '../data/cardStatementKinds';
@@ -243,6 +250,29 @@ export const ModuleListPage: React.FC<ModuleListPageProps> = ({
 
   const baseCols = screen.listColumns ?? [];
   const columns = baseCols;
+
+  /** Hücrede gösterilen değer (tip etiketi çevrilmiş) — sıralama / filtre de bunu kullanır */
+  const cellRaw = (row: Record<string, unknown>, col: { key: string }): unknown => {
+    let raw = pickCell(row, col.key);
+    if ((col.key === 'type' || col.key === 'VoucherType') && raw != null && raw !== '') {
+      const label =
+        tableName === 'CustomerCard' ? CUSTOMER_TYPE_LABELS[String(raw)] : DispatchTypeLabels[String(raw)];
+      if (label) raw = label;
+    }
+    return raw;
+  };
+  const cellText = (row: Record<string, unknown>, key: string): string => {
+    const col = columns.find((c) => c.key === key) ?? { key, label: key };
+    const raw = cellRaw(row, col);
+    if (isStatusColumn(col.key, col.label) && cellLooksActivePassive(raw)) return isActiveValue(raw) ? 'Aktif' : 'Pasif';
+    return String(raw ?? '');
+  };
+  const grid = useGridSortFilter(rows, cellText);
+  const numericCols = useMemo(
+    () => new Set(columns.filter((c) => isNumericColumn(rows.map((r) => cellText(r, c.key)))).map((c) => c.key)),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [rows, columns],
+  );
 
   const allowed = {
     view: canScreen(screen.id, 'view'),
@@ -482,7 +512,35 @@ export const ModuleListPage: React.FC<ModuleListPageProps> = ({
                     key={col.key}
                     className="px-3 py-1.5 text-left font-semibold text-slate-600 dark:text-slate-300 whitespace-nowrap"
                   >
-                    {col.label}
+                    <SortLabel
+                      label={col.label}
+                      colKey={col.key}
+                      sort={grid.sort}
+                      onSort={grid.toggleSort}
+                      align={numericCols.has(col.key) ? 'right' : 'left'}
+                    />
+                  </th>
+                ))}
+              </tr>
+              <tr className="border-b border-slate-200 dark:border-slate-700 bg-slate-50/70 dark:bg-slate-800/40">
+                {showActions && (
+                  <th className="px-2 py-1 sticky left-0 bg-slate-50 dark:bg-slate-800/60 z-10 text-left">
+                    <FilterSummary
+                      shown={grid.view.length}
+                      total={rows.length}
+                      active={grid.hasFilter}
+                      onClear={grid.clear}
+                    />
+                  </th>
+                )}
+                {columns.map((col) => (
+                  <th key={col.key} className="px-2 py-1 font-normal">
+                    <FilterInput
+                      colKey={col.key}
+                      value={grid.filters[col.key] ?? ''}
+                      onChange={grid.setFilter}
+                      numeric={numericCols.has(col.key)}
+                    />
                   </th>
                 ))}
               </tr>
@@ -497,6 +555,18 @@ export const ModuleListPage: React.FC<ModuleListPageProps> = ({
                     Yükleniyor…
                   </td>
                 </tr>
+              ) : rows.length > 0 && grid.view.length === 0 ? (
+                <tr>
+                  <td
+                    colSpan={Math.max(columns.length, 1) + (showActions ? 1 : 0)}
+                    className="px-3 py-6 text-center text-slate-400"
+                  >
+                    Filtreye uyan kayıt yok —{' '}
+                    <button type="button" onClick={grid.clear} className="text-blue-600 hover:underline">
+                      filtreyi temizle
+                    </button>
+                  </td>
+                </tr>
               ) : rows.length === 0 ? (
                 <tr>
                   <td
@@ -509,7 +579,7 @@ export const ModuleListPage: React.FC<ModuleListPageProps> = ({
                   </td>
                 </tr>
               ) : (
-                rows.map((row, idx) => {
+                grid.view.map((row, idx) => {
                   const rowId = (row.id ?? row.Id ?? pickCell(row, pk || 'id') ?? idx) as
                     | string
                     | number;
@@ -544,25 +614,16 @@ export const ModuleListPage: React.FC<ModuleListPageProps> = ({
                         </td>
                       )}
                       {columns.map((col) => {
-                        let raw = pickCell(row, col.key);
-                        if (
-                          (col.key === 'type' || col.key === 'VoucherType') &&
-                          raw != null &&
-                          raw !== ''
-                        ) {
-                          const label =
-                            tableName === 'CustomerCard'
-                              ? CUSTOMER_TYPE_LABELS[String(raw)]
-                              : DispatchTypeLabels[String(raw)];
-                          if (label) raw = label;
-                        }
+                        const raw = cellRaw(row, col);
                         const showToggle =
                           isStatusColumn(col.key, col.label) && cellLooksActivePassive(raw);
                         const current = isActiveValue(raw);
                         return (
                           <td
                             key={col.key}
-                            className="px-3 py-1.5 text-slate-700 dark:text-slate-200 whitespace-nowrap"
+                            className={`px-3 py-1.5 text-slate-700 dark:text-slate-200 whitespace-nowrap ${
+                              numericCols.has(col.key) ? 'text-right tabular-nums' : ''
+                            }`}
                           >
                             {showToggle ? (
                               <ActiveStatusBadge value={current} disabled />
