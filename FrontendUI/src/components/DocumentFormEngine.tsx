@@ -14,7 +14,7 @@ import { FormTabs } from './FormTabs';
 import { canField } from '../data/permissions';
 import { getCurrency, getCurrencyRate, LOCAL_CURRENCY_ID, CURRENCIES } from '../data/currencies';
 import { Plus, Minus, RefreshCw } from 'lucide-react';
-import { FieldLayoutContext, FormFieldContext, InlineFieldGrid } from './FormFieldContext';
+import { FieldLayoutContext, FormFieldContext, InlineColsContext, InlineFieldGrid } from './FormFieldContext';
 import { useOrgFieldCascade } from '../hooks/useOrgFieldCascade';
 import { allocateDocumentNumber } from '../api/numberTemplateApi';
 import { getRecord } from '../api/recordsApi';
@@ -1079,7 +1079,7 @@ export const DocumentFormEngine: React.FC<DocumentFormEngineProps> = ({
   };
 
   const renderGrid = (fieldList: FormFieldDto[], isCustom = false) => (
-    <InlineFieldGrid>
+    <InlineFieldGrid cols={3} className="max-w-[1320px]">
       {fieldList.map((field) => {
         const patched = patchField(field);
         const fieldReadOnly =
@@ -1606,20 +1606,24 @@ export const DocumentFormEngine: React.FC<DocumentFormEngineProps> = ({
         >
           {tradeLayout && tradeParts ? (
             <>
-              {/* 1) Başlık — SAP B1 düzeni: sol cari / fiş · sağ belge no, tarih, durum */}
+              {/* 1) Başlık — 3 sütun: Cari / fiş · Firma–İşyeri–Ambar–Bölüm · Belge no–tarih–durum */}
               <FieldLayoutContext.Provider value="inline">
+              <InlineColsContext.Provider value={3}>
               <section className="rounded-sm border border-slate-300 dark:border-slate-600 bg-slate-50/70 dark:bg-slate-800/30 px-3 py-2 shrink-0">
-                <div className="grid grid-cols-1 lg:grid-cols-2 gap-x-10 gap-y-[5px]">
-                  {/* Sol: Cari → Adres → Ödeme planı / Fiş tipi · ardından Firma / İşyeri / Ambar */}
+                <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-x-6 gap-y-[5px] max-w-[1320px]">
+                  {/* 1: Cari → Adres → Ödeme planı · muhasebede Fiş tipi / yevmiye */}
                   <div className="space-y-[5px] min-w-0">
-                    {tradeParts.headerParty.length > 0
-                      ? tradeParts.headerParty.map((f) => renderTradeField(f))
-                      : null}
+                    {tradeParts.headerParty.map((f) => renderTradeField(f))}
                     {renderDocMeta(tradeParts.headerDocMeta, tradeParts.headerAuth)}
-                    {tradeParts.headerOrgMain.map((f) => renderTradeField(f))}
                   </div>
 
-                  {/* Sağ: Belge No → Tarih → Durum → Yetki → Bölüm / Birim */}
+                  {/* 2: Firma → İşyeri → Ambar → Bölüm → Birim */}
+                  <div className="space-y-[5px] min-w-0">
+                    {tradeParts.headerOrgMain.map((f) => renderTradeField(f))}
+                    {tradeParts.headerOrgSide.map((f) => renderTradeField(f))}
+                  </div>
+
+                  {/* 3: Belge No → Tarih → Durum → Yetki */}
                   <div className="space-y-[5px] min-w-0">
                     {tradeParts.headerDocNumber.map((f) =>
                       renderTradeField(f, { endAction: numberAllocateBtn }),
@@ -1627,13 +1631,13 @@ export const DocumentFormEngine: React.FC<DocumentFormEngineProps> = ({
                     {tradeParts.headerDocDate.map((f) => renderTradeField(f))}
                     {tradeParts.headerStatus.map((f) => renderTradeField(f))}
                     {!authBesideJournal && tradeParts.headerAuth.map((f) => renderTradeField(f))}
-                    {tradeParts.headerOrgSide.map((f) => renderTradeField(f))}
                     {numberHint && (
-                      <p className="text-[10px] text-slate-500 leading-snug pl-[140px]">{numberHint}</p>
+                      <p className="text-[10px] text-slate-500 leading-snug pl-[132px]">{numberHint}</p>
                     )}
                   </div>
                 </div>
               </section>
+              </InlineColsContext.Provider>
               </FieldLayoutContext.Provider>
 
               {/* 2) Satırlar — ortadaki boşluğu doldurur */}
