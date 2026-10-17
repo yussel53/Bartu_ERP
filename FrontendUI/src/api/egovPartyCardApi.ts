@@ -25,15 +25,14 @@ export interface EGovPartyInfo {
   existingCode?: string | null;
   existingTitle?: string | null;
   suggestedCode?: string | null;
+  /** e-Fatura posta kutusu (PK) / gönderici birim (GB) etiketi — GİB listesi */
+  postLabel?: string | null;
+  senderLabel?: string | null;
+  einvoiceEntryDate?: string | null;
+  isEInvoiceUser?: boolean | null;
+  labelMessage?: string | null;
 }
 
 export function getEGovPartyCard(id: number): Promise<EGovPartyInfo> {
   return apiJson<EGovPartyInfo>(`/api/egov/documents/${id}/party-card`);
-}
-
-export function createEGovPartyCard(
-  id: number,
-  body: { code?: string | null; title?: string | null },
-): Promise<{ success: boolean; message: string; customerCardID: number; code: string }> {
-  return apiJson(`/api/egov/documents/${id}/party-card`, { method: 'POST', body: JSON.stringify(body) });
 }

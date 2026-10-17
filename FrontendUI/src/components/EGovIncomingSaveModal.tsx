@@ -211,7 +211,7 @@ export const EGovIncomingSaveModal: React.FC<Props> = ({ egovId, userId, onClose
                           onClick={() => setPartyOpen(true)}
                           className="inline-flex items-center gap-1 ml-1 px-1.5 h-5 rounded-sm border border-blue-600 bg-blue-600 text-white hover:bg-blue-700"
                         >
-                          <UserPlus className="w-3 h-3" /> e-Faturadan cari kaydet
+                          <UserPlus className="w-3 h-3" /> e-Faturadan cari kartı aç
                         </button>
                       </span>
                     </div>
@@ -352,10 +352,6 @@ export const EGovIncomingSaveModal: React.FC<Props> = ({ egovId, userId, onClose
       <EGovPartyCardModal
         egovId={egovId}
         onClose={() => setPartyOpen(false)}
-        onDone={(card) => {
-          setPartyOpen(false);
-          setPreview((p) => (p ? { ...p, supplierCardID: card.id, supplierCode: card.code, supplierTitle: card.title } : p));
-        }}
       />
     )}
     </>

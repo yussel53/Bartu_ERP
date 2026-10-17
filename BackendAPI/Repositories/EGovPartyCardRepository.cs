@@ -2,6 +2,7 @@ using System.Data;
 using System.Xml;
 using System.Xml.Linq;
 using Dapper;
+using BartuERP.Backend.Services;
 
 namespace BartuERP.Backend.Repositories;
 
@@ -32,17 +33,20 @@ public sealed class EGovPartyInfo
     public string? ExistingTitle { get; set; }
     /// <summary>Önerilen cari kodu (VKN/TCKN)</summary>
     public string? SuggestedCode { get; set; }
-}
-
-public sealed class EGovPartyCreateRequest
-{
-    public string? Code { get; set; }
-    public string? Title { get; set; }
+    /// <summary>e-Fatura posta kutusu etiketi (PK) — GİB mükellef listesinden</summary>
+    public string? PostLabel { get; set; }
+    /// <summary>e-Fatura gönderici birim etiketi (GB)</summary>
+    public string? SenderLabel { get; set; }
+    /// <summary>e-Fatura'ya geçiş (ilk etiket kayıt) tarihi</summary>
+    public DateTime? EinvoiceEntryDate { get; set; }
+    /// <summary>GİB listesinde e-Fatura mükellefi mi (null: sorgulanamadı)</summary>
+    public bool? IsEInvoiceUser { get; set; }
+    public string? LabelMessage { get; set; }
 }
 
 /// <summary>
-/// e-Fatura / e-Arşiv / e-İrsaliye UBL'sindeki karşı taraf bilgisinden cari kart açar
-/// (CustomerCard CardKind 2 + varsayılan «Merkez» adresi + iletişim). Aynı VKN/TCKN'li cari varsa yenisi açılmaz.
+/// e-Fatura / e-Arşiv / e-İrsaliye UBL'sindeki karşı taraf bilgisini okur (cari kart formunu doldurmak için;
+/// kayıt kullanıcıya bırakılır). PK/GB etiketleri GİB mükellef listesinden (yerel tablo, yoksa e-Logo CheckGibUser).
 /// </summary>
 public sealed class EGovPartyCardRepository
 {
@@ -50,10 +54,20 @@ public sealed class EGovPartyCardRepository
     private static readonly XNamespace Cbc = "urn:oasis:names:specification:ubl:schema:xsd:CommonBasicComponents-2";
 
     private readonly IDbConnection _db;
+    private readonly EFaturaMukellefRepository _mukellef;
+    private readonly IntegratorMukellefService _integrator;
+    private readonly ELogoDocumentSyncService _elogo;
 
-    public EGovPartyCardRepository(IDbConnection db)
+    public EGovPartyCardRepository(
+        IDbConnection db,
+        EFaturaMukellefRepository mukellef,
+        IntegratorMukellefService integrator,
+        ELogoDocumentSyncService elogo)
     {
         _db = db;
+        _mukellef = mukellef;
+        _integrator = integrator;
+        _elogo = elogo;
     }
 
     private sealed class DocRow
@@ -120,118 +134,45 @@ public sealed class EGovPartyCardRepository
             info.ExistingCode = hit.Code;
             info.ExistingTitle = hit.Title;
         }
+        await FillLabelsAsync(info, ct);
         return (info, null);
     }
 
-    public async Task<(bool Ok, int CardId, string? Code, string Message)> CreateAsync(
-        int id, EGovPartyCreateRequest req, CancellationToken ct = default)
+    /// <summary>PK / GB etiketleri: önce yerel GİB listesi, yoksa e-Logo CheckGibUser (hata formu engellemez)</summary>
+    private async Task FillLabelsAsync(EGovPartyInfo info, CancellationToken ct)
     {
-        var (info, error) = await ReadAsync(id, ct);
-        if (info is null) return (false, 0, null, error ?? "Belge okunamadı.");
-        if (info.ExistingCardID is int existing)
-            return (true, existing, info.ExistingCode,
-                $"Bu VKN/TCKN ile cari zaten kayıtlı: {info.ExistingCode} — {info.ExistingTitle}");
-
-        var code = Clean(req.Code) ?? info.SuggestedCode!;
-        var title = Clean(req.Title) ?? info.Title;
-        if (string.IsNullOrWhiteSpace(title)) return (false, 0, null, "Ünvan boş olamaz.");
-        if (code.Length > 50) return (false, 0, null, "Cari kodu en fazla 50 karakter olabilir.");
-
-        Open();
-        if (await _db.ExecuteScalarAsync<int>(new CommandDefinition(
-                "SELECT COUNT(1) FROM dbo.CustomerCard WHERE Code = @code", new { code }, cancellationToken: ct)) > 0)
-            return (false, 0, null, $"«{code}» cari kodu başka bir kartta kullanılıyor — farklı bir kod girin.");
-
-        var incoming = info.Direction != 2;
-        var einvoiceType = (info.ProfileId ?? "").Contains("EARSIV", StringComparison.OrdinalIgnoreCase) ? 2 : 1;
-        var taxOffice = Cut(info.TaxOffice, 50);
-
-        using var tx = _db.BeginTransaction();
         try
         {
-            var (cardCol, cardVal) = await IdColumnAsync("CustomerCard", "CustomerCardID", tx, ct);
-            var cardId = await _db.ExecuteScalarAsync<int>(new CommandDefinition(
-                $"""
-                INSERT INTO dbo.CustomerCard
-                  ({cardCol}Code, Title, Active, Type_, CardKind, CardKindChangedAt, AccountGroupID, TaxNr, TaxOffice, TaxType,
-                   EinvoiceType, SalesModuleCheck, PurchaseModuleCheck, FinanceModuleCheck)
-                OUTPUT INSERTED.CustomerCardID
-                VALUES
-                  ({cardVal}@code, @title, 1, @type, 2, SYSDATETIME(), 1, @tax, @taxOffice, @taxType,
-                   @einvoiceType, @sales, @purchase, 1)
-                """,
-                new
-                {
-                    newId = _nextId, code, title,
-                    type = incoming ? 2 : 1, // gelen: Satıcı · giden: Alıcı
-                    tax = info.TaxNr, taxOffice, taxType = info.TaxType, einvoiceType,
-                    sales = !incoming, purchase = incoming,
-                }, tx, cancellationToken: ct));
-
-            var (adrCol, adrVal) = await IdColumnAsync("CustomerAdress", "CustomerAdressID", tx, ct);
-            await _db.ExecuteAsync(new CommandDefinition(
-                $"""
-                INSERT INTO dbo.CustomerAdress
-                  ({adrCol}CustomerCardID, Active, IsDefault, AdressType, Title, Adress, Dictrict, Town, City, Country, CountryCode,
-                   TaxNr, TaxOffice, TaxType)
-                VALUES
-                  ({adrVal}@cardId, 1, 1, 1, N'Merkez', @street, @district, @town, @city, @country, @countryCode,
-                   @tax, @taxOffice, @taxType)
-                """,
-                new
-                {
-                    newId = _nextId, cardId,
-                    street = info.Street,
-                    district = Cut(info.District, 80),
-                    town = Cut(info.Town, 80),
-                    city = Cut(info.City, 80),
-                    country = Cut(info.Country ?? "Türkiye", 80),
-                    countryCode = IsTurkey(info.Country) ? "TR" : null,
-                    tax = info.TaxNr, taxOffice, taxType = info.TaxType,
-                }, tx, cancellationToken: ct));
-
-            if (!string.IsNullOrWhiteSpace(info.Phone) || !string.IsNullOrWhiteSpace(info.Email))
+            var r = await _mukellef.QueryByTaxNrAsync(info.TaxNr!, ct);
+            if (!r.Found)
             {
-                var (conCol, conVal) = await IdColumnAsync("CustomerContact", "CustomerContactID", tx, ct);
-                await _db.ExecuteAsync(new CommandDefinition(
-                    $"""
-                    INSERT INTO dbo.CustomerContact ({conCol}CustomerCardID, IsDefault, ContactTitle, Name, Phone, Email)
-                    VALUES ({conVal}@cardId, 1, N'Genel', @name, @phone, @email)
-                    """,
-                    new
+                var cred = (await _elogo.ListCompaniesAsync(ct)).FirstOrDefault(c =>
+                    (c.IntegratorName ?? "").Trim().ToUpperInvariant() is "ELOGO" or "LOGO" or "E-LOGO"
+                    && !string.IsNullOrWhiteSpace(c.IntegratorUser) && !string.IsNullOrWhiteSpace(c.IntegratorPassword));
+                if (cred != null)
+                    r = await _integrator.CheckAsync(new IntegratorMukellefRequest
                     {
-                        newId = _nextId, cardId,
-                        name = Cut(title, 100),
-                        phone = Cut(info.Phone, 50),
-                        email = Cut(info.Email, 100),
-                    }, tx, cancellationToken: ct));
+                        TaxNr = info.TaxNr!,
+                        IntegratorName = cred.IntegratorName,
+                        IntegratorWsUrl = ELogoDocumentSyncService.ResolvePostBoxUrl(cred.IntegratorWsUrl),
+                        IntegratorUser = cred.IntegratorUser,
+                        IntegratorPassword = cred.IntegratorPassword,
+                        IntegratorVkN = cred.IntegratorVkN,
+                        CompanyId = cred.CompanyId,
+                    }, ct);
             }
-
-            tx.Commit();
-            return (true, cardId, code, $"Cari kart açıldı: {code} — {title}");
+            info.LabelMessage = r.Message;
+            if (!r.Found && !r.CheckedExternal && r.Rows.Count == 0 && string.IsNullOrEmpty(r.SuggestedPostLabel))
+                return;
+            info.IsEInvoiceUser = r.Found;
+            info.PostLabel = r.SuggestedPostLabel;
+            info.SenderLabel = r.SuggestedSenderLabel;
+            info.EinvoiceEntryDate = r.Rows.Where(x => x.FirstCreateDate != null).Min(x => x.FirstCreateDate);
         }
-        catch
+        catch (Exception ex)
         {
-            tx.Rollback();
-            throw;
+            info.LabelMessage = "Etiket sorgulanamadı: " + ex.Message;
         }
-    }
-
-    private int _nextId;
-
-    /// <summary>
-    /// PK identity değilse (CustomerCard / CustomerAdress / CustomerContact) RecordsRepository ile aynı şekilde
-    /// MAX+1 (UPDLOCK) ile numara alınır; INSERT'e eklenecek kolon / değer öneklerini döner.
-    /// </summary>
-    private async Task<(string Col, string Val)> IdColumnAsync(string table, string pk, IDbTransaction tx, CancellationToken ct)
-    {
-        var identity = await _db.ExecuteScalarAsync<int?>(new CommandDefinition(
-            "SELECT COLUMNPROPERTY(OBJECT_ID(@t), @c, 'IsIdentity')", new { t = "dbo." + table, c = pk }, tx, cancellationToken: ct));
-        if (identity == 1) return ("", "");
-        _nextId = await _db.ExecuteScalarAsync<int>(new CommandDefinition(
-            $"SELECT ISNULL(MAX(CASE WHEN [{pk}] > 0 THEN [{pk}] END), 0) + 1 FROM dbo.[{table}] WITH (UPDLOCK, HOLDLOCK)",
-            transaction: tx, cancellationToken: ct));
-        return ($"{pk}, ", "@newId, ");
     }
 
     private static void FillFromUbl(EGovPartyInfo info, string xml, byte direction)

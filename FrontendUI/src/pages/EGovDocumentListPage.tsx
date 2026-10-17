@@ -304,7 +304,7 @@ export const EGovDocumentListPage: React.FC<EGovDocumentListPageProps> = ({ scre
                         )}
                         <button
                           type="button"
-                          title="e-Faturadan cari kaydet"
+                          title="e-Faturadan cari kartı aç"
                           onClick={() => setPartyFor(r)}
                           className={`${iconBtn} hover:text-blue-700`}
                         >
@@ -490,10 +490,6 @@ export const EGovDocumentListPage: React.FC<EGovDocumentListPageProps> = ({ scre
         <EGovPartyCardModal
           egovId={partyFor.eGovDocumentID}
           onClose={() => setPartyFor(null)}
-          onDone={(_card, message) => {
-            setPartyFor(null);
-            setInfo(message);
-          }}
         />
       )}
 
