@@ -17,7 +17,7 @@ import { Plus, Minus, RefreshCw } from 'lucide-react';
 import { FieldLayoutContext, FormFieldContext, InlineColsContext, InlineFieldGrid } from './FormFieldContext';
 import { useOrgFieldCascade } from '../hooks/useOrgFieldCascade';
 import { allocateDocumentNumber } from '../api/numberTemplateApi';
-import { getRecord } from '../api/recordsApi';
+import { getRecord, listRecords } from '../api/recordsApi';
 import { getCurrentProfile, getCurrentUserId } from '../data/permissions';
 import { ORG_COMPANIES, ORG_WORKPLACES, ORG_WAREHOUSES } from '../data/orgUnits';
 import { attachNoMinusHandlers } from '../utils/noMinusInput';
@@ -439,6 +439,52 @@ export const DocumentFormEngine: React.FC<DocumentFormEngineProps> = ({
     const n = Number(watchedCustomerId);
     return Number.isFinite(n) && n > 0 ? n : null;
   }, [watchedCustomerId]);
+  /** Cari seçilince varsayılan (yoksa ilk aktif) adres otomatik gelir — kullanıcı sonra değiştirebilir */
+  const hasPartyAddress = schema.fields.some((f) => f.fieldName === 'CustomerAdressID');
+  const prevAddrCustomer = React.useRef<number | null | undefined>(undefined);
+  React.useEffect(() => {
+    if (!hasPartyAddress || readOnly) return;
+    const first = prevAddrCustomer.current === undefined;
+    const changed = prevAddrCustomer.current !== headerCustomerId;
+    prevAddrCustomer.current = headerCustomerId;
+    if (!headerCustomerId) {
+      if (!first && changed) setValue('standardFields.CustomerAdressID', '', { shouldDirty: true });
+      return;
+    }
+    // Açılışta kayıtlı adres korunur; sadece boşsa ya da cari değiştiyse doldur
+    const current = String(getValues('standardFields.CustomerAdressID') ?? '').trim();
+    if (first && current) return;
+    if (!changed && current) return;
+    let cancelled = false;
+    void listRecords('CustomerAdress', {
+      pk: 'CustomerAdressID',
+      filterColumn: 'CustomerCardID',
+      filterValue: headerCustomerId,
+      take: 50,
+    })
+      .then((res) => {
+        if (cancelled) return;
+        const all = res.rows as Record<string, unknown>[];
+        // Seçili adres zaten bu cariye aitse (kayıtlı fiş açılışı vb.) dokunma
+        const now = String(getValues('standardFields.CustomerAdressID') ?? '').trim();
+        if (now && all.some((r) => String(r.CustomerAdressID ?? '') === now)) return;
+        const rows = all.filter(
+          (r) => !['0', 'false'].includes(String(r.Active ?? 'true').toLowerCase()),
+        );
+        const isTrue = (v: unknown) => v === true || v === 1 || String(v).toLowerCase() === 'true';
+        const pick = rows.find((r) => isTrue(r.IsDefault)) ?? rows[0];
+        setValue('standardFields.CustomerAdressID', pick ? String(pick.CustomerAdressID ?? '') : '', {
+          shouldDirty: true,
+        });
+      })
+      .catch(() => {
+        /* adres okunamazsa kullanıcı elle seçer */
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [headerCustomerId, hasPartyAddress, readOnly, setValue, getValues]);
+
   const hasLinePrice = Boolean(schema.lineFields?.some((f) => f.fieldName === 'Price'));
   const hasLineUnit = Boolean(schema.lineFields?.some((f) => f.fieldName === 'UnitID'));
   const unitModule = React.useMemo(
@@ -1118,6 +1164,34 @@ export const DocumentFormEngine: React.FC<DocumentFormEngineProps> = ({
     );
   };
 
+  /** Başlıkta iki alan tek satırda: «Bölüm / Birim», «Ambar / Hedef Depo» */
+  const renderTradePair = (pair: FormFieldDto[]) => (
+    <div key={`pair-${pair.map((f) => f.fieldName).join('-')}`} className="flex items-center gap-2 min-w-0">
+      <label
+        className="w-[124px] shrink-0 text-[11.5px] leading-7 text-slate-600 dark:text-slate-300 truncate"
+        title={pair.map((f) => f.label).join(' / ')}
+      >
+        {pair.map((f) => f.label).join(' / ')}
+        {pair.some((f) => f.isRequired) && <span className="text-red-500 ml-0.5">*</span>}
+      </label>
+      <div className="flex-1 min-w-0 grid grid-cols-2 gap-1.5">
+        {pair.map((field) => {
+          const patched = patchField({ ...field, colSpan: 12 });
+          return (
+            <FieldRenderer
+              key={`${patched.fieldId}-${patched.fieldName}-${patched.optionsJson || ''}`}
+              field={patched}
+              register={register}
+              error={getFieldError(field.fieldName)}
+              disabled={readOnly || Boolean(field.isReadOnly)}
+              hideLabel
+            />
+          );
+        })}
+      </div>
+    </div>
+  );
+
   /** Muhasebe fişi: Yetki Kodu + Yevmiye No aynı satırda (Fiş sütunu) */
   const authBesideJournal = Boolean(
     tradeParts?.headerAuth.length && tradeParts.headerDocMeta.some((f) => f.fieldName === 'journalNO'),
@@ -1606,30 +1680,12 @@ export const DocumentFormEngine: React.FC<DocumentFormEngineProps> = ({
         >
           {tradeLayout && tradeParts ? (
             <>
-              {/* 1) Başlık — 3 sütun: Cari / fiş · Firma–İşyeri–Ambar–Bölüm · Belge no–tarih–durum */}
+              {/* 1) Başlık — 3 sütun: Sol belge (no/tarih/durum/yetki) · Orta cari/adres/ödeme planı/fiş tipi · Sağ firma/işyeri/ambar/bölüm */}
               <FieldLayoutContext.Provider value="inline">
               <InlineColsContext.Provider value={3}>
               <section className="rounded-sm border border-slate-300 dark:border-slate-600 bg-slate-50/70 dark:bg-slate-800/30 px-3 py-2 shrink-0">
                 <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-x-6 gap-y-[5px] max-w-[1320px]">
-                  {(() => {
-                    // Sol iki sütun: Cari / fiş tipi / firma–işyeri–ambar–bölüm–birim sırası korunarak
-                    // eşit bölünür → başlık hiçbir fişte uzun bir sütun halinde aşağı uzamaz.
-                    const left: React.ReactNode[] = [
-                      ...tradeParts.headerParty.map((f) => renderTradeField(f)),
-                      ...renderDocMeta(tradeParts.headerDocMeta, tradeParts.headerAuth),
-                      ...tradeParts.headerOrgMain.map((f) => renderTradeField(f)),
-                      ...tradeParts.headerOrgSide.map((f) => renderTradeField(f)),
-                    ];
-                    const half = Math.ceil(left.length / 2);
-                    return (
-                      <>
-                        <div className="space-y-[5px] min-w-0">{left.slice(0, half)}</div>
-                        <div className="space-y-[5px] min-w-0">{left.slice(half)}</div>
-                      </>
-                    );
-                  })()}
-
-                  {/* 3: Belge No → Tarih → Durum → Yetki */}
+                  {/* Sol: Fiş No → Tarih → Durum → Yetki */}
                   <div className="space-y-[5px] min-w-0">
                     {tradeParts.headerDocNumber.map((f) =>
                       renderTradeField(f, { endAction: numberAllocateBtn }),
@@ -1640,6 +1696,32 @@ export const DocumentFormEngine: React.FC<DocumentFormEngineProps> = ({
                     {numberHint && (
                       <p className="text-[10px] text-slate-500 leading-snug pl-[132px]">{numberHint}</p>
                     )}
+                  </div>
+
+                  {/* Orta: Cari → Adres (varsayılan otomatik) → Ödeme planı → Fiş tipi / banka hesabı / çek… */}
+                  <div className="space-y-[5px] min-w-0">
+                    {tradeParts.headerParty.map((f) => renderTradeField(f))}
+                    {tradeParts.headerPaymentTemplate.map((f) => renderTradeField(f))}
+                    {renderDocMeta(tradeParts.headerDocMeta, tradeParts.headerAuth)}
+                  </div>
+
+                  {/* Sağ: Firma → İşyeri → Ambar (→ Hedef) → Bölüm / Birim — en fazla 4 satır */}
+                  <div className="space-y-[5px] min-w-0">
+                    {(() => {
+                      const main = tradeParts.headerOrgMain;
+                      const side = tradeParts.headerOrgSide;
+                      const rows: React.ReactNode[] = [];
+                      const whouse = main.filter((f) => f.fieldName === 'WhouseID' || f.fieldName === 'AimWhouseID');
+                      const pairWhouse = whouse.length === 2 && main.length + (side.length > 1 ? 1 : side.length) > 4;
+                      for (const f of main) {
+                        if (pairWhouse && whouse.includes(f)) {
+                          if (f === whouse[0]) rows.push(renderTradePair(whouse));
+                        } else rows.push(renderTradeField(f));
+                      }
+                      if (side.length > 1 && rows.length + side.length > 4) rows.push(renderTradePair(side));
+                      else side.forEach((f) => rows.push(renderTradeField(f)));
+                      return rows;
+                    })()}
                   </div>
                 </div>
               </section>
@@ -1879,12 +1961,9 @@ export const DocumentFormEngine: React.FC<DocumentFormEngineProps> = ({
                       </div>
 
                       {tradeParts.headerPaymentTemplate.length > 0 && (
-                        <div className="max-w-sm">
-                          {tradeParts.headerPaymentTemplate.map((f) => renderTradeField(f))}
-                          <p className="text-[10px] text-slate-400 mt-0.5">
-                            Şablon kartı (isteğe bağlı) — satırları aşağıda elle düzenleyin
-                          </p>
-                        </div>
+                        <p className="text-[10px] text-slate-400">
+                          Ödeme planı şablonu başlıkta seçilir — satırları aşağıda elle düzenleyebilirsiniz.
+                        </p>
                       )}
 
                       <div className="overflow-x-auto rounded-md border border-slate-200 dark:border-slate-700">
@@ -2060,14 +2139,6 @@ export const DocumentFormEngine: React.FC<DocumentFormEngineProps> = ({
                   .filter((f) => f.fieldName === 'Currency')
                   .map((f) => (
                     <input key={f.fieldId} type="hidden" {...register('standardFields.Currency')} />
-                  ))}
-                {detailTab !== 'odeme-planı' &&
-                  tradeParts.headerPaymentTemplate.map((f) => (
-                    <input
-                      key={`keep-${f.fieldId}`}
-                      type="hidden"
-                      {...register(`standardFields.${f.fieldName}`)}
-                    />
                   ))}
               </section>
 
