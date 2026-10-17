@@ -274,9 +274,32 @@ export function lookupSourceForField(fieldName: string): LookupSource | null {
   return FIELD_LOOKUP[fieldName] || null;
 }
 
-export async function loadLookupOptions(fieldName: string): Promise<LookupOption[] | null> {
-  const src = FIELD_LOOKUP[fieldName];
-  if (!src) return null;
+/**
+ * Bağlı seçim listeleri: alan, aynı yerdeki üst alanın değerine göre süzülür.
+ * Örn. Adres → yalnız seçili carinin adresleri (CustomerAdress.CustomerCardID = CustomerID).
+ */
+export const DEPENDENT_LOOKUPS: Record<string, { parentField: string; filterColumn: string; emptyText: string }> = {
+  CustomerAdressID: { parentField: 'CustomerID', filterColumn: 'CustomerCardID', emptyText: 'Önce cari seçin' },
+};
+
+/** Üst alan değerine göre süzülmüş seçenekler (önbellekli) */
+export async function loadDependentLookupOptions(
+  fieldName: string,
+  parentValue: string | number,
+): Promise<LookupOption[]> {
+  const dep = DEPENDENT_LOOKUPS[fieldName];
+  const base = FIELD_LOOKUP[fieldName];
+  if (!dep || !base) return [];
+  return (await loadLookupOptions(fieldName, { filterColumn: dep.filterColumn, filterValue: parentValue })) || [];
+}
+
+export async function loadLookupOptions(
+  fieldName: string,
+  override?: Partial<LookupSource>,
+): Promise<LookupOption[] | null> {
+  const baseSrc = FIELD_LOOKUP[fieldName];
+  if (!baseSrc) return null;
+  const src: LookupSource = override ? { ...baseSrc, ...override } : baseSrc;
 
   const key = cacheKey(src);
   // Malzeme stok/sipariş güncel kalsın — productStats için önbellek kullanma

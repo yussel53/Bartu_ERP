@@ -9,6 +9,8 @@ import { MoreHorizontal } from 'lucide-react';
 import { LookupModal, LookupOption } from './LookupModal';
 import { QuickCreateModal, useLookupCreateDepth } from './QuickCreateModal';
 import {
+  DEPENDENT_LOOKUPS,
+  loadDependentLookupOptions,
   lookupSourceForField,
   reloadLookupOptions,
 } from '../api/lookupApi';
@@ -51,13 +53,35 @@ export const LookupField: React.FC<LookupFieldProps> = ({
   const [options, setOptions] = React.useState<LookupOption[]>(optionsProp);
   const createDepth = useLookupCreateDepth();
 
+  /** Bağlı liste: üst alan (örn. Cari) aynı satırda / başlıkta — `standardFields.CustomerID`, `lines.3.CustomerID` */
+  const dep = fieldName ? DEPENDENT_LOOKUPS[fieldName] : undefined;
+  const parentName = dep ? registerName.replace(/[^.]+$/, dep.parentField) : '';
+  const parentRaw = dep && watch ? watch(parentName) : undefined;
+  const parentId = parentRaw == null || parentRaw === '' ? '' : String(parentRaw);
+
   React.useEffect(() => {
-    setOptions(optionsProp);
-  }, [optionsProp]);
+    if (!dep) setOptions(optionsProp);
+  }, [optionsProp, dep]);
+
+  React.useEffect(() => {
+    if (!dep) return;
+    if (!parentId || parentId === '0') {
+      setOptions([]);
+      return;
+    }
+    let cancelled = false;
+    void loadDependentLookupOptions(fieldName!, parentId).then((next) => {
+      if (!cancelled) setOptions(next);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [dep, parentId, fieldName]);
 
   const raw = watch ? watch(registerName) : undefined;
   const value = raw == null || raw === '' ? '' : String(raw);
-  const selected = options.find((o) => o.value === value);
+  // Süzülmüş listede yoksa (yüklenirken / eski kayıt) etiketi tam listeden göster
+  const selected = options.find((o) => o.value === value) ?? optionsProp.find((o) => o.value === value);
   const display = selected?.label ?? (value ? value : '');
 
   const src = fieldName ? lookupSourceForField(fieldName) : null;
@@ -148,6 +172,7 @@ export const LookupField: React.FC<LookupFieldProps> = ({
           value={value}
           onClose={() => setOpen(false)}
           createLabel={src?.createTitle || 'Yeni ekle'}
+          emptyText={dep && !parentId ? dep.emptyText : undefined}
           onCreateNew={
             canCreate
               ? () => {

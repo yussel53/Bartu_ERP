@@ -23,6 +23,8 @@ interface LookupModalProps {
   /** Varsa «Yeni ekle» butonu gösterilir */
   onCreateNew?: () => void;
   createLabel?: string;
+  /** Liste boşken gösterilecek metin (örn. «Önce cari seçin») */
+  emptyText?: string;
 }
 
 function fmtQty(v: unknown): string {
@@ -41,6 +43,7 @@ export const LookupModal: React.FC<LookupModalProps> = ({
   onClose,
   onCreateNew,
   createLabel = 'Yeni ekle',
+  emptyText = 'Kayıt bulunamadı',
 }) => {
   const [q, setQ] = React.useState('');
   const inputRef = React.useRef<HTMLInputElement>(null);
@@ -122,7 +125,7 @@ export const LookupModal: React.FC<LookupModalProps> = ({
         <div className="max-h-80 overflow-y-auto">
           {filtered.length === 0 ? (
             <div className="py-8 text-center space-y-2">
-              <div className="text-[12px] text-slate-400">Kayıt bulunamadı</div>
+              <div className="text-[12px] text-slate-400">{emptyText}</div>
               {onCreateNew && (
                 <button
                   type="button"
