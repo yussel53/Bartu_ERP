@@ -47,6 +47,7 @@ Kurallar:
 ## 3. Dal (branch) akışı
 
 - `main` = çalışan, birleştirilmiş kod. **`main`'e doğrudan push yapılmaz.** Her değişiklik PR ile gelir.
+  - **İstisna:** depo sahibi @yussel53 (ve onun Claude oturumu) işlerini doğrudan `main`'e gönderir. Göndermeden önce `main`'i çeker, bekleyen ekip dallarını birleştirir; `dotnet build BackendAPI` ve `npx tsc -b` 0 hata vermelidir. Diğer geliştiriciler dal + PR ile çalışır.
 - Dal adları:
   - `feature/<modul>-<konu>` → `feature/edevlet-earsiv-iptal`, `feature/finans-cek-portfoy`
   - `fix/<konu>` → `fix/db-bootstrap-use-statement`
@@ -102,7 +103,7 @@ PR açmadan önce:
 - [ ] Ortak dosya değiştiyse PR açıklamasında belirtildi
 - [ ] Gizli bilgi yok (bkz. Bölüm 7)
 
-> **Not:** Bu belge yazıldığında `main` üzerinde `npm run build` 21 TypeScript hatası veriyordu (`npm run dev` tip kontrolü yapmadığı için uygulama yine çalışıyor). Hedef, bunlar temizlendikten sonra `npm run build`'in her PR'da hatasız geçmesi. O zamana kadar kural: **yeni TypeScript hatası eklenmez.**
+> **Not:** `main` üzerindeki 21 TypeScript hatası `fix/frontend-build-errors` ile temizlendi (17.10.2026); `npx tsc -b` artık 0 hata veriyor. Kural: **yeni TypeScript hatası eklenmez**, `npm run build` her PR'da hatasız geçmeli.
 
 PR açıklamasında şunlar olsun: ne değişti, neden, nasıl test edildi, varsa eklenen SqlUpdates scriptleri.
 
@@ -140,6 +141,6 @@ Her geliştirici kendi yerel veritabanında çalışır; ortak bir geliştirme v
 
 Bu ayarları yalnızca depo sahibi yapabilir (**Settings**):
 
-- **Branches → Branch protection rule (`main`)**: "Require a pull request before merging" (1 onay), "Do not allow bypassing" isteğe bağlı
+- **Branches → Branch protection rule (`main`)**: "Require a pull request before merging" (1 onay). Depo sahibi doğrudan gönderdiği için "Do not allow bypassing" **açılmaz** (Bölüm 3, istisna)
 - **General → Pull Requests**: "Automatically delete head branches"
 - İleride: her PR'da `dotnet build` ve `npx tsc -b` çalıştıran bir GitHub Actions iş akışı

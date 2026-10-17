@@ -17,6 +17,7 @@ Bu dosya Claude Code (ve benzeri asistanlar) için. İnsanlar için kurallar: [C
 3. Ortak dosyalar (`DynamicFormEngine.tsx`, `DocumentFormEngine.tsx`, `FieldRenderer.tsx`, `formSchemas.ts`, `modules.ts`, `formTypes.ts`, `Program.cs`, `RecordsRepository.cs`, `Create_DB.sql`) iki geliştirici tarafından da kullanılır. Bu dosyalarda yalnızca görevin gerektirdiği en küçük değişiklik yapılır; biçimlendirme, sıralama ya da yeniden adlandırma yapılmaz. Bu dosyalara dokunulduysa kullanıcıya söylenir.
 4. Modül sahipliği: E-Devlet → @WebRoot12, diğer modüller → @yussel53. Sahibi olmayan modüle dokunan değişiklik kullanıcıya belirtilir.
 5. Doğrudan `main`'e commit veya push yapılmaz. İş `feature/<modul>-<konu>` veya `fix/<konu>` dalında yapılır ve PR açılır.
+   **İstisna:** @yussel53'ün oturumunda iş doğrudan `main`'e gönderilir: başta `git fetch` + `git pull`, bekleyen ekip dalları geçici dalda birleştirilip derlenir; iş bitince `dotnet build` ve `npx tsc -b` 0 hata ise commit + `git push origin main`.
 6. Commit mesajları Türkçe; kısa başlık ve gerekirse açıklama (mevcut `git log` stili).
 7. Kod yorumları mevcut dosyalardaki gibi kısa ve Türkçe olur.
 8. Gizli bilgi (bağlantı dizesi, entegratör şifresi, sertifika) repoya yazılmaz. `BackendAPI/Data/dbsettings.json` yereldir.
@@ -24,7 +25,7 @@ Bu dosya Claude Code (ve benzeri asistanlar) için. İnsanlar için kurallar: [C
 ## Doğrulama
 
 - Backend: `dotnet build BackendAPI` → 0 hata.
-- Frontend: `cd FrontendUI && npx tsc -b`. `main`'de hâlihazırda TypeScript hataları var; yeni hata eklenmemeli. Değiştirilen dosyalardaki hatalar raporlanır.
+- Frontend: `cd FrontendUI && npx tsc -b` → 0 hata (17.10.2026'dan beri temiz; yeni hata eklenmez).
 - Çalıştırma: backend `dotnet run --project BackendAPI --launch-profile http` (:5205), frontend `npm run dev` (:5173).
 - Şema scriptleri, yerel bir test veritabanında iki kez arka arkaya hatasız çalışmalı.
 - Otomatik test altyapısı yok; değişiklikler uygulama açılarak denenir.
