@@ -8,7 +8,7 @@ Bu dosya Claude Code (ve benzeri asistanlar) için. İnsanlar için kurallar: [C
 - **FrontendUI/**: React 18 + TypeScript + Vite + Tailwind. API çağrıları `src/api/*Api.ts`; Vite `/api` isteklerini `localhost:5205`'e proxy'ler.
 - **Metadata ile çalışan formlar**: Ekran ve menüler `src/data/formSchemas.ts` ile `modules.ts` içinde tanımlıdır. Bunları `DynamicFormEngine.tsx` (kart) ve `DocumentFormEngine.tsx` (fiş başlığı + satır) çizer. Genel CRUD ucu `api/records/{tableName}` (`RecordsRepository`).
 - **Veritabanı**: SQL Server. Temel şema `Create_DB.sql`; değişiklikler `SqlUpdates/NN_*.sql`; uygulanan scriptler `SYS_DbUpdates` tablosunda dosya adıyla izlenir.
-- `Frontend/` eski bir kalıntıdır; asıl uygulama `FrontendUI/`.
+- Uygulama `FrontendUI/` altındadır.
 
 ## Kurallar
 
