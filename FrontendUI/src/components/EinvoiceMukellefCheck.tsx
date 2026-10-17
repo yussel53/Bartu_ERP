@@ -9,6 +9,7 @@ import {
   type EFaturaMukellefRow,
   type EFaturaMukellefSyncStatus,
 } from '../api/efaturaMukellefApi';
+import { appConfirm } from '../utils/appConfirm';
 
 export interface IntegratorCredentials {
   name?: string;
@@ -129,7 +130,7 @@ export const EinvoiceMukellefCheck: React.FC<Props> = ({
 
   const runSync = async () => {
     if (
-      !window.confirm(
+      !await appConfirm(
         'GİB kayıtlı kullanıcı PK/GB listeleri indirilip yerel tabloya yazılacak.\nBu işlem uzun sürebilir (onlarca dakika). Devam?',
       )
     ) {

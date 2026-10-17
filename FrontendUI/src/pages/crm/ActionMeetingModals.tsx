@@ -16,6 +16,7 @@ import { getCurrentUserId } from '../../data/permissions';
 import { Btn, ErrorNote, Field, Modal, errMsg, inputCls, textareaCls } from './CrmUi';
 import { OfferHeaderFields, OfferLinesEditor, newOfferDraft } from './OfferEditor';
 import { contactLabel } from './OpportunityModal';
+import { appConfirm } from '../../utils/appConfirm';
 
 function useContacts(customerId?: number | null) {
   const [contacts, setContacts] = React.useState<CrmContact[]>([]);
@@ -79,7 +80,7 @@ export function ActionModal({
     }
     if (type && type.closeKind > 0) {
       const kind = type.closeKind === 1 ? 'OLUMLU (Kazanıldı)' : 'OLUMSUZ (Kaybedildi)';
-      if (!window.confirm(`Bu aksiyon tipi fırsatı ${kind} olarak kapatacak. Devam edilsin mi?`)) return;
+      if (!await appConfirm(`Bu aksiyon tipi fırsatı ${kind} olarak kapatacak. Devam edilsin mi?`)) return;
     }
     let newOffer: Partial<CrmOffer> | null = null;
     if (addOffer) {

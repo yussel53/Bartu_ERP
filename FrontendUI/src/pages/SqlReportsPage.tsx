@@ -44,6 +44,7 @@ import {
   type SqlReportRunResult,
   type SqlReportSave,
 } from '../api/sqlReportsApi';
+import { appConfirm } from '../utils/appConfirm';
 
 type Mode = 'list' | 'edit' | 'run' | 'menus';
 type ViewMode = 'designer' | 'runner';
@@ -256,7 +257,7 @@ export const SqlReportsPage: React.FC<Props> = ({
   };
 
   const remove = async (id: number) => {
-    if (!window.confirm('Bu raporu silmek istiyor musunuz?')) return;
+    if (!await appConfirm('Bu raporu silmek istiyor musunuz?')) return;
     setBusy(true);
     try {
       await deleteSqlReport(id);
@@ -371,7 +372,7 @@ export const SqlReportsPage: React.FC<Props> = ({
   };
 
   const removeMenu = async (id: number) => {
-    if (!window.confirm('Menü silinsin mi? Bağlı raporlar menüden çıkarılır (rapor silinmez).')) return;
+    if (!await appConfirm('Menü silinsin mi? Bağlı raporlar menüden çıkarılır (rapor silinmez).')) return;
     setBusy(true);
     try {
       await deleteSqlReportMenu(id);

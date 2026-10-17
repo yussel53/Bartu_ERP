@@ -13,11 +13,20 @@ import { FieldRenderer } from './FieldRenderer';
 import { FormTabs } from './FormTabs';
 import { canField } from '../data/permissions';
 import { getCurrency, getCurrencyRate, LOCAL_CURRENCY_ID, CURRENCIES } from '../data/currencies';
-import { Plus, Minus, RefreshCw } from 'lucide-react';
+import { Plus, Minus, RefreshCw, ClipboardPaste } from 'lucide-react';
 import { FieldLayoutContext, FormFieldContext, InlineColsContext, InlineFieldGrid } from './FormFieldContext';
 import { useOrgFieldCascade } from '../hooks/useOrgFieldCascade';
 import { allocateDocumentNumber } from '../api/numberTemplateApi';
 import { getRecord, listRecords } from '../api/recordsApi';
+import {
+  createLookupResolver,
+  matchHeaderRow,
+  matchSelectOption,
+  parseClipboardGrid,
+  parseLocaleNumber,
+  parsePastedDate,
+} from '../utils/linePaste';
+import { lookupSourceForField } from '../api/lookupApi';
 import { getCurrentProfile, getCurrentUserId } from '../data/permissions';
 import { ORG_COMPANIES, ORG_WORKPLACES, ORG_WAREHOUSES } from '../data/orgUnits';
 import { attachNoMinusHandlers } from '../utils/noMinusInput';
@@ -600,6 +609,105 @@ export const DocumentFormEngine: React.FC<DocumentFormEngineProps> = ({
     control: control as Control<FieldValues>,
     name: 'lines',
   });
+
+  // ── Excel'den kalem yapıştırma ─────────────────────────────────────
+  const [pasteMsg, setPasteMsg] = React.useState<{ kind: 'ok' | 'warn'; text: string } | null>(null);
+  const [pasteOpen, setPasteOpen] = React.useState(false);
+  const [pasteText, setPasteText] = React.useState('');
+  /** Hesaplanan sütunlar yapıştırmada atlanır */
+  const PASTE_SKIP = React.useMemo(() => new Set(['TotalTax', 'TotalPrice', 'NetTotal']), []);
+  /** Malzeme seçimi birim / fiyatı doldurduktan sonra yazılacak alanlar */
+  const PASTE_LATE = React.useMemo(() => new Set(['UnitID', 'Price', 'TotalDiscount', 'TaxRate', 'TaxCardID']), []);
+
+  const applyLinePaste = React.useCallback(
+    async (text: string, start: { row: number; col: number } | null) => {
+      const cols = schema.lineFields || [];
+      if (!cols.length) return;
+      let grid = parseClipboardGrid(text);
+      if (!grid.length) return;
+      const editable = cols.filter((f) => !f.isReadOnly && !PASTE_SKIP.has(f.fieldName));
+      const header = matchHeaderRow(grid[0], editable);
+      if (header) grid = grid.slice(1);
+      if (!grid.length) return;
+
+      const lines = (getValues('lines') as Record<string, unknown>[] | undefined) || [];
+      const firstCol = cols[0]?.fieldName;
+      const firstEmpty = (() => {
+        const i = lines.findIndex((l) => !String((l || {})[firstCol] ?? '').trim());
+        return i === -1 ? lines.length : i;
+      })();
+      const startRow = start && !header ? start.row : start ? start.row : firstEmpty;
+      const startCol = header ? 0 : start ? start.col : 0;
+
+      const need = startRow + grid.length - lines.length;
+      if (need > 0) append(Array.from({ length: need }, () => ({})));
+      await new Promise((r) => window.setTimeout(r, 0));
+
+      const resolve = createLookupResolver();
+      const notFound = new Set<string>();
+      const late: { path: string; value: unknown }[] = [];
+      let written = 0;
+
+      for (let r = 0; r < grid.length; r++) {
+        const rowIdx = startRow + r;
+        for (let c = 0; c < grid[r].length; c++) {
+          const field = header ? header[c] : cols[startCol + c];
+          if (!field || field.isReadOnly || PASTE_SKIP.has(field.fieldName)) continue;
+          const raw = grid[r][c];
+          if (raw === '') continue;
+          let value: unknown = raw;
+          const isLookup =
+            Boolean(lookupSourceForField(field.fieldName)) &&
+            (field.fieldType === 'select' || field.fieldType === 'lookup');
+          if (isLookup) {
+            const id = await resolve(field.fieldName, raw);
+            if (!id) {
+              notFound.add(`${field.label}: ${raw}`);
+              continue;
+            }
+            value = id;
+          } else if (field.fieldType === 'number') {
+            const n = parseLocaleNumber(raw);
+            if (n == null) continue;
+            value = n;
+          } else if (field.fieldType === 'date') {
+            const d = parsePastedDate(raw);
+            if (!d) continue;
+            value = d;
+          } else if (field.fieldType === 'select') {
+            const v = matchSelectOption(field, raw);
+            if (v == null) {
+              notFound.add(`${field.label}: ${raw}`);
+              continue;
+            }
+            value = v;
+          } else if (field.fieldType === 'checkbox') {
+            value = /^(1|evet|e|true|x|var)$/i.test(raw);
+          }
+          const path = `lines.${rowIdx}.${field.fieldName}`;
+          if (PASTE_LATE.has(field.fieldName)) late.push({ path, value });
+          else setValue(path, value, { shouldDirty: true });
+          written++;
+        }
+      }
+      if (late.length) {
+        // Malzeme değişimi efektleri (birim / fiyat varsayılanı) bittikten sonra kullanıcının değerlerini yaz
+        await new Promise((r) => window.setTimeout(r, 700));
+        for (const l of late) setValue(l.path, l.value, { shouldDirty: true });
+      }
+      const miss = [...notFound];
+      setPasteMsg({
+        kind: miss.length ? 'warn' : 'ok',
+        text:
+          `${grid.length} satır aktarıldı (${written} hücre)` +
+          (header ? ' · sütunlar başlığa göre eşlendi' : '') +
+          (miss.length
+            ? ` · bulunamayan ${miss.length}: ${miss.slice(0, 8).join(', ')}${miss.length > 8 ? '…' : ''}`
+            : ''),
+      });
+    },
+    [schema.lineFields, PASTE_SKIP, PASTE_LATE, getValues, append, setValue],
+  );
   const activeLine = Math.min(selectedLine, Math.max(fields.length - 1, 0));
 
   const {
@@ -1242,20 +1350,113 @@ export const DocumentFormEngine: React.FC<DocumentFormEngineProps> = ({
             <span className="ml-1.5 text-[11px] font-normal text-slate-400">({fields.length})</span>
           </h3>
           {!readOnly && (
-            <button
-              type="button"
-              onClick={() => append({})}
-              className="inline-flex items-center gap-1 px-2 h-6 text-[11px] font-semibold text-slate-700 bg-white border border-slate-300 hover:bg-slate-50 rounded-sm transition-colors"
-            >
-              <Plus className="w-3.5 h-3.5" />
-              Satır Ekle
-            </button>
+            <div className="flex items-center gap-1.5">
+              <span className="hidden lg:inline text-[10px] text-slate-400">
+                İpucu: Excel'den kopyalayıp bir hücreye tıklayıp Ctrl+V
+              </span>
+              <button
+                type="button"
+                onClick={() => {
+                  setPasteText('');
+                  setPasteOpen(true);
+                }}
+                className="inline-flex items-center gap-1 px-2 h-6 text-[11px] font-semibold text-emerald-700 bg-white border border-emerald-300 hover:bg-emerald-50 rounded-sm transition-colors"
+              >
+                <ClipboardPaste className="w-3.5 h-3.5" />
+                Excel'den Yapıştır
+              </button>
+              <button
+                type="button"
+                onClick={() => append({})}
+                className="inline-flex items-center gap-1 px-2 h-6 text-[11px] font-semibold text-slate-700 bg-white border border-slate-300 hover:bg-slate-50 rounded-sm transition-colors"
+              >
+                <Plus className="w-3.5 h-3.5" />
+                Satır Ekle
+              </button>
+            </div>
           )}
         </div>
+        {pasteMsg && (
+          <div
+            className={`flex items-start justify-between gap-2 rounded-sm border px-2 py-1 text-[11px] shrink-0 ${
+              pasteMsg.kind === 'ok'
+                ? 'border-emerald-200 bg-emerald-50 text-emerald-800'
+                : 'border-amber-200 bg-amber-50 text-amber-800'
+            }`}
+          >
+            <span>{pasteMsg.text}</span>
+            <button type="button" onClick={() => setPasteMsg(null)} className="shrink-0 opacity-60 hover:opacity-100">
+              ✕
+            </button>
+          </div>
+        )}
+        {pasteOpen && (
+          <div
+            className="fixed inset-0 z-[95] flex items-center justify-center p-4 bg-slate-900/40"
+            onMouseDown={() => setPasteOpen(false)}
+          >
+            <div
+              className="w-full max-w-2xl rounded-md border border-slate-300 bg-white dark:bg-slate-900 shadow-xl"
+              onMouseDown={(e) => e.stopPropagation()}
+            >
+              <div className="px-4 pt-3 pb-2 border-b border-slate-100">
+                <h3 className="text-[13px] font-semibold text-slate-800 dark:text-slate-100">Excel'den kalem yapıştır</h3>
+                <p className="text-[11px] text-slate-500 mt-0.5">
+                  Excel'de satırları seçip kopyalayın (Ctrl+C), aşağıya yapıştırın (Ctrl+V). İlk satır başlıksa
+                  (Malzeme Kodu, Miktar, Birim Fiyat…) sütunlar başlığa göre eşlenir; değilse sütun sırası:{' '}
+                  <b>{(schema.lineFields || []).filter((f) => !PASTE_SKIP.has(f.fieldName)).slice(0, 6).map((f) => f.label).join(' · ')}</b>
+                </p>
+              </div>
+              <div className="p-3">
+                <textarea
+                  autoFocus
+                  value={pasteText}
+                  onChange={(e) => setPasteText(e.target.value)}
+                  placeholder={'Malzeme Kodu\tMiktar\tBirim Fiyat\nURN-001\t5\t12,50'}
+                  className="w-full h-48 p-2 text-[12px] font-mono rounded-sm border border-slate-300 bg-white dark:bg-slate-950 outline-none focus:border-blue-500"
+                />
+              </div>
+              <div className="flex justify-end gap-2 px-4 py-2.5 border-t border-slate-100">
+                <button
+                  type="button"
+                  onClick={() => setPasteOpen(false)}
+                  className="px-3 h-7 text-[12px] rounded-sm border border-slate-300 bg-white text-slate-700 hover:bg-slate-50"
+                >
+                  Vazgeç
+                </button>
+                <button
+                  type="button"
+                  disabled={!pasteText.trim()}
+                  onClick={() => {
+                    setPasteOpen(false);
+                    void applyLinePaste(pasteText, null);
+                  }}
+                  className="px-3 h-7 text-[12px] font-semibold rounded-sm text-white bg-blue-700 hover:bg-blue-600 disabled:opacity-50"
+                >
+                  Kalemlere aktar
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
         <div
           className={`${
             opts?.fill ? 'flex-1 min-h-0 overflow-auto' : 'overflow-x-auto'
           } rounded-sm border border-slate-300 dark:border-slate-600`}
+          onPaste={(e) => {
+            if (readOnly) return;
+            const text = e.clipboardData.getData('text/plain');
+            // Tek hücre → normal yapıştırma; çok hücre / satır → kalemlere dağıt
+            if (!/[\t\n]/.test(text.replace(/\r?\n$/, ''))) return;
+            const cell = (e.target as HTMLElement).closest('[data-line-field]') as HTMLElement | null;
+            e.preventDefault();
+            void applyLinePaste(
+              text,
+              cell
+                ? { row: Number(cell.dataset.lineIndex), col: Number(cell.dataset.lineCol) }
+                : null,
+            );
+          }}
         >
           <table className="w-full min-w-[1180px] border-collapse text-left">
             <thead>
@@ -1308,7 +1509,7 @@ export const DocumentFormEngine: React.FC<DocumentFormEngineProps> = ({
                   <td className="w-8 px-1 py-0.5 align-middle text-center text-[11px] text-slate-500 font-medium bg-slate-50 dark:bg-slate-800/60 border-r border-slate-200 dark:border-slate-700">
                     {index + 1}
                   </td>
-                  {schema.lineFields!.map((field) => {
+                  {schema.lineFields!.map((field, colIdx) => {
                     const isPrice = field.fieldName === 'Price';
                     const isUnit = field.fieldName === 'UnitID';
                     const productId = lineProductId(
@@ -1327,7 +1528,13 @@ export const DocumentFormEngine: React.FC<DocumentFormEngineProps> = ({
                           }
                         : field;
                     return (
-                    <td key={`${row.id}-${field.fieldId}`} className="px-1 py-0.5 align-middle border-r border-slate-200 dark:border-slate-700">
+                    <td
+                      key={`${row.id}-${field.fieldId}`}
+                      data-line-index={index}
+                      data-line-col={colIdx}
+                      data-line-field={field.fieldName}
+                      className="px-1 py-0.5 align-middle border-r border-slate-200 dark:border-slate-700"
+                    >
                       {isPrice ? (
                         <div className="flex items-center gap-1 min-w-0">
                           <div className="flex-1 min-w-0">

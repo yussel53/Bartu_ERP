@@ -17,6 +17,7 @@ import {
 } from '../data/addressRegistry';
 import { ActiveStatusBadge } from '../components/ActiveToggle';
 import { API_BASE, apiJson } from '../config/api';
+import { appConfirm } from '../utils/appConfirm';
 
 interface Props {
   onBack: () => void;
@@ -127,7 +128,7 @@ export const AddressAdminPage: React.FC<Props> = ({ onBack, initialLevel = 'prov
 
   const seedToDb = async () => {
     if (
-      !window.confirm(
+      !await appConfirm(
         'Türkiye il / ilçe / mahalle listesi SQL tablolarına yazılacak.\nMevcut satırlar silinip yeniden yüklenir. Devam?',
       )
     ) {

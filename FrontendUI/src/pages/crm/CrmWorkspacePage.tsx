@@ -53,6 +53,7 @@ import { OpportunityModal } from './OpportunityModal';
 import { ActionModal, MeetingModal } from './ActionMeetingModals';
 import { OfferModal, newOfferDraft } from './OfferEditor';
 import { MailRow, MailViewer, OfferMailModal } from './MailModals';
+import { appConfirm } from '../../utils/appConfirm';
 
 type MidTab = 'actions' | 'meetings' | 'mails';
 
@@ -266,7 +267,7 @@ export function CrmWorkspacePage({ basePath }: { basePath: string }) {
 
   const deleteOpp = async () => {
     if (!opp) return;
-    if (!window.confirm(`Fırsat #${opp.opportunityID} ve bağlı tüm aksiyon / teklif / görüşme kayıtları silinsin mi?`)) return;
+    if (!await appConfirm(`Fırsat #${opp.opportunityID} ve bağlı tüm aksiyon / teklif / görüşme kayıtları silinsin mi?`)) return;
     try {
       await crmApi.deleteOpportunity(opp.opportunityID);
       setSelectedId(null);
@@ -607,8 +608,8 @@ export function CrmWorkspacePage({ basePath }: { basePath: string }) {
                                   label: 'Sil',
                                   icon: <Trash2 className="w-3.5 h-3.5" />,
                                   danger: true,
-                                  onClick: () => {
-                                    if (window.confirm('Aksiyon ve bağlı teklifler silinsin mi?')) void actionOp(() => crmApi.deleteAction(a.actionID), 'Aksiyon silindi.');
+                                  onClick: async () => {
+                                    if (await appConfirm('Aksiyon ve bağlı teklifler silinsin mi?')) void actionOp(() => crmApi.deleteAction(a.actionID), 'Aksiyon silindi.');
                                   },
                                 },
                               ]}
@@ -647,8 +648,8 @@ export function CrmWorkspacePage({ basePath }: { basePath: string }) {
                                 label: 'Sil',
                                 icon: <Trash2 className="w-3.5 h-3.5" />,
                                 danger: true,
-                                onClick: () => {
-                                  if (window.confirm('Görüşme silinsin mi?')) void actionOp(() => crmApi.deleteMeeting(m.meetingID));
+                                onClick: async () => {
+                                  if (await appConfirm('Görüşme silinsin mi?')) void actionOp(() => crmApi.deleteMeeting(m.meetingID));
                                 },
                               },
                             ]}
@@ -755,12 +756,12 @@ export function CrmWorkspacePage({ basePath }: { basePath: string }) {
                             label: o.orderVoucherID ? 'Siparişe dönüştürüldü' : 'Siparişe Dönüştür',
                             icon: <ShoppingCart className="w-3.5 h-3.5 text-emerald-600" />,
                             hidden: o.status === 4 || o.status === 3,
-                            onClick: () => {
+                            onClick: async () => {
                               if (o.orderVoucherID) {
                                 flash('Bu teklif zaten satış siparişine dönüştürülmüş.');
                                 return;
                               }
-                              if (!window.confirm(`Teklif ${o.docNum} satış siparişine dönüştürülsün mü?
+                              if (!await appConfirm(`Teklif ${o.docNum} satış siparişine dönüştürülsün mü?
 Teklif onaylanır, fırsat kazanıldı olur; müşteri cariye döner.`)) return;
                               void actionOp(async () => {
                                 const r = await crmApi.offerToOrder(o.offerID);
@@ -777,8 +778,8 @@ Teklif onaylanır, fırsat kazanıldı olur; müşteri cariye döner.`)) return;
                             label: 'Sil',
                             icon: <Trash2 className="w-3.5 h-3.5" />,
                             danger: true,
-                            onClick: () => {
-                              if (window.confirm(`Teklif ${o.docNum} silinsin mi?`)) void actionOp(() => crmApi.deleteOffer(o.offerID), 'Teklif silindi.');
+                            onClick: async () => {
+                              if (await appConfirm(`Teklif ${o.docNum} silinsin mi?`)) void actionOp(() => crmApi.deleteOffer(o.offerID), 'Teklif silindi.');
                             },
                           },
                         ]}

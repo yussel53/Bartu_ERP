@@ -10,6 +10,7 @@ import {
   type JournalNumberingResult,
 } from '../api/journalNumberingApi';
 import { getCurrentUserId } from '../data/permissions';
+import { appConfirm } from '../utils/appConfirm';
 
 interface JournalNumberingPageProps {
   onBack?: () => void;
@@ -99,7 +100,7 @@ export const JournalNumberingPage: React.FC<JournalNumberingPageProps> = () => {
     const msg = onlyUnnumbered
       ? `${preview.count} fişe ${preview.startNumber}–${preview.endNumber} yevmiye no verilecek. Onaylıyor musunuz?`
       : `${fmtDate(startDate)}–${fmtDate(endDate)} aralığındaki ${preview.count} fiş yeniden numaralanacak (mevcut numaralar değişir). Onaylıyor musunuz?`;
-    if (!window.confirm(msg)) return;
+    if (!await appConfirm(msg)) return;
     setBusy(true);
     setError(null);
     try {

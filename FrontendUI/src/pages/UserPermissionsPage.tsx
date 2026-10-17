@@ -52,6 +52,7 @@ import {
 } from '../data/authCodes';
 import { OperationAuthTreePanel } from '../components/OperationAuthTreePanel';
 import { buildAuthCodeScreenGroups } from '../data/operationAuthTree';
+import { appConfirm } from '../utils/appConfirm';
 
 interface Props {
   onBack: () => void;
@@ -386,7 +387,7 @@ export const UserPermissionsPage: React.FC<Props> = ({ onBack }) => {
       setSqlError('ADMIN rolü silinemez.');
       return;
     }
-    if (!window.confirm(`“${role.name}” rolü silinsin mi?`)) return;
+    if (!await appConfirm(`“${role.name}” rolü silinsin mi?`)) return;
     setRolesBusy(true);
     try {
       await deleteRole(roleId);

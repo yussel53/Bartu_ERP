@@ -14,6 +14,7 @@ import {
   type ParsedSheet,
 } from '../api/importApi';
 import { getCurrentUserId } from '../data/permissions';
+import { appConfirm } from '../utils/appConfirm';
 
 interface DataImportPageProps {
   onBack?: () => void;
@@ -157,7 +158,7 @@ export const DataImportPage: React.FC<DataImportPageProps> = () => {
     }
     if (!dryRun) {
       const msg = `${rows.length} satır ${target.title} tablosuna aktarılacak (${MODE_LABEL[mode]}). Onaylıyor musunuz?`;
-      if (!window.confirm(msg)) return;
+      if (!await appConfirm(msg)) return;
     }
     setBusy(true);
     setError(null);

@@ -50,6 +50,7 @@ import { defaultAuxilValueRow, AUXIL_VALUE_KIND } from '../data/auxilCodes';
 import { AuxilCodeAssignmentEditor } from './AuxilCodeAssignmentEditor';
 import { listRecords } from '../api/recordsApi';
 import { accountCodeHasParentDot, parentAccountCode } from '../data/accountParentLink';
+import { appConfirm } from '../utils/appConfirm';
 
 interface DynamicFormEngineProps {
   schema: FormSchemaDto;
@@ -1517,7 +1518,7 @@ export const DynamicFormEngine: React.FC<DynamicFormEngineProps> = ({
                   <div className="col-span-12 sm:col-span-5 flex items-end">
                     <button
                       type="button"
-                      onClick={() => {
+                      onClick={async () => {
                         const templateId = String(
                           watch(`standardFields.${schema.variantTemplateField!.fieldName}`) || '',
                         );
@@ -1538,7 +1539,7 @@ export const DynamicFormEngine: React.FC<DynamicFormEngineProps> = ({
                         }
                         if (
                           variantRows.length > 0 &&
-                          !window.confirm(
+                          !await appConfirm(
                             `Mevcut ${variantRows.length} varyant satırı şablondan üretilen ${generated.length} satırla değiştirilsin mi?`,
                           )
                         ) {
@@ -1686,7 +1687,7 @@ export const DynamicFormEngine: React.FC<DynamicFormEngineProps> = ({
               {!readOnly && tab === 'isyerleri' && (
                 <button
                   type="button"
-                  onClick={() => {
+                  onClick={async () => {
                     const base: Record<string, unknown> = {
                       Code: '',
                       Title: '',
@@ -1697,8 +1698,9 @@ export const DynamicFormEngine: React.FC<DynamicFormEngineProps> = ({
                       CurrencyCode: 'TRY',
                       ReportCurrency: 'TRY',
                     };
-                    const copy = window.confirm(
+                    const copy = await appConfirm(
                       'Firma e-Devlet / entegrasyon / adres bilgilerini bu işyerine kopyala?',
+                      { title: 'Yeni işyeri', okLabel: 'Kopyala', cancelLabel: 'Boş başlat', danger: false },
                     );
                     if (copy) {
                       const sf = (watch('standardFields') as Record<string, unknown>) || {};

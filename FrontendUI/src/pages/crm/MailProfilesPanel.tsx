@@ -11,6 +11,7 @@ import {
 } from '../../api/crmApi';
 import { getCurrentUserId } from '../../data/permissions';
 import { Badge, Btn, Empty, ErrorNote, Field, Modal, Spinner, errMsg, inputCls, textareaCls } from './CrmUi';
+import { appConfirm } from '../../utils/appConfirm';
 
 const SCOPE_ICON = [
   <Globe2 key="0" className="w-3.5 h-3.5" />,
@@ -271,7 +272,7 @@ export function MailProfilesPanel() {
   const list = (profiles || []).filter((p) => filter === 'all' || p.scopeType === filter);
 
   const remove = async (p: CrmMailProfile) => {
-    if (!window.confirm(`${MAIL_SCOPES[p.scopeType]} · ${p.scopeName ?? ''} mail tanımı silinsin mi?`)) return;
+    if (!await appConfirm(`${MAIL_SCOPES[p.scopeType]} · ${p.scopeName ?? ''} mail tanımı silinsin mi?`)) return;
     try {
       await crmApi.deleteMailProfile(p.mailProfileID);
       load();

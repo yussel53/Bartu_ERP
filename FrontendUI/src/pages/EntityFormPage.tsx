@@ -22,6 +22,7 @@ import {
   CARD_DEFAULT_TEMPLATE_ID,
   stripTemplateMeta,
 } from '../data/cardDefaults';
+import { appConfirm } from '../utils/appConfirm';
 
 interface EntityFormPageProps {
   formCode: string;
@@ -347,9 +348,9 @@ export const EntityFormPage: React.FC<EntityFormPageProps> = ({
     onBack();
   };
 
-  const handleCancelDraft = () => {
+  const handleCancelDraft = async () => {
     if (
-      !window.confirm(
+      !await appConfirm(
         'Bu fiş iptal edilsin mi?\nKaydedilmemiş değişiklikler kaybolur.',
       )
     ) {

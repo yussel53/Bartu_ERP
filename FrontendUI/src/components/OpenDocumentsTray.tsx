@@ -1,6 +1,7 @@
 import React from 'react';
 import { ChevronDown, ChevronUp, FileText, Maximize2, Minimize2, X } from 'lucide-react';
 import { buildOpenDocHref, useOpenDocuments } from '../contexts/OpenDocumentsContext';
+import { appConfirm } from '../utils/appConfirm';
 
 interface OpenDocumentsTrayProps {
   onNavigate: (path: string) => void;
@@ -95,10 +96,10 @@ export const OpenDocumentsTray: React.FC<OpenDocumentsTrayProps> = ({ onNavigate
                   <button
                     type="button"
                     title="İptal — fişi kapat"
-                    onClick={(e) => {
+                    onClick={async (e) => {
                       e.stopPropagation();
                       if (
-                        !window.confirm(
+                        !await appConfirm(
                           `"${doc.label}" kapatılsın mı?\nKaydedilmemiş değişiklikler kaybolur.`,
                         )
                       ) {

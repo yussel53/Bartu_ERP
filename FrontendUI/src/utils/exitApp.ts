@@ -1,7 +1,9 @@
+import { appConfirm } from './appConfirm';
+
 /** Programdan çıkış — pencereyi kapatmayı dener; tarayıcı engellerse boş sayfaya geçer */
-export function exitApp(confirmMessage = 'Programdan çıkmak istiyor musunuz?'): void {
+export async function exitApp(confirmMessage = 'Programdan çıkmak istiyor musunuz?'): Promise<void> {
   if (typeof window === 'undefined') return;
-  if (confirmMessage && !window.confirm(confirmMessage)) return;
+  if (confirmMessage && !(await appConfirm(confirmMessage, { title: 'Çıkış', okLabel: 'Çık' }))) return;
 
   try {
     window.close();

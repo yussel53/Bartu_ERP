@@ -29,6 +29,7 @@ import { listRecords, deleteRecord } from '../api/recordsApi';
 import { convertCustomerToCari } from '../api/cardStatementApi';
 import { ModuleOverviewPage } from './ModuleOverviewPage';
 import { FormTabs } from '../components/FormTabs';
+import { appConfirm } from '../utils/appConfirm';
 
 /** CustomerCard.Type_ (Alıcı / Satıcı) */
 const CUSTOMER_TYPE_LABELS: Record<string, string> = { '1': 'Alıcı', '2': 'Satıcı', '3': 'Alıcı / Satıcı' };
@@ -264,7 +265,7 @@ export const ModuleListPage: React.FC<ModuleListPageProps> = ({
   const filterNote = [authNote, orgNote].filter(Boolean).join(' · ') || null;
 
   const handleDelete = async (rowId: string | number) => {
-    if (!window.confirm('Bu kaydı çıkarmak istiyor musunuz?')) return;
+    if (!await appConfirm('Bu kaydı çıkarmak istiyor musunuz?')) return;
     if (useDb && tableName && source === 'db') {
       try {
         await deleteRecord(tableName, Number(rowId), pk);
@@ -280,7 +281,7 @@ export const ModuleListPage: React.FC<ModuleListPageProps> = ({
   /** Müşteri (CardKind=1) listesi — sağ tık «Cariye Dönüştür» */
   const isMusteriList = screen.formCode === 'MusteriCardForm';
   const handleToCari = async (rowId: string | number) => {
-    if (!window.confirm('Bu müşteri cariye dönüştürülsün mü? Kart Cari Kartlar listesine taşınır.')) return;
+    if (!await appConfirm('Bu müşteri cariye dönüştürülsün mü? Kart Cari Kartlar listesine taşınır.')) return;
     try {
       const r = await convertCustomerToCari(Number(rowId));
       if (!r.success) alert(r.message);

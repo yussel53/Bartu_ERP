@@ -12,6 +12,7 @@ import {
 } from '../api/extraFieldsApi';
 import { FORMULA_FUNCTIONS, evaluateFormula } from '../data/formulaEval';
 import { loadExtraFields } from '../data/extraFields';
+import { appConfirm } from '../utils/appConfirm';
 
 interface ExtraFieldsAdminPageProps {
   /** Dolu ise yalnızca bu tablonun alanları yönetilir */
@@ -140,8 +141,9 @@ export const ExtraFieldsAdminPage: React.FC<ExtraFieldsAdminPageProps> = ({
   };
 
   const handleDelete = async (row: ExtraFieldDef) => {
-    const dropColumn = window.confirm(
-      `${row.fieldName} alanı:\n\nTamam → kolon ve içindeki veri ${row.tableName} tablosundan tamamen silinir.\nİptal → yalnızca formlardan kaldırılır, veri korunur.`,
+    const dropColumn = await appConfirm(
+      `${row.fieldName} alanı:\n\nKolonu sil → kolon ve içindeki veri ${row.tableName} tablosundan tamamen silinir.\nSadece formdan kaldır → veri korunur.`,
+      { title: 'Ek alanı kaldır', okLabel: 'Kolonu sil', cancelLabel: 'Sadece formdan kaldır', danger: true },
     );
     setBusy(true);
     try {

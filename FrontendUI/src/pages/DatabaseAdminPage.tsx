@@ -12,6 +12,7 @@ import {
 } from 'lucide-react';
 import { apiJson, ApiError } from '../config/api';
 import { DbSettingsFormPanel, DbSettingsForm } from '../components/DbSettingsFormPanel';
+import { appConfirm } from '../utils/appConfirm';
 
 export type DbAdminTab = 'connection' | 'create' | 'updates';
 
@@ -191,7 +192,7 @@ export const DatabaseAdminPage: React.FC<Props> = ({ onBack, initialTab = 'conne
 
   const runBootstrap = async () => {
     if (
-      !window.confirm(
+      !await appConfirm(
         opts.forceSchemaScripts
           ? 'Create_DB mevcut tablolarda hata verebilir. Devam?'
           : 'Veritabanı oluşturulacak / şema scriptleri çalışacak. Devam?',
