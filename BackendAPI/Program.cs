@@ -51,6 +51,7 @@ builder.Services.AddSingleton<GibEFaturaUserListService>();
 builder.Services.AddScoped<IntegratorMukellefService>();
 builder.Services.AddScoped<ELogoDocumentSyncService>();
 builder.Services.AddScoped<EGovDesignRepository>();
+builder.Services.AddScoped<EGovIncomingRepository>();
 builder.Services.AddSingleton<AddressSeedService>();
 builder.Services.AddHttpClient("PostSave", client =>
 {
