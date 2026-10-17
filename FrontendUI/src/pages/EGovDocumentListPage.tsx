@@ -2,10 +2,11 @@ import React, { useCallback, useEffect, useState } from 'react';
 import { Check, Eye, FileText, Link2, Pencil, Plus, RefreshCw, Save, Search, Send, Trash2, X } from 'lucide-react';
 import { MenuScreen } from '../types/formTypes';
 import { EGovDocumentList, EGovDocumentRow, listEGovDocuments } from '../api/egovDocumentsApi';
-import { approveEGovIncoming, rejectEGovIncoming, sendEGovIncoming } from '../api/egovIncomingApi';
+import { approveEGovIncoming, rejectEGovIncoming } from '../api/egovIncomingApi';
 import { egovPdfUrl } from '../api/processApi';
 import { deleteRecord } from '../api/recordsApi';
 import { EGovIncomingSaveModal } from '../components/EGovIncomingSaveModal';
+import { EGovSendApprovalModal } from '../components/EGovSendApprovalModal';
 import { EGovDirection, EGovDocKindLabels } from '../data/egovTypes';
 import { getCurrentUserId } from '../data/permissions';
 import { appConfirm } from '../utils/appConfirm';
@@ -64,6 +65,7 @@ export const EGovDocumentListPage: React.FC<EGovDocumentListPageProps> = ({ scre
   const [rejectFor, setRejectFor] = useState<EGovDocumentRow | null>(null);
   const [rejectReason, setRejectReason] = useState('');
   const [saveFor, setSaveFor] = useState<EGovDocumentRow | null>(null);
+  const [sendFor, setSendFor] = useState<EGovDocumentRow | null>(null);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -106,11 +108,6 @@ export const EGovDocumentListPage: React.FC<EGovDocumentListPageProps> = ({ scre
     } finally {
       setBusyId(null);
     }
-  };
-
-  const send = async (r: EGovDocumentRow) => {
-    if (!(await appConfirm(`${r.documentNo} faturası yönetici onayına gönderilsin mi?`, { okLabel: 'Onaya Gönder' }))) return;
-    await act(r.eGovDocumentID, () => sendEGovIncoming(r.eGovDocumentID, userId));
   };
 
   const approve = async (r: EGovDocumentRow) => {
@@ -317,7 +314,10 @@ export const EGovDocumentListPage: React.FC<EGovDocumentListPageProps> = ({ scre
                           <button
                             type="button"
                             disabled={busyId === r.eGovDocumentID}
-                            onClick={() => void send(r)}
+                            onClick={() => {
+                              setInfo(null);
+                              setSendFor(r);
+                            }}
                             className={`${textBtn} ml-1 border-blue-300 text-blue-700 bg-blue-50 hover:bg-blue-100`}
                           >
                             <Send className="w-3 h-3" /> Onaya Gönder
@@ -457,6 +457,22 @@ export const EGovDocumentListPage: React.FC<EGovDocumentListPageProps> = ({ scre
             </div>
           </div>
         </div>
+      )}
+
+      {/* Onaya gönder: açıklama + onay grubu */}
+      {sendFor && (
+        <EGovSendApprovalModal
+          egovId={sendFor.eGovDocumentID}
+          documentNo={sendFor.documentNo}
+          customerTitle={sendFor.customerTitle}
+          userId={userId}
+          onClose={() => setSendFor(null)}
+          onSent={(message) => {
+            setSendFor(null);
+            setInfo(message);
+            void load();
+          }}
+        />
       )}
 
       {/* ERP'ye kaydet (eşleme) */}

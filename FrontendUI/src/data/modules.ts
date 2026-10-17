@@ -1315,6 +1315,13 @@ export const APP_MODULES: AppModule[] = [
             subtitle: 'EGovDesignRule · EGovXsltDesign · belge türüne göre XSLT tasarım seçimi',
             isEGovDesignTemplates: true,
           },
+          {
+            id: 'onay-gruplari',
+            path: 'edevlet/tanimlar/onay-gruplari',
+            title: 'Onay Grupları',
+            subtitle: 'SYS_ApprovalGroup · Yönetici / Alt Yönetici / Müdür … onaya gönderirken seçilir',
+            isApprovalGroups: true,
+          },
         ],
       },
       {

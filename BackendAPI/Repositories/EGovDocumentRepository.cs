@@ -119,7 +119,9 @@ public sealed class EGovDocumentRepository
         var hasProcess = await _db.ExecuteScalarAsync<int>(new CommandDefinition(
             "SELECT CASE WHEN OBJECT_ID(N'dbo.SYS_ProcessInstance', N'U') IS NOT NULL AND OBJECT_ID(N'dbo.SYS_ProcessTask', N'U') IS NOT NULL AND OBJECT_ID(N'dbo.SYS_Role', N'U') IS NOT NULL THEN 1 ELSE 0 END",
             cancellationToken: ct)) == 1;
-        var from_ = hasProcess ? $"dbo.EGovDocument e\n{EGovIncomingRepository.StageApplySql}" : "dbo.EGovDocument e";
+        var from_ = hasProcess
+            ? $"dbo.EGovDocument e\n{EGovIncomingRepository.StageApplySql(await EGovIncomingRepository.HasGroupsAsync(_db, ct))}"
+            : "dbo.EGovDocument e";
         var stageExpr = hasProcess
             ? EGovIncomingRepository.StageExprSql
             : "CASE WHEN e.InvoiceID IS NOT NULL THEN 'saved' ELSE 'new' END";
