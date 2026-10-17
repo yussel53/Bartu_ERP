@@ -2,6 +2,7 @@ using System.Globalization;
 using System.Security.Cryptography;
 using System.Text;
 using System.Xml;
+using System.Xml.Linq;
 using System.Xml.Xsl;
 
 namespace BartuERP.Backend.Services;
@@ -24,6 +25,39 @@ public sealed class EGovXsltService
 
     public static string Sha256Hex(string content) =>
         Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(content))).ToLowerInvariant();
+
+    /// <summary>
+    /// UBL içine gömülü görünüm tasarımı (cac:AdditionalDocumentReference → EmbeddedDocumentBinaryObject,
+    /// filename *.xslt / *.xsl ya da DocumentType XSLT). Gönderenin tasarımıdır; yoksa null.
+    /// </summary>
+    public static (string Xslt, string? FileName)? ExtractEmbeddedXslt(string ublXml)
+    {
+        XNamespace cac = "urn:oasis:names:specification:ubl:schema:xsd:CommonAggregateComponents-2";
+        XNamespace cbc = "urn:oasis:names:specification:ubl:schema:xsd:CommonBasicComponents-2";
+        XDocument doc;
+        using (var reader = XmlReader.Create(new StringReader(ublXml), SafeReaderSettings()))
+            doc = XDocument.Load(reader);
+        foreach (var r in doc.Root?.Elements(cac + "AdditionalDocumentReference") ?? Enumerable.Empty<XElement>())
+        {
+            var bin = r.Element(cac + "Attachment")?.Element(cbc + "EmbeddedDocumentBinaryObject");
+            if (bin is null || string.IsNullOrWhiteSpace(bin.Value)) continue;
+            var fileName = (string?)bin.Attribute("filename");
+            var type = r.Element(cbc + "DocumentType")?.Value ?? r.Element(cbc + "DocumentTypeCode")?.Value;
+            var isXslt = fileName?.EndsWith(".xslt", StringComparison.OrdinalIgnoreCase) == true
+                         || fileName?.EndsWith(".xsl", StringComparison.OrdinalIgnoreCase) == true
+                         || string.Equals(type, "XSLT", StringComparison.OrdinalIgnoreCase);
+            if (!isXslt) continue;
+            try
+            {
+                return (ReadText(Convert.FromBase64String(bin.Value.Trim())), fileName);
+            }
+            catch (FormatException)
+            {
+                // Base64 bozuksa sonraki referansa bak
+            }
+        }
+        return null;
+    }
 
     /// <summary>
     /// XSLT derlenebiliyor ve örnek UBL'de çalışıyor mu? Hata varsa okunur mesaj döner.

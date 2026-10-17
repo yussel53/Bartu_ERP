@@ -3,7 +3,7 @@ import { Check, Eye, FileText, Link2, Pencil, Plus, RefreshCw, Save, Search, Sen
 import { MenuScreen } from '../types/formTypes';
 import { EGovDocumentList, EGovDocumentRow, listEGovDocuments } from '../api/egovDocumentsApi';
 import { approveEGovIncoming, rejectEGovIncoming } from '../api/egovIncomingApi';
-import { egovPdfUrl } from '../api/processApi';
+import { EGovDocumentViewer } from '../components/EGovDocumentViewer';
 import { deleteRecord } from '../api/recordsApi';
 import { EGovIncomingSaveModal } from '../components/EGovIncomingSaveModal';
 import { EGovPartyCardModal } from '../components/EGovPartyCardModal';
@@ -66,6 +66,7 @@ export const EGovDocumentListPage: React.FC<EGovDocumentListPageProps> = ({ scre
   const [rejectFor, setRejectFor] = useState<EGovDocumentRow | null>(null);
   const [rejectReason, setRejectReason] = useState('');
   const [saveFor, setSaveFor] = useState<EGovDocumentRow | null>(null);
+  const [viewFor, setViewFor] = useState<EGovDocumentRow | null>(null);
   const [sendFor, setSendFor] = useState<EGovDocumentRow | null>(null);
   const [partyFor, setPartyFor] = useState<EGovDocumentRow | null>(null);
 
@@ -287,18 +288,17 @@ export const EGovDocumentListPage: React.FC<EGovDocumentListPageProps> = ({ scre
                         <button type="button" title="Değiştir" onClick={() => onEdit(r.eGovDocumentID)} className={iconBtn}>
                           <Pencil className="w-3.5 h-3.5" />
                         </button>
-                        {r.hasPdf ? (
-                          <a
-                            href={egovPdfUrl(r.eGovDocumentID)}
-                            target="_blank"
-                            rel="noreferrer"
-                            title="PDF"
+                        {r.hasXml || r.hasPdf ? (
+                          <button
+                            type="button"
+                            title="Belgeyi görüntüle (görünüm / PDF)"
+                            onClick={() => setViewFor(r)}
                             className={iconBtn}
                           >
                             <FileText className="w-3.5 h-3.5 text-red-600" />
-                          </a>
+                          </button>
                         ) : (
-                          <span className="p-1 opacity-30" title="PDF yok">
+                          <span className="p-1 opacity-30" title="Görüntülenecek içerik yok (UBL/PDF)">
                             <FileText className="w-3.5 h-3.5" />
                           </span>
                         )}
@@ -504,6 +504,18 @@ export const EGovDocumentListPage: React.FC<EGovDocumentListPageProps> = ({ scre
             setInfo(message);
             void load();
           }}
+        />
+      )}
+
+      {/* Belge görüntüleyici (görünüm / PDF — indirmeden) */}
+      {viewFor && (
+        <EGovDocumentViewer
+          egovId={viewFor.eGovDocumentID}
+          documentNo={viewFor.documentNo}
+          customerTitle={viewFor.customerTitle}
+          hasXml={viewFor.hasXml}
+          hasPdf={viewFor.hasPdf}
+          onClose={() => setViewFor(null)}
         />
       )}
     </div>
