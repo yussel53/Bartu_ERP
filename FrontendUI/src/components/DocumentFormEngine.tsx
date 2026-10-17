@@ -1141,7 +1141,7 @@ export const DocumentFormEngine: React.FC<DocumentFormEngineProps> = ({
       });
     }
     const paymentPlans = ((data.paymentPlans as Record<string, unknown>[]) || [])
-      .map((row, i) => ({
+      .map((row, i): Record<string, unknown> => ({
         ...row,
         LineNo: Number(row.LineNo) || i + 1,
       }))
@@ -1153,7 +1153,7 @@ export const DocumentFormEngine: React.FC<DocumentFormEngineProps> = ({
       );
     const auxilCodes = hasAuxilCodes
       ? ((data.auxilCodes as Record<string, unknown>[]) || [])
-          .map((row, i) => ({
+          .map((row, i): Record<string, unknown> => ({
             ...row,
             LineNr: Number(row.LineNr) || i + 1,
           }))
@@ -2233,7 +2233,6 @@ export const DocumentFormEngine: React.FC<DocumentFormEngineProps> = ({
                                         min: { value: 0, message: 'Negatif olamaz' },
                                       });
                                       const nm = attachNoMinusHandlers({
-                                        onKeyDown: reg.onKeyDown as never,
                                         onChange: reg.onChange as never,
                                       });
                                       return (
@@ -2258,7 +2257,6 @@ export const DocumentFormEngine: React.FC<DocumentFormEngineProps> = ({
                                         min: { value: 0, message: 'Negatif olamaz' },
                                       });
                                       const nm = attachNoMinusHandlers({
-                                        onKeyDown: reg.onKeyDown as never,
                                         onChange: reg.onChange as never,
                                       });
                                       return (
@@ -2280,7 +2278,6 @@ export const DocumentFormEngine: React.FC<DocumentFormEngineProps> = ({
                                     {(() => {
                                       const reg = register(`paymentPlans.${index}.Description`);
                                       const nm = attachNoMinusHandlers({
-                                        onKeyDown: reg.onKeyDown as never,
                                         onChange: reg.onChange as never,
                                       });
                                       return (

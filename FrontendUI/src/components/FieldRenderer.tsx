@@ -143,7 +143,6 @@ export const FieldRenderer: React.FC<FieldRendererProps> = ({
       : null;
   const noMinus = fieldReg
     ? attachNoMinusHandlers({
-        onKeyDown: fieldReg.onKeyDown as never,
         onChange: fieldReg.onChange as never,
       })
     : null;

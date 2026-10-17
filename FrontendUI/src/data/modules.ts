@@ -3,7 +3,7 @@
  */
 import { AppModule, MenuScreen, ListColumn } from '../types/formTypes';
 import { raporlamaUrl } from '../config/integrations';
-import { ProductCardType, ProductCardTypeLabels } from './productCardTypes';
+import { ProductCardType } from './productCardTypes';
 import {
   OrderType,
   OrderTypeLabels,
