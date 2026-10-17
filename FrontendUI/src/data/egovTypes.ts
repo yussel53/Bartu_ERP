@@ -40,7 +40,6 @@ export const EGovDesignRuleTypes: { value: number; label: string }[] = [
   { value: 1, label: 'Öndeğer' },
   { value: 2, label: 'Alıcı Cari Vkn/Tckn' },
   { value: 3, label: 'Fatura Özel Kodu' },
-  { value: 4, label: 'Parametre' },
   { value: 5, label: 'Cari Hesap Kodu' },
   { value: 6, label: 'İş Yeri Kodu' },
   { value: 7, label: 'Organizasyonel Birimler' },

@@ -31,7 +31,7 @@ public static class EGovDesignCodes
         [1] = "Öndeğer",
         [2] = "Alıcı Cari VKN/TCKN",
         [3] = "Fatura Özel Kodu",
-        [4] = "Parametre",
+        // 4 kullanılmıyor (portal tarafındaki «Parametre» tipi)
         [5] = "Cari Hesap Kodu",
         [6] = "İş Yeri Kodu",
         [7] = "Organizasyonel Birimler",
@@ -101,7 +101,6 @@ public sealed class EGovDesignContext
 {
     public string? ReceiverTaxNr { get; set; }
     public string? SpecialCode { get; set; }
-    public string? Parameter { get; set; }
     public string? CustomerCode { get; set; }
     public string? WorkplaceCode { get; set; }
     public string? OrgUnitCode { get; set; }
@@ -312,7 +311,6 @@ public sealed class EGovDesignRepository
                 AND (   r.RuleType = 1
                      OR (r.RuleType = 2 AND r.RuleValue = @taxNr)
                      OR (r.RuleType = 3 AND r.RuleValue = @specialCode)
-                     OR (r.RuleType = 4 AND r.RuleValue = @parameter)
                      OR (r.RuleType = 5 AND r.RuleValue = @customerCode)
                      OR (r.RuleType = 6 AND r.RuleValue = @workplaceCode)
                      OR (r.RuleType = 7 AND r.RuleValue = @orgUnitCode)
@@ -323,7 +321,6 @@ public sealed class EGovDesignRepository
                 docType,
                 taxNr = N(c.ReceiverTaxNr),
                 specialCode = N(c.SpecialCode),
-                parameter = N(c.Parameter),
                 customerCode = N(c.CustomerCode),
                 workplaceCode = N(c.WorkplaceCode),
                 orgUnitCode = N(c.OrgUnitCode),
