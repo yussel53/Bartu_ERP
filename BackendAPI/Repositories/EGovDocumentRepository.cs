@@ -63,6 +63,21 @@ public sealed class EGovDocumentListResult
 /// Genel api/records yerine: DocKind + Direction + IsArchived birlikte filtrelenir,
 /// PdfContent / XmlContent çekilmez (yalnız HasPdf / HasXml).
 /// </summary>
+public sealed class EGovDocumentViewData
+{
+    public int EGovDocumentID { get; set; }
+    public byte DocKind { get; set; }
+    public string? DocumentNo { get; set; }
+    public string? XmlContent { get; set; }
+}
+
+public sealed class EGovDocumentPdf
+{
+    public byte[] PdfContent { get; set; } = Array.Empty<byte>();
+    public string? PdfFileName { get; set; }
+    public string? PdfContentType { get; set; }
+}
+
 public sealed class EGovDocumentRepository
 {
     private readonly IDbConnection _db;
@@ -70,6 +85,30 @@ public sealed class EGovDocumentRepository
     public EGovDocumentRepository(IDbConnection db)
     {
         _db = db;
+    }
+
+    /// <summary>Görüntüleme için UBL (XmlContent) ve belge türü</summary>
+    public async Task<EGovDocumentViewData?> GetViewDataAsync(int id, CancellationToken ct = default)
+    {
+        if (_db.State != ConnectionState.Open) _db.Open();
+        return await _db.QuerySingleOrDefaultAsync<EGovDocumentViewData>(new CommandDefinition(
+            "SELECT EGovDocumentID, DocKind, DocumentNo, XmlContent FROM dbo.EGovDocument WHERE EGovDocumentID = @id",
+            new { id }, cancellationToken: ct));
+    }
+
+    public async Task<EGovDocumentPdf?> GetPdfAsync(int id, CancellationToken ct = default)
+    {
+        if (_db.State != ConnectionState.Open) _db.Open();
+        if (await _db.ExecuteScalarAsync<int>(new CommandDefinition(
+                "SELECT CASE WHEN COL_LENGTH(N'dbo.EGovDocument', N'PdfContent') IS NULL THEN 0 ELSE 1 END",
+                cancellationToken: ct)) == 0)
+            return null;
+        var pdf = await _db.QuerySingleOrDefaultAsync<EGovDocumentPdf>(new CommandDefinition(
+            """
+            SELECT PdfContent, PdfFileName, PdfContentType
+            FROM dbo.EGovDocument WHERE EGovDocumentID = @id AND PdfContent IS NOT NULL
+            """, new { id }, cancellationToken: ct));
+        return pdf is { PdfContent.Length: > 0 } ? pdf : null;
     }
 
     public async Task<EGovDocumentListResult> ListAsync(EGovDocumentListQuery q, CancellationToken ct = default)
