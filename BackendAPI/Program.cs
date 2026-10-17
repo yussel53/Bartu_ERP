@@ -49,7 +49,7 @@ builder.Services.AddScoped<EFaturaMukellefRepository>();
 builder.Services.AddSingleton<GibEFaturaUserListService>();
 builder.Services.AddScoped<IntegratorMukellefService>();
 builder.Services.AddScoped<ELogoDocumentSyncService>();
-builder.Services.AddScoped<EGovXsltRepository>();
+builder.Services.AddScoped<EGovDesignRepository>();
 builder.Services.AddSingleton<AddressSeedService>();
 builder.Services.AddHttpClient("PostSave", client =>
 {

@@ -26,27 +26,39 @@ public sealed class EGovXsltService
         Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(content))).ToLowerInvariant();
 
     /// <summary>
-    /// XSLT derlenebiliyor ve belge türünün örnek UBL'inde çalışıyor mu? Hata varsa okunur mesaj döner.
+    /// XSLT derlenebiliyor ve örnek UBL'de çalışıyor mu? Hata varsa okunur mesaj döner.
     /// version="2.0" başlıklı tasarımlar ileri uyumlu modda derlendiği için XSLT 2.0'a özgü
     /// fonksiyonlar (upper-case() vb.) ancak çalışırken hata verir — bu yüzden deneme dönüşümü yapılır.
+    /// Tasarım belge türüne bağlı olmadığından önce tahmin edilen örnekte, olmazsa diğerinde denenir.
     /// </summary>
-    public static string? Validate(string xslt, byte docKind)
+    public static string? Validate(string xslt)
     {
-        var compileError = Validate(xslt);
+        var compileError = ValidateCompile(xslt);
         if (compileError != null) return compileError;
-        try
+        var first = DetectSampleKind(xslt);
+        var kinds = first == "despatch" ? new[] { "despatch", "invoice" } : new[] { "invoice", "despatch" };
+        Exception? firstError = null;
+        foreach (var kind in kinds)
         {
-            Transform(xslt, SampleXml(docKind));
-            return null;
+            try
+            {
+                Transform(xslt, SampleXml(kind));
+                return null;
+            }
+            catch (Exception ex)
+            {
+                firstError ??= ex;
+            }
         }
-        catch (Exception ex)
-        {
-            return $"XSLT örnek belgede çalıştırılamadı: {Inner(ex).Message}";
-        }
+        return $"XSLT örnek belgede çalıştırılamadı: {Inner(firstError!).Message}";
     }
 
+    /// <summary>XSLT irsaliye (DespatchAdvice) için mi yazılmış? Önizlemede örnek seçimi için.</summary>
+    public static string DetectSampleKind(string xslt) =>
+        xslt.Contains("schema:xsd:DespatchAdvice-2", StringComparison.Ordinal) ? "despatch" : "invoice";
+
     /// <summary>XSLT derlenebiliyor mu? Hata varsa okunur mesaj döner.</summary>
-    public static string? Validate(string xslt)
+    private static string? ValidateCompile(string xslt)
     {
         try
         {
@@ -98,8 +110,13 @@ public sealed class EGovXsltService
         return html ?? "";
     }
 
-    /// <summary>docKind 3 → e-İrsaliye (DespatchAdvice), diğerleri → Invoice.</summary>
-    public static string SampleXml(byte docKind) => docKind == 3 ? SampleUbl.Despatch : SampleUbl.Invoice(docKind == 2);
+    /// <summary>kind: "despatch" → e-İrsaliye (DespatchAdvice), "earsiv" → EARSIVFATURA, diğerleri → TICARIFATURA.</summary>
+    public static string SampleXml(string kind) => kind switch
+    {
+        "despatch" => SampleUbl.Despatch,
+        "earsiv" => SampleUbl.Invoice(eArsiv: true),
+        _ => SampleUbl.Invoice(eArsiv: false),
+    };
 
     private static XslCompiledTransform Compile(string xslt)
     {

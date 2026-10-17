@@ -1278,11 +1278,11 @@ export const APP_MODULES: AppModule[] = [
         title: 'Tanımlar',
         screens: [
           {
-            id: 'egov-xslt-tasarimlari',
-            path: 'edevlet/tanimlar/xslt-tasarimlari',
-            title: 'XSLT Tasarımları',
-            subtitle: 'EGovXsltTemplate · e-Fatura / e-Arşiv / e-İrsaliye görünüm şablonları',
-            isEGovXslt: true,
+            id: 'egov-tasarim-sablonlari',
+            path: 'edevlet/tanimlar/tasarim-sablonlari',
+            title: 'Tasarım Şablonları',
+            subtitle: 'EGovDesignRule · EGovXsltDesign · belge türüne göre XSLT tasarım seçimi',
+            isEGovDesignTemplates: true,
           },
         ],
       },

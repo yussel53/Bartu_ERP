@@ -3,7 +3,7 @@ import { AppModule, MenuGroup, MenuScreen } from '../types/formTypes';
 import { FormTabs } from './FormTabs';
 import { ModuleListPage } from '../pages/ModuleListPage';
 import { CurrencyRatesPage } from '../pages/CurrencyRatesPage';
-import { EGovXsltPage } from '../pages/EGovXsltPage';
+import { EGovDesignTemplatesPage } from '../pages/EGovDesignTemplatesPage';
 import { ExtraFieldsAdminPage } from '../pages/ExtraFieldsAdminPage';
 import { UserPermissionsPage } from '../pages/UserPermissionsPage';
 import { ExternalEmbedPage } from '../pages/ExternalEmbedPage';
@@ -125,8 +125,8 @@ export const ModuleWorkspace: React.FC<ModuleWorkspaceProps> = ({
     if (activeScreen.isCurrencyRates) {
       return <CurrencyRatesPage onBack={() => onNavigate(module.path)} />;
     }
-    if (activeScreen.isEGovXslt) {
-      return <EGovXsltPage onBack={() => onNavigate(module.path)} />;
+    if (activeScreen.isEGovDesignTemplates) {
+      return <EGovDesignTemplatesPage onBack={() => onNavigate(module.path)} />;
     }
     if (activeScreen.isJournalNumbering) {
       return <JournalNumberingPage onBack={() => onNavigate(module.path)} />;
