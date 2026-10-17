@@ -61,6 +61,27 @@ export interface CardStatementResult {
   warnings: string[];
 }
 
+/** Cari listesi özet satırı — bakiye ve önemli bilgiler */
+export interface CustomerListSummary {
+  customerCardID: number;
+  debit: number;
+  credit: number;
+  /** Borç − Alacak (pozitif: borçlu) */
+  balance: number;
+  lastMoveDate?: string | null;
+  moveCount: number;
+  openOrders: number;
+  city?: string | null;
+  town?: string | null;
+  phone?: string | null;
+  email?: string | null;
+  riskGroup?: string | null;
+}
+
+export function getCustomerSummaries(): Promise<CustomerListSummary[]> {
+  return apiJson<CustomerListSummary[]>('/api/card-statement/customer-summaries');
+}
+
 export async function getCardStatement(
   kind: CardStatementKind,
   id: number,

@@ -33,7 +33,7 @@ import { filterRowsByOrgAuth, orgAuthSummary } from '../data/orgUnits';
 import { FORM_SCHEMAS } from '../data/formSchemas';
 import { DispatchTypeLabels } from '../data/documentTypes';
 import { listRecords, deleteRecord } from '../api/recordsApi';
-import { convertCustomerToCari } from '../api/cardStatementApi';
+import { convertCustomerToCari, CustomerListSummary, getCustomerSummaries } from '../api/cardStatementApi';
 import { ModuleOverviewPage } from './ModuleOverviewPage';
 import { FormTabs } from '../components/FormTabs';
 import { appConfirm } from '../utils/appConfirm';
@@ -108,6 +108,36 @@ function resolveListFilter(
     return { column: col, value: screen.documentTypeFilter };
   }
   return {};
+}
+
+const fmtMoney = (n: number) => n.toLocaleString('tr-TR', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+
+/** Cari listesi: bakiye, son hareket, açık sipariş, il/ilçe, iletişim, risk grubu (özet okunamazsa liste yine açılır) */
+async function withCustomerSummaries(rows: Record<string, unknown>[], pk: string): Promise<Record<string, unknown>[]> {
+  let list: CustomerListSummary[] = [];
+  try {
+    list = await getCustomerSummaries();
+  } catch {
+    return rows;
+  }
+  const map = new Map(list.map((s) => [String(s.customerCardID), s]));
+  return rows.map((row) => {
+    const s = map.get(String(pickCell(row, pk) ?? ''));
+    const bal = s?.balance ?? 0;
+    return {
+      ...row,
+      borc: s?.debit ? fmtMoney(s.debit) : '',
+      alacak: s?.credit ? fmtMoney(s.credit) : '',
+      bakiye: s && (s.debit || s.credit) ? fmtMoney(Math.abs(bal)) : '',
+      ba: !s || Math.abs(bal) < 0.005 ? '' : bal > 0 ? 'B' : 'A',
+      sonHareket: s?.lastMoveDate ? String(s.lastMoveDate).slice(0, 10).split('-').reverse().join('.') : '',
+      acikSiparis: s?.openOrders ? String(s.openOrders) : '',
+      ilIlce: [s?.city, s?.town].filter(Boolean).join(' / '),
+      telefon: s?.phone || '',
+      eposta: s?.email || '',
+      riskGrubu: s?.riskGroup || '',
+    };
+  });
 }
 
 function pickCell(row: Record<string, unknown>, key: string): unknown {
@@ -210,7 +240,9 @@ export const ModuleListPage: React.FC<ModuleListPageProps> = ({
         filterValue,
         take: 500,
       });
-      setDbRows(res.rows as Record<string, unknown>[]);
+      let rows = res.rows as Record<string, unknown>[];
+      if (tableName === 'CustomerCard') rows = await withCustomerSummaries(rows, pk || 'CustomerCardID');
+      setDbRows(rows);
       setSource('db');
       if (res.warning) setError(res.warning);
     } catch (e) {
@@ -623,6 +655,12 @@ export const ModuleListPage: React.FC<ModuleListPageProps> = ({
                             key={col.key}
                             className={`px-3 py-1.5 text-slate-700 dark:text-slate-200 whitespace-nowrap ${
                               numericCols.has(col.key) ? 'text-right tabular-nums' : ''
+                            } ${
+                              (col.key === 'bakiye' || col.key === 'ba') && raw
+                                ? pickCell(row, 'ba') === 'B'
+                                  ? 'font-semibold !text-red-700'
+                                  : 'font-semibold !text-emerald-700'
+                                : ''
                             }`}
                           >
                             {showToggle ? (

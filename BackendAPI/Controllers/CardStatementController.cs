@@ -15,6 +15,20 @@ public sealed class CardStatementController : ControllerBase
         _repo = repo;
     }
 
+    /// <summary>Cari listesi: bakiye + son hareket + açık sipariş + il/ilçe + iletişim + risk grubu</summary>
+    [HttpGet("customer-summaries")]
+    public async Task<IActionResult> CustomerSummaries(CancellationToken ct)
+    {
+        try
+        {
+            return Ok(await _repo.CustomerSummariesAsync(ct));
+        }
+        catch (Exception ex)
+        {
+            return StatusCode(500, new { message = ex.Message });
+        }
+    }
+
     [HttpGet("{kind}/{id:int}")]
     public async Task<ActionResult<CardStatementResult>> Get(
         string kind,

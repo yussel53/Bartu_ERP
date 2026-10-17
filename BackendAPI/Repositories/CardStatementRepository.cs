@@ -62,6 +62,24 @@ public sealed class CardStatementResult
     public List<string> Warnings { get; set; } = new();
 }
 
+/// <summary>Cari listesi özet satırı (bakiye ve önemli bilgiler)</summary>
+public sealed class CustomerListSummary
+{
+    public int CustomerCardID { get; set; }
+    public decimal Debit { get; set; }
+    public decimal Credit { get; set; }
+    /// <summary>Borç − Alacak (pozitif: borçlu / B · negatif: alacaklı / A)</summary>
+    public decimal Balance { get; set; }
+    public DateTime? LastMoveDate { get; set; }
+    public int MoveCount { get; set; }
+    public int OpenOrders { get; set; }
+    public string? City { get; set; }
+    public string? Town { get; set; }
+    public string? Phone { get; set; }
+    public string? Email { get; set; }
+    public string? RiskGroup { get; set; }
+}
+
 /// <summary>
 /// Kart ekstre / hareket / ek bölümler — Cari, Malzeme, Banka, Banka Hesabı, Kasa, Hesap Planı, Çek/Senet.
 /// Kolon varlığı her sorguda kontrol edilir (eski Create_DB + SqlUpdates farklarına dayanıklı).
@@ -500,6 +518,19 @@ public sealed class CardStatementRepository
     private async Task<List<RawRow>> CustomerStatementAsync(int id, CardStatementResult res, CancellationToken ct)
     {
         var all = new List<RawRow>();
+        foreach (var sql in await CustomerMovementSqlAsync(single: true, ct))
+            all.AddRange(await RawAsync(sql, new { id }, ct));
+        return all;
+    }
+
+    /// <summary>
+    /// Cari hareket kaynakları (cari fişleri, faturalar, banka satırları); her biri CustId kolonu taşır.
+    /// single: yalnız @id carisi (ekstre) · değilse tüm cariler (liste özeti).
+    /// </summary>
+    private async Task<List<string>> CustomerMovementSqlAsync(bool single, CancellationToken ct)
+    {
+        var parts = new List<string>();
+        string Where(string custExpr) => single ? $"WHERE {custExpr} = @id" : $"WHERE {custExpr} IS NOT NULL";
 
         // 1) Cari fiş satırları
         if (await HasAsync("CustomerTrans", ct))
@@ -512,7 +543,8 @@ public sealed class CardStatementRepository
                 ? (join ? "COALESCE(t.Description, v.Description)" : "t.Description")
                 : (join ? "v.Description" : "NULL");
             var due = t.Contains("DueDate") ? "t.DueDate" : "NULL";
-            var sql = $@"
+            var cust = join ? "COALESCE(t.CustomerID, v.CustomerID)" : "t.CustomerID";
+            parts.Add($@"
 SELECT
   {(join ? "COALESCE(t.TransDate, v.VoucherDate)" : "t.TransDate")} AS Dt,
   {(join ? "v.DocumentNumber" : "NULL")} AS DocNo,
@@ -526,11 +558,11 @@ SELECT
        WHEN {amt} < 0 THEN -{amt} ELSE 0 END AS Credit,
   {amt} AS Amount,
   {due} AS DueDate,
-  {(join ? "t.CustomerVoucherID" : "t.CustomerTransID")} AS SourceId
+  {(join ? "t.CustomerVoucherID" : "t.CustomerTransID")} AS SourceId,
+  {cust} AS CustId
 FROM dbo.CustomerTrans t
 {(join ? "LEFT JOIN dbo.CustomerVoucher v ON v.CustomerVoucherID = t.CustomerVoucherID" : "")}
-WHERE {(join ? "COALESCE(t.CustomerID, v.CustomerID)" : "t.CustomerID")} = @id";
-            all.AddRange(await RawAsync(sql, new { id }, ct));
+{Where(cust)}");
         }
 
         // 2) Faturalar (tutar = satır toplamı)
@@ -538,7 +570,7 @@ WHERE {(join ? "COALESCE(t.CustomerID, v.CustomerID)" : "t.CustomerID")} = @id";
         if (invType != null && await HasColAsync("Invoice", "CustomerID", ct))
         {
             var doc = await InvoiceDocColAsync(ct);
-            var sql = $@"
+            parts.Add($@"
 SELECT
   i.InvoiceDate AS Dt,
   {(doc != null ? $"i.[{doc}]" : "NULL")} AS DocNo,
@@ -548,11 +580,11 @@ SELECT
   CASE WHEN i.[{invType}] IN (1,4) THEN ISNULL(s.Tot, 0) ELSE 0 END AS Debit,
   CASE WHEN i.[{invType}] IN (2,3) THEN ISNULL(s.Tot, 0) ELSE 0 END AS Credit,
   s.Tot AS Amount,
-  i.InvoiceID AS SourceId
+  i.InvoiceID AS SourceId,
+  i.CustomerID AS CustId
 FROM dbo.Invoice i
 {await InvoiceTotalsJoinAsync(ct)}
-WHERE i.CustomerID = @id";
-            all.AddRange(await RawAsync(sql, new { id }, ct));
+{Where("i.CustomerID")}");
         }
 
         // 3) Banka satırları (havale / EFT)
@@ -561,7 +593,7 @@ WHERE i.CustomerID = @id";
             var join = await HasColAsync("BankTrans", "BankVoucherID", ct) && await HasAsync("BankVoucher", ct);
             var type = join ? "COALESCE(bv.Type_, bt.Type_)" : "bt.Type_";
             var desc = await HasColAsync("BankTrans", "Description", ct) ? "bt.Description" : "NULL";
-            var sql = $@"
+            parts.Add($@"
 SELECT
   COALESCE(bt.TransDate{(join ? ", bv.VoucherDate" : "")}) AS Dt,
   {(join && await HasColAsync("BankVoucher", "DocumentNumber", ct) ? "bv.DocumentNumber" : "NULL")} AS DocNo,
@@ -573,15 +605,94 @@ SELECT
   CASE WHEN {type} IN {BankOutTypes} THEN 0
        WHEN {type} IN {BankInTypes} OR ISNULL(bt.Amount, 0) >= 0 THEN ABS(ISNULL(bt.Amount, 0)) ELSE 0 END AS Credit,
   bt.Amount AS Amount,
-  {(join ? "bt.BankVoucherID" : "bt.BankTtansID")} AS SourceId
+  {(join ? "bt.BankVoucherID" : "bt.BankTtansID")} AS SourceId,
+  bt.CustomerID AS CustId
 FROM dbo.BankTrans bt
 {(join ? "LEFT JOIN dbo.BankVoucher bv ON bv.BankVoucherID = bt.BankVoucherID" : "")}
 LEFT JOIN dbo.BankAccountCard ba ON ba.BankAccountCardID = bt.BankAccountCardID
-WHERE bt.CustomerID = @id";
-            all.AddRange(await RawAsync(sql, new { id }, ct));
+{Where("bt.CustomerID")}");
         }
 
-        return all;
+        return parts;
+    }
+
+    /// <summary>
+    /// Cari listesi özeti: borç / alacak / bakiye (ekstre ile aynı kaynaklar), son hareket, açık sipariş,
+    /// varsayılan adres il/ilçe, yetkili telefon / e-posta, risk grubu.
+    /// </summary>
+    public async Task<List<CustomerListSummary>> CustomerSummariesAsync(CancellationToken ct = default)
+    {
+        if (_db.State != ConnectionState.Open) _db.Open();
+        var map = new Dictionary<int, CustomerListSummary>();
+        CustomerListSummary Get(int id) =>
+            map.TryGetValue(id, out var x) ? x : map[id] = new CustomerListSummary { CustomerCardID = id };
+
+        var parts = await CustomerMovementSqlAsync(single: false, ct);
+        if (parts.Count > 0)
+        {
+            var union = string.Join("\nUNION ALL\n", parts.Select(p => $"SELECT CustId, Dt, Debit, Credit FROM ({p}) p"));
+            var sql = $@"
+SELECT CAST(m.CustId AS int) AS CustId,
+       SUM(CAST(ISNULL(m.Debit, 0) AS decimal(19,2))) AS Debit,
+       SUM(CAST(ISNULL(m.Credit, 0) AS decimal(19,2))) AS Credit,
+       MAX(m.Dt) AS LastDt, COUNT(1) AS Cnt
+FROM ({union}) m
+GROUP BY m.CustId";
+            foreach (var r in await _db.QueryAsync(new CommandDefinition(sql, cancellationToken: ct)))
+            {
+                var s = Get((int)r.CustId);
+                s.Debit = (decimal)(r.Debit ?? 0m);
+                s.Credit = (decimal)(r.Credit ?? 0m);
+                s.Balance = s.Debit - s.Credit;
+                s.LastMoveDate = (DateTime?)r.LastDt;
+                s.MoveCount = (int)r.Cnt;
+            }
+        }
+
+        if (await HasColAsync("CustomerAdress", "CustomerCardID", ct))
+            foreach (var r in await _db.QueryAsync(new CommandDefinition(@"
+SELECT CustomerCardID AS Id, City, Town FROM (
+  SELECT a.CustomerCardID, a.City, a.Town,
+         ROW_NUMBER() OVER (PARTITION BY a.CustomerCardID
+                            ORDER BY CASE WHEN a.IsDefault = 1 THEN 0 ELSE 1 END, a.CustomerAdressID) AS rn
+  FROM dbo.CustomerAdress a
+  WHERE a.CustomerCardID IS NOT NULL AND ISNULL(a.Active, 1) = 1) x
+WHERE rn = 1", cancellationToken: ct)))
+            {
+                var s = Get((int)r.Id);
+                s.City = (string?)r.City;
+                s.Town = (string?)r.Town;
+            }
+
+        if (await HasColAsync("CustomerContact", "CustomerCardID", ct))
+            foreach (var r in await _db.QueryAsync(new CommandDefinition(@"
+SELECT CustomerCardID AS Id, Phone, Email FROM (
+  SELECT c.CustomerCardID, c.Phone, c.Email,
+         ROW_NUMBER() OVER (PARTITION BY c.CustomerCardID
+                            ORDER BY CASE WHEN c.IsDefault = 1 THEN 0 ELSE 1 END, c.CustomerContactID) AS rn
+  FROM dbo.CustomerContact c
+  WHERE c.CustomerCardID IS NOT NULL AND (NULLIF(c.Phone, '') IS NOT NULL OR NULLIF(c.Email, '') IS NOT NULL)) x
+WHERE rn = 1", cancellationToken: ct)))
+            {
+                var s = Get((int)r.Id);
+                s.Phone = (string?)r.Phone;
+                s.Email = (string?)r.Email;
+            }
+
+        if (await HasColAsync("CustomerCard", "RiskGroupID", ct) && await HasAsync("RiskGroup", ct))
+            foreach (var r in await _db.QueryAsync(new CommandDefinition(@"
+SELECT c.CustomerCardID AS Id, g.Title FROM dbo.CustomerCard c
+JOIN dbo.RiskGroup g ON g.RiskGroupID = c.RiskGroupID", cancellationToken: ct)))
+                Get((int)r.Id).RiskGroup = (string?)r.Title;
+
+        if (await HasColAsync("OrderVoucher", "CustomerID", ct) && await HasColAsync("OrderVoucher", "Status_", ct))
+            foreach (var r in await _db.QueryAsync(new CommandDefinition(@"
+SELECT CustomerID AS Id, COUNT(1) AS Cnt FROM dbo.OrderVoucher
+WHERE CustomerID IS NOT NULL AND ISNULL(Status_, 1) IN (1, 2)
+GROUP BY CustomerID", cancellationToken: ct)))
+                Get((int)r.Id).OpenOrders = (int)r.Cnt;
+
+        return map.Values.ToList();
     }
 
     private async Task<CardSection?> CustomerDocumentsAsync(int id, CancellationToken ct)

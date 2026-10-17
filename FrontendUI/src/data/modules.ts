@@ -264,7 +264,7 @@ export const APP_MODULES: AppModule[] = [
             title: 'Cari Kartlar',
             subtitle: 'CustomerCard · CardKind=2 · adres / yetkili kart içinde',
             formCode: 'CustomerCardForm',
-            listColumns: cols(['code', 'Kod'], ['title', 'Ünvan'], ['taxNr', 'VKN'], ['type', 'Tür'], ['status', 'Durum']),
+            listColumns: cols(['code', 'Kod'], ['title', 'Ünvan'], ['taxNr', 'VKN'], ['type', 'Tür'], ['borc', 'Borç'], ['alacak', 'Alacak'], ['bakiye', 'Bakiye'], ['ba', 'B/A'], ['sonHareket', 'Son Hareket'], ['acikSiparis', 'Açık Sip.'], ['ilIlce', 'İl / İlçe'], ['telefon', 'Telefon'], ['riskGrubu', 'Risk Grubu'], ['status', 'Durum']),
             sampleRows: [
               { id: 1, code: '120.01', title: 'ABC Ticaret A.Ş.', taxNr: '1234567890', type: 'Alıcı', status: 'Aktif', authCode: 'SAT' },
               { id: 2, code: '320.01', title: 'Demir Tedarik', taxNr: '1122334455', type: 'Satıcı', status: 'Aktif', authCode: 'MUH' },
@@ -278,7 +278,7 @@ export const APP_MODULES: AppModule[] = [
             title: 'Müşteri Kartları',
             subtitle: 'CustomerCard · CardKind=1 · satış yapılınca / sağ tık «Cariye Dönüştür» ile cari olur',
             formCode: 'MusteriCardForm',
-            listColumns: cols(['code', 'Kod'], ['title', 'Ünvan'], ['taxNr', 'VKN'], ['type', 'Tür'], ['status', 'Durum']),
+            listColumns: cols(['code', 'Kod'], ['title', 'Ünvan'], ['taxNr', 'VKN'], ['type', 'Tür'], ['acikSiparis', 'Açık Sip.'], ['sonHareket', 'Son Hareket'], ['ilIlce', 'İl / İlçe'], ['telefon', 'Telefon'], ['eposta', 'E-posta'], ['status', 'Durum']),
           }),
           screen({
             id: 'risk-gruplari',
@@ -796,7 +796,7 @@ export const APP_MODULES: AppModule[] = [
             title: 'Müşteriler',
             subtitle: 'CustomerCard · CardKind=1 · sağ tık: Ekstre / Fırsatlar / Teklifler / Yazışmalar / Cariye Dönüştür',
             formCode: 'MusteriCardForm',
-            listColumns: cols(['code', 'Kod'], ['title', 'Ünvan'], ['taxNr', 'VKN'], ['type', 'Tür'], ['status', 'Durum']),
+            listColumns: cols(['code', 'Kod'], ['title', 'Ünvan'], ['taxNr', 'VKN'], ['type', 'Tür'], ['acikSiparis', 'Açık Sip.'], ['sonHareket', 'Son Hareket'], ['ilIlce', 'İl / İlçe'], ['telefon', 'Telefon'], ['eposta', 'E-posta'], ['status', 'Durum']),
           },
           {
             id: 'crm-cari-kartlar',
@@ -804,7 +804,7 @@ export const APP_MODULES: AppModule[] = [
             title: 'Cariler',
             subtitle: 'CustomerCard · CardKind=2 · sağ tık: Müşteri 360° (ekstre + CRM)',
             formCode: 'CustomerCardForm',
-            listColumns: cols(['code', 'Kod'], ['title', 'Ünvan'], ['taxNr', 'VKN'], ['type', 'Tür'], ['status', 'Durum']),
+            listColumns: cols(['code', 'Kod'], ['title', 'Ünvan'], ['taxNr', 'VKN'], ['type', 'Tür'], ['borc', 'Borç'], ['alacak', 'Alacak'], ['bakiye', 'Bakiye'], ['ba', 'B/A'], ['sonHareket', 'Son Hareket'], ['acikSiparis', 'Açık Sip.'], ['ilIlce', 'İl / İlçe'], ['telefon', 'Telefon'], ['riskGrubu', 'Risk Grubu'], ['status', 'Durum']),
           },
         ],
       },
