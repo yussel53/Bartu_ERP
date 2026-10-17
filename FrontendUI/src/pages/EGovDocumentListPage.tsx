@@ -1,11 +1,12 @@
 import React, { useCallback, useEffect, useState } from 'react';
-import { Check, Eye, FileText, Link2, Pencil, Plus, RefreshCw, Save, Search, Send, Trash2, X } from 'lucide-react';
+import { Check, Eye, FileText, Link2, Pencil, Plus, RefreshCw, Save, Search, Send, Trash2, UserPlus, X } from 'lucide-react';
 import { MenuScreen } from '../types/formTypes';
 import { EGovDocumentList, EGovDocumentRow, listEGovDocuments } from '../api/egovDocumentsApi';
 import { approveEGovIncoming, rejectEGovIncoming } from '../api/egovIncomingApi';
 import { egovPdfUrl } from '../api/processApi';
 import { deleteRecord } from '../api/recordsApi';
 import { EGovIncomingSaveModal } from '../components/EGovIncomingSaveModal';
+import { EGovPartyCardModal } from '../components/EGovPartyCardModal';
 import { EGovSendApprovalModal } from '../components/EGovSendApprovalModal';
 import { EGovDirection, EGovDocKindLabels } from '../data/egovTypes';
 import { getCurrentUserId } from '../data/permissions';
@@ -66,6 +67,7 @@ export const EGovDocumentListPage: React.FC<EGovDocumentListPageProps> = ({ scre
   const [rejectReason, setRejectReason] = useState('');
   const [saveFor, setSaveFor] = useState<EGovDocumentRow | null>(null);
   const [sendFor, setSendFor] = useState<EGovDocumentRow | null>(null);
+  const [partyFor, setPartyFor] = useState<EGovDocumentRow | null>(null);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -300,6 +302,14 @@ export const EGovDocumentListPage: React.FC<EGovDocumentListPageProps> = ({ scre
                             <FileText className="w-3.5 h-3.5" />
                           </span>
                         )}
+                        <button
+                          type="button"
+                          title="e-Faturadan cari kaydet"
+                          onClick={() => setPartyFor(r)}
+                          className={`${iconBtn} hover:text-blue-700`}
+                        >
+                          <UserPlus className="w-3.5 h-3.5" />
+                        </button>
                         {canDelete(r) && (
                           <button
                             type="button"
@@ -471,6 +481,18 @@ export const EGovDocumentListPage: React.FC<EGovDocumentListPageProps> = ({ scre
             setSendFor(null);
             setInfo(message);
             void load();
+          }}
+        />
+      )}
+
+      {/* e-Faturadan cari kart */}
+      {partyFor && (
+        <EGovPartyCardModal
+          egovId={partyFor.eGovDocumentID}
+          onClose={() => setPartyFor(null)}
+          onDone={(_card, message) => {
+            setPartyFor(null);
+            setInfo(message);
           }}
         />
       )}

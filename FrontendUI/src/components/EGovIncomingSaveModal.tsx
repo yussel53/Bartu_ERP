@@ -1,8 +1,9 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
-import { AlertTriangle, CheckCircle2, Link2, Save, X } from 'lucide-react';
+import { AlertTriangle, CheckCircle2, Link2, Save, UserPlus, X } from 'lucide-react';
 import { EGovIncomingPreview, getEGovIncomingSavePreview, saveEGovIncoming } from '../api/egovIncomingApi';
 import { LookupOption, loadLookupOptions } from '../api/lookupApi';
 import { isoToDisplay } from '../utils/dateFormat';
+import { EGovPartyCardModal } from './EGovPartyCardModal';
 
 const fmt = (v?: number | null, digits = 2) =>
   v == null ? '' : v.toLocaleString('tr-TR', { minimumFractionDigits: digits, maximumFractionDigits: digits });
@@ -87,6 +88,7 @@ interface Props {
  */
 export const EGovIncomingSaveModal: React.FC<Props> = ({ egovId, userId, onClose, onSaved }) => {
   const [preview, setPreview] = useState<EGovIncomingPreview | null>(null);
+  const [partyOpen, setPartyOpen] = useState(false);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
@@ -157,6 +159,7 @@ export const EGovIncomingSaveModal: React.FC<Props> = ({ egovId, userId, onClose
   const sel = 'h-7 px-2 text-[12px] rounded-sm border border-slate-300 bg-white';
 
   return (
+    <>
     <div className="fixed inset-0 z-50 flex items-start justify-center bg-slate-900/40 p-4 overflow-y-auto" onMouseDown={() => !busy && onClose()}>
       <div className="w-full max-w-6xl rounded-md bg-white shadow-xl my-6" onMouseDown={(e) => e.stopPropagation()}>
         <div className="flex items-center justify-between px-5 py-3 border-b border-slate-200">
@@ -201,7 +204,16 @@ export const EGovIncomingSaveModal: React.FC<Props> = ({ egovId, userId, onClose
                   ) : (
                     <div className="inline-flex items-start gap-1 text-red-700">
                       <AlertTriangle className="w-3.5 h-3.5 mt-0.5 shrink-0" />
-                      Bu VKN/TCKN ile cari kart yok. Önce cari kartı açın (Vergi No alanı {preview.supplierTaxNr}).
+                      <span>
+                        Bu VKN/TCKN ile cari kart yok.{' '}
+                        <button
+                          type="button"
+                          onClick={() => setPartyOpen(true)}
+                          className="inline-flex items-center gap-1 ml-1 px-1.5 h-5 rounded-sm border border-blue-600 bg-blue-600 text-white hover:bg-blue-700"
+                        >
+                          <UserPlus className="w-3 h-3" /> e-Faturadan cari kaydet
+                        </button>
+                      </span>
                     </div>
                   )}
                 </div>
@@ -335,5 +347,17 @@ export const EGovIncomingSaveModal: React.FC<Props> = ({ egovId, userId, onClose
         </div>
       </div>
     </div>
+    {/* Tedarikçi cari kartı yoksa: e-Faturanın UBL bilgisinden aç */}
+    {partyOpen && (
+      <EGovPartyCardModal
+        egovId={egovId}
+        onClose={() => setPartyOpen(false)}
+        onDone={(card) => {
+          setPartyOpen(false);
+          setPreview((p) => (p ? { ...p, supplierCardID: card.id, supplierCode: card.code, supplierTitle: card.title } : p));
+        }}
+      />
+    )}
+    </>
   );
 };
