@@ -15,6 +15,7 @@ import { DataImportPage } from '../pages/DataImportPage';
 import { ProcessManagementPage } from '../pages/ProcessManagementPage';
 import { ProcessDesignerPage } from '../pages/ProcessDesignerPage';
 import { ELogoSyncPage } from '../pages/ELogoSyncPage';
+import { EGovDocumentListPage } from '../pages/EGovDocumentListPage';
 import { CrmWorkspacePage } from '../pages/crm/CrmWorkspacePage';
 import { CrmSettingsPage } from '../pages/crm/CrmSettingsPage';
 
@@ -176,6 +177,17 @@ export const ModuleWorkspace: React.FC<ModuleWorkspaceProps> = ({
     }
     if (activeScreen.isELogoSync) {
       return <ELogoSyncPage key={activeScreen.id} onBack={() => onNavigate(module.path)} />;
+    }
+    if (activeScreen.egovList) {
+      return (
+        <EGovDocumentListPage
+          key={`${activeScreen.id}-${listTick}`}
+          screen={activeScreen}
+          onNew={listHandlers.onNew}
+          onView={listHandlers.onView}
+          onEdit={listHandlers.onEdit}
+        />
+      );
     }
     if (activeScreen.isSqlReportsAdmin) {
       return (
