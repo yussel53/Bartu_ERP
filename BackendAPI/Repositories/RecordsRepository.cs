@@ -84,6 +84,20 @@ public sealed class RecordsRepository
     private static readonly Regex SafeIdent = new(@"^[A-Za-z_][A-Za-z0-9_]*$", RegexOptions.Compiled);
     private readonly IDbConnection _db;
 
+    /// <summary>
+    /// Genel kayıt ucunda (liste / tek kayıt / alt satır) asla dönmeyen gizli kolonlar.
+    /// Yanıtta değer yerine "{Kolon}Set" (dolu mu) bayrağı döner; kayıtta boş gelirse mevcut değer korunur.
+    /// </summary>
+    private static readonly Dictionary<string, string[]> SecretColumnsByTable =
+        new(StringComparer.OrdinalIgnoreCase)
+        {
+            ["SYS_Companies"] = ["IntegratorPassword", "IntegratorApiKey"],
+            ["SYS_Workplace"] = ["IntegratorPassword", "IntegratorApiKey"],
+            ["SystemUser"] = ["Password"],
+            ["SYS_Users"] = ["PasswordHash"],
+            ["CRM_MailProfile"] = ["SmtpPassword"],
+        };
+
     /// <summary>Ana kart → nested çocuk tablolar</summary>
     private static readonly Dictionary<string, NestedChildSpec[]> NestedByParent =
         new(StringComparer.OrdinalIgnoreCase)
@@ -474,12 +488,13 @@ public sealed class RecordsRepository
         }
 
         take = Math.Clamp(take, 1, 2000);
-        var selectList = string.Join(", ", cols.Select(c => $"[{c}]"));
+        var selectList = BuildSelectList(tableName, cols);
         var sql = $"SELECT TOP ({take}) {selectList} FROM [{tableName}]";
         var parameters = new DynamicParameters();
         var whereParts = new List<string>();
 
-        if (!string.IsNullOrWhiteSpace(filterColumn) && filterValue != null && cols.Contains(filterColumn, StringComparer.OrdinalIgnoreCase))
+        if (!string.IsNullOrWhiteSpace(filterColumn) && filterValue != null && cols.Contains(filterColumn, StringComparer.OrdinalIgnoreCase)
+            && !IsSecretColumn(tableName, filterColumn))
         {
             var realCol = cols.First(c => c.Equals(filterColumn, StringComparison.OrdinalIgnoreCase));
             whereParts.Add($"[{realCol}] = @FilterValue");
@@ -879,7 +894,7 @@ GROUP BY t.ItemsID, v.Type_",
         if (string.IsNullOrWhiteSpace(pk)) return null;
 
         var cols = await GetColumnsAsync(tableName);
-        var selectList = string.Join(", ", cols.Select(c => $"[{c}]"));
+        var selectList = BuildSelectList(tableName, cols);
         var sql = $"SELECT TOP 1 {selectList} FROM [{tableName}] WHERE [{pk}] = @Id";
         var row = await _db.QuerySingleOrDefaultAsync(new CommandDefinition(sql, new { Id = recordId }, cancellationToken: ct));
         if (row == null) return null;
@@ -967,6 +982,8 @@ GROUP BY t.ItemsID, v.Type_",
             if (!colSet.Contains(kv.Key)) continue;
             var real = cols.First(c => c.Equals(kv.Key, StringComparison.OrdinalIgnoreCase));
             if (writeCols.Contains(real, StringComparer.OrdinalIgnoreCase)) continue;
+            // Gizli kolon yanıtta dönmez: güncellemede boş gelirse mevcut değeri koru
+            if (data.RecordId != 0 && IsSecretColumn(tableName, real) && IsBlank(kv.Value)) continue;
             writeCols.Add(real);
             parameters.Add(real, CoerceDbValue(kv.Value));
         }
@@ -990,6 +1007,7 @@ GROUP BY t.ItemsID, v.Type_",
             }
             var real = cols.First(c => c.Equals(kv.Key, StringComparison.OrdinalIgnoreCase));
             if (writeCols.Contains(real, StringComparer.OrdinalIgnoreCase)) continue;
+            if (data.RecordId != 0 && IsSecretColumn(tableName, real) && IsBlank(kv.Value)) continue;
             writeCols.Add(real);
             parameters.Add(real, CoerceDbValue(kv.Value));
         }
@@ -1286,7 +1304,7 @@ SELECT CAST(SCOPE_IDENTITY() AS INT);";
         var cols = await GetColumnsAsync(spec.TableName);
         if (cols.Count == 0) return new();
 
-        var selectList = string.Join(", ", cols.Select(c => $"[{c}]"));
+        var selectList = BuildSelectList(spec.TableName, cols);
         var sql = $"SELECT {selectList} FROM [{spec.TableName}] WHERE [{spec.ParentFkColumn}] = @ParentId";
         var p = new DynamicParameters();
         p.Add("ParentId", parentId);
@@ -1364,6 +1382,11 @@ SELECT CAST(SCOPE_IDENTITY() AS INT);";
 
         var pkCol = ResolveNestedPk(spec.PrimaryKeyColumn, colSet);
         if (string.IsNullOrWhiteSpace(pkCol)) return;
+
+        // Satırlar silinip yeniden yazılır: boş gelen gizli kolonlar eski satırdan (PK → Code) taşınır
+        var secretCols = cols.Where(c => IsSecretColumn(spec.TableName, c)).ToList();
+        if (secretCols.Count > 0)
+            await CarryOverChildSecretsAsync(spec, parentId, pkCol, colSet, secretCols, rows, tx, ct);
 
         await DeleteChildrenAsync(spec, parentId, tx, ct);
 
@@ -1476,6 +1499,63 @@ VALUES ({string.Join(", ", writeCols.Select(c => "@" + c))});";
             await _db.ExecuteAsync(new CommandDefinition(insertSql, parameters, tx, cancellationToken: ct));
         }
     }
+
+    private async Task CarryOverChildSecretsAsync(
+        NestedChildSpec spec,
+        int parentId,
+        string pkCol,
+        HashSet<string> colSet,
+        List<string> secretCols,
+        List<Dictionary<string, object?>> rows,
+        IDbTransaction? tx,
+        CancellationToken ct)
+    {
+        var hasCode = colSet.Contains("Code");
+        var selectCols = new List<string> { pkCol };
+        if (hasCode) selectCols.Add("Code");
+        selectCols.AddRange(secretCols);
+        var sql = $"SELECT {string.Join(", ", selectCols.Select(c => $"[{c}]"))} FROM [{spec.TableName}] WHERE [{spec.ParentFkColumn}] = @ParentId";
+        var existing = (await _db.QueryAsync(new CommandDefinition(sql, new { ParentId = parentId }, tx, cancellationToken: ct)))
+            .Select(r => (IDictionary<string, object>)r)
+            .ToList();
+        if (existing.Count == 0) return;
+
+        foreach (var row in rows)
+        {
+            var pkVal = Convert.ToString(NormalizeJsonElement(GetCI(row, pkCol)))?.Trim();
+            var codeVal = hasCode ? Convert.ToString(NormalizeJsonElement(GetCI(row, "Code")))?.Trim() : null;
+            var match =
+                (!string.IsNullOrEmpty(pkVal) ? existing.FirstOrDefault(e => Convert.ToString(e[pkCol]) == pkVal) : null)
+                ?? (!string.IsNullOrEmpty(codeVal) ? existing.FirstOrDefault(e => Convert.ToString(e["Code"])?.Trim() == codeVal) : null);
+            if (match == null) continue;
+
+            foreach (var sc in secretCols)
+            {
+                if (!IsBlank(GetCI(row, sc))) continue;
+                if (match[sc] is string old && !string.IsNullOrEmpty(old))
+                    SetIncoming(row, sc, old);
+            }
+        }
+    }
+
+    private static object? GetCI(Dictionary<string, object?> row, string key)
+    {
+        var k = row.Keys.FirstOrDefault(x => x.Equals(key, StringComparison.OrdinalIgnoreCase));
+        return k == null ? null : row[k];
+    }
+
+    private static bool IsSecretColumn(string tableName, string column) =>
+        SecretColumnsByTable.TryGetValue(tableName, out var secrets)
+        && secrets.Contains(column, StringComparer.OrdinalIgnoreCase);
+
+    private static bool IsBlank(object? v) =>
+        string.IsNullOrWhiteSpace(Convert.ToString(NormalizeJsonElement(v)));
+
+    /// <summary>SELECT listesi: gizli kolonlar yerine "{Kolon}Set" (bit) bayrağı</summary>
+    private static string BuildSelectList(string tableName, List<string> cols) =>
+        string.Join(", ", cols.Select(c => IsSecretColumn(tableName, c)
+            ? $"CAST(CASE WHEN NULLIF([{c}], N'') IS NULL THEN 0 ELSE 1 END AS bit) AS [{c}Set]"
+            : $"[{c}]"));
 
     private async Task DeleteChildrenAsync(
         NestedChildSpec spec,

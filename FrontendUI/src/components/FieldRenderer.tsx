@@ -124,6 +124,10 @@ export const FieldRenderer: React.FC<FieldRendererProps> = ({
     ${error ? 'border-red-400 focus:ring-red-400/40' : 'border-slate-300 dark:border-slate-600'}
   `;
 
+  /** Kayıt ucu şifreyi döndürmez, yerine "{alan}Set" bayrağı gelir */
+  const savedFlag = field.fieldType === 'password' ? watchFn?.(`${registerName}Set`) : undefined;
+  const passwordSaved = savedFlag === true || savedFlag === 1 || savedFlag === 'true';
+
   const isNumberField = field.fieldType === 'number';
   const textLike =
     field.fieldType === 'text' ||
@@ -213,8 +217,8 @@ export const FieldRenderer: React.FC<FieldRendererProps> = ({
           type="password"
           autoComplete="new-password"
           className={baseInputClass}
-          placeholder={ph}
-          title={field.label}
+          placeholder={passwordSaved ? '•••••• kayıtlı — değiştirmek için yazın' : ph}
+          title={passwordSaved ? `${field.label} kayıtlı; boş bırakılırsa korunur` : field.label}
           disabled={disabled}
           {...fieldReg}
           {...noMinus}

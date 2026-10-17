@@ -17,6 +17,9 @@ export interface IntegratorCredentials {
   user?: string;
   password?: string;
   vkn?: string;
+  /** Şifre kayıtlı (yanıtta dönmez) — boş şifreyle backend kayıtlı olanı kullanır */
+  passwordSet?: boolean;
+  companyId?: number;
 }
 
 interface Props {
@@ -48,10 +51,8 @@ function firstEntryDate(res: EFaturaMukellefQueryResult): string | undefined {
 function hasIntegratorCreds(i?: IntegratorCredentials): boolean {
   const name = String(i?.name || '').trim().toUpperCase();
   if (!name || name === 'GIB') return false;
-  if (name === 'ELOGO' || name === 'LOGO') {
-    return Boolean(String(i?.user || '').trim() && String(i?.password || '').trim());
-  }
-  return Boolean(String(i?.user || '').trim() && String(i?.password || '').trim());
+  const hasPassword = Boolean(String(i?.password || '').trim()) || Boolean(i?.passwordSet && i?.companyId);
+  return Boolean(String(i?.user || '').trim()) && hasPassword;
 }
 
 export const EinvoiceMukellefCheck: React.FC<Props> = ({
@@ -114,6 +115,7 @@ export const EinvoiceMukellefCheck: React.FC<Props> = ({
           integratorUser: integrator?.user,
           integratorPassword: integrator?.password,
           integratorVkN: integrator?.vkn,
+          companyId: integrator?.companyId,
         });
         applyResult(res);
         return;

@@ -71,6 +71,8 @@ export interface IntegratorMukellefCheckBody {
   integratorUser?: string;
   integratorPassword?: string;
   integratorVkN?: string;
+  /** Şifre boşsa backend kayıtlı firma şifresini kullanır */
+  companyId?: number;
 }
 
 /** Firma entegrasyon bilgileri ile mükellef kontrolü (e-Logo CheckGibUser) */
