@@ -52,7 +52,7 @@ public sealed class EGovXsltController : ControllerBase
     {
         if (!ValidKind(docKind)) return BadRequest(new { message = "docKind 1-3 olmalı" });
         if (!await _repo.ReadyAsync(ct)) return BadRequest(new { message = EGovXsltRepository.MissingTableMessage });
-        var (content, error) = await ReadXsltAsync(file, ct);
+        var (content, error) = await ReadXsltAsync(file, docKind, ct);
         if (error != null) return BadRequest(new { message = error });
 
         var name = string.IsNullOrWhiteSpace(title) ? Path.GetFileNameWithoutExtension(file!.FileName) : title.Trim();
@@ -74,7 +74,9 @@ public sealed class EGovXsltController : ControllerBase
     [RequestSizeLimit(EGovXsltService.MaxXsltBytes + 64_000)]
     public async Task<IActionResult> ReplaceContent(int id, IFormFile? file, CancellationToken ct)
     {
-        var (content, error) = await ReadXsltAsync(file, ct);
+        var current = await _repo.GetContentAsync(id, ct);
+        if (current is null) return NotFound(new { message = $"Şablon #{id} bulunamadı." });
+        var (content, error) = await ReadXsltAsync(file, current.DocKind, ct);
         if (error != null) return BadRequest(new { message = error });
         var ok = await _repo.ReplaceContentAsync(id, file!.FileName, content!, EGovXsltService.Sha256Hex(content!), ct);
         return ok ? Ok(new { success = true, message = "XSLT dosyası değiştirildi." }) : NotFound(new { message = $"Şablon #{id} bulunamadı." });
@@ -145,7 +147,7 @@ public sealed class EGovXsltController : ControllerBase
             : new { found = true, id = (int?)t.EGovXsltTemplateID, title = (string?)t.Title, message = (string?)null });
     }
 
-    private static async Task<(string? Content, string? Error)> ReadXsltAsync(IFormFile? file, CancellationToken ct)
+    private static async Task<(string? Content, string? Error)> ReadXsltAsync(IFormFile? file, byte docKind, CancellationToken ct)
     {
         if (file is null || file.Length == 0) return (null, "XSLT dosyası gerekli.");
         if (file.Length > EGovXsltService.MaxXsltBytes)
@@ -156,7 +158,7 @@ public sealed class EGovXsltController : ControllerBase
         await using var ms = new MemoryStream();
         await file.CopyToAsync(ms, ct);
         var content = EGovXsltService.ReadText(ms.ToArray());
-        var error = EGovXsltService.Validate(content);
+        var error = EGovXsltService.Validate(content, docKind);
         return error != null ? (null, error) : (content, null);
     }
 

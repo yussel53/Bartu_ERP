@@ -25,6 +25,26 @@ public sealed class EGovXsltService
     public static string Sha256Hex(string content) =>
         Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(content))).ToLowerInvariant();
 
+    /// <summary>
+    /// XSLT derlenebiliyor ve belge türünün örnek UBL'inde çalışıyor mu? Hata varsa okunur mesaj döner.
+    /// version="2.0" başlıklı tasarımlar ileri uyumlu modda derlendiği için XSLT 2.0'a özgü
+    /// fonksiyonlar (upper-case() vb.) ancak çalışırken hata verir — bu yüzden deneme dönüşümü yapılır.
+    /// </summary>
+    public static string? Validate(string xslt, byte docKind)
+    {
+        var compileError = Validate(xslt);
+        if (compileError != null) return compileError;
+        try
+        {
+            Transform(xslt, SampleXml(docKind));
+            return null;
+        }
+        catch (Exception ex)
+        {
+            return $"XSLT örnek belgede çalıştırılamadı: {Inner(ex).Message}";
+        }
+    }
+
     /// <summary>XSLT derlenebiliyor mu? Hata varsa okunur mesaj döner.</summary>
     public static string? Validate(string xslt)
     {
