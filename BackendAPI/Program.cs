@@ -46,6 +46,7 @@ builder.Services.AddScoped<NumberTemplateRepository>();
 builder.Services.AddScoped<DbUpdateRepository>();
 builder.Services.AddScoped<DbBootstrapRepository>();
 builder.Services.AddScoped<EFaturaMukellefRepository>();
+builder.Services.AddScoped<EGovDocumentRepository>();
 builder.Services.AddSingleton<GibEFaturaUserListService>();
 builder.Services.AddScoped<IntegratorMukellefService>();
 builder.Services.AddScoped<ELogoDocumentSyncService>();

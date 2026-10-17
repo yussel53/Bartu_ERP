@@ -238,6 +238,8 @@ export interface MenuScreen {
   isCrmSettings?: boolean;
   /** e-Logo PostBox belge çekme / senkron */
   isELogoSync?: boolean;
+  /** E-Devlet kutusu (EGovDocument) — DocKind / Direction / IsArchived ile api/egov/documents listesi */
+  egovList?: { docKind: number; direction: number; archived: boolean };
   /** Native SQL Raporlama Tools (SYS_SqlReport) */
   isSqlReportsAdmin?: boolean;
   /** designer | runner */

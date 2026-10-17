@@ -63,6 +63,7 @@ function egovBox(opts: {
     formCode: opts.formCode,
     listColumns: egovDocCols,
     sampleRows: opts.sampleRows,
+    egovList: { docKind: opts.docKind, direction: opts.direction, archived },
   });
 }
 
