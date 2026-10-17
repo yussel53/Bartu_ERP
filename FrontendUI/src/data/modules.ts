@@ -1274,6 +1274,19 @@ export const APP_MODULES: AppModule[] = [
         ],
       },
       {
+        key: 'tanimlar',
+        title: 'Tanımlar',
+        screens: [
+          {
+            id: 'egov-xslt-tasarimlari',
+            path: 'edevlet/tanimlar/xslt-tasarimlari',
+            title: 'XSLT Tasarımları',
+            subtitle: 'EGovXsltTemplate · e-Fatura / e-Arşiv / e-İrsaliye görünüm şablonları',
+            isEGovXslt: true,
+          },
+        ],
+      },
+      {
         key: 'islemler',
         title: 'İşlemler',
         screens: [

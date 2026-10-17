@@ -209,6 +209,8 @@ export interface MenuScreen {
   isCustomFieldsAdmin?: boolean;
   /** Döviz Kurları (TCMB günlük kur) ekranı */
   isCurrencyRates?: boolean;
+  /** E-Devlet → XSLT tasarımları (EGovXsltTemplate) */
+  isEGovXslt?: boolean;
   /** Veritabanı SqlUpdates (01_xxx.sql) güncelleme ekranı */
   isDbUpdatesAdmin?: boolean;
   /** Muhasebe → Yevmiye madde numaralandırma işlemi */

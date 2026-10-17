@@ -296,6 +296,7 @@ export function buildOperationAuthTree(): OpTreeNode[] {
             !s.isProcessAdmin &&
             !s.isProcessDesigner &&
             !s.isELogoSync &&
+            !s.isEGovXslt &&
             !s.isCrmWorkspace &&
             !s.isCrmSettings &&
             !s.isSqlReportsAdmin &&
