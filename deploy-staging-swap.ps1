@@ -7,6 +7,8 @@ $root = Split-Path -Parent $MyInvocation.MyCommand.Path
 $staging = Join-Path $root "iis-site-staging"
 $site = Join-Path $root "iis-site"
 $ServiceName = "BartuERP"
+Start-Transcript -Path (Join-Path $root "deploy-swap.log") -Force | Out-Null
+trap { Write-Host "HATA: $_" -ForegroundColor Red; Stop-Transcript | Out-Null; break }
 
 if (-not (Test-Path $staging)) { throw "iis-site-staging yok - once publish edin" }
 
@@ -34,4 +36,5 @@ Start-Service $ServiceName
 Start-Sleep 2
 Get-Service $ServiceName | Format-List Name, Status
 Write-Host "Tamam. http://localhost:8090" -ForegroundColor Green
-Write-Host "Sistem -> Veritabani Guncelleme ile 69_process_workflow_nodes.sql uygulayin." -ForegroundColor Yellow
+Write-Host "API dll: $((Get-Item (Join-Path $site "BackendAPI.dll")).LastWriteTime)" -ForegroundColor Yellow
+Stop-Transcript | Out-Null

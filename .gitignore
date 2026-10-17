@@ -46,3 +46,4 @@ iis-site-staging/
 iis-site.bak-*/
 _claude_build/
 *.bak
+deploy-swap.log
