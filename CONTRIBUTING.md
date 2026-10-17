@@ -102,6 +102,7 @@ PR açmadan önce:
 - [ ] Şema değiştiyse `SqlUpdates/NN_<modul>_xxx.sql` eklendi ve boş/test DB'de çalıştı
 - [ ] Ortak dosya değiştiyse PR açıklamasında belirtildi
 - [ ] Gizli bilgi yok (bkz. Bölüm 7)
+- [ ] GitHub **CI yeşil** (`.github/workflows/ci.yml`: backend build, `tsc -b` + vite build, SqlUpdates adı/numara tekrarı ve main'deki scriptin değişmemesi). CI kırmızıyken PR birleştirilmez.
 
 > **Not:** `main` üzerindeki 21 TypeScript hatası `fix/frontend-build-errors` ile temizlendi (17.10.2026); `npx tsc -b` artık 0 hata veriyor. Kural: **yeni TypeScript hatası eklenmez**, `npm run build` her PR'da hatasız geçmeli.
 
