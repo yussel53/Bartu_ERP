@@ -20,6 +20,8 @@ export interface EGovIncomingPreviewLine {
   productCardID?: number | null;
   productCode?: string | null;
   productTitle?: string | null;
+  /** Eşlenen kartın ProductCard.ProductType'ı (1 Malzeme · 3 Alınan Hizmet) */
+  productType?: number | null;
 }
 
 export interface EGovIncomingPreview {
@@ -37,7 +39,7 @@ export interface EGovIncomingPreview {
   lineExtensionAmount: number;
   taxTotal: number;
   payableAmount: number;
-  /** Invoice.InvoiceType: 2 Alış · 3 Satış İade */
+  /** Önerilen Invoice.InvoiceType (bkz. EGOV_INCOMING_INVOICE_TYPES) */
   invoiceType: number;
   /** Satırların mal/hizmet tutarı toplamı */
   linesTotal?: number;
@@ -47,6 +49,24 @@ export interface EGovIncomingPreview {
 }
 
 type Result = { success: boolean; message: string };
+
+/**
+ * Gelen e-faturanın çevrilebileceği fatura türleri (Invoice.InvoiceType — documentTypes.InvoiceType).
+ * productType: satır eşlemesinde önerilen kart türü (ProductCard.ProductType); null → tüm kartlar.
+ */
+export const EGOV_INCOMING_INVOICE_TYPES: {
+  value: number;
+  label: string;
+  menuLabel: string;
+  productType: number | null;
+  needsWarehouse: boolean;
+}[] = [
+  { value: 2, label: 'Satınalma Faturası', menuLabel: 'Satınalma Faturasına Çevir', productType: 1, needsWarehouse: true },
+  { value: 5, label: 'Alınan Hizmet Faturası', menuLabel: 'Hizmet Faturasına Çevir', productType: 3, needsWarehouse: false },
+  { value: 3, label: 'Toptan Satış İade Faturası', menuLabel: 'Toptan Satış İade Faturasına Çevir', productType: 1, needsWarehouse: true },
+  { value: 6, label: 'Satınalma Fiyat Farkı Faturası', menuLabel: 'Satınalma Fiyat Farkı Faturasına Çevir', productType: null, needsWarehouse: false },
+  { value: 7, label: 'Satış Fiyat Farkı Faturası', menuLabel: 'Satış Fiyat Farkı Faturasına Çevir', productType: null, needsWarehouse: false },
+];
 
 /** comment: onay açıklaması (zorunlu) · groupId: onay grubu (SYS_ApprovalGroup) */
 export function sendEGovIncoming(id: number, userId: number, comment: string, groupId?: number | null): Promise<Result> {
@@ -72,8 +92,10 @@ export function saveEGovIncoming(
   body: {
     userId: number;
     companyId?: number | null;
-    whouseId: number;
+    whouseId?: number | null;
     description?: string | null;
+    /** Kaydedilecek fatura türü (EGOV_INCOMING_INVOICE_TYPES); boşsa önerilen */
+    invoiceType?: number | null;
     /** exclude: true → satır faturaya yazılmaz (bilgi satırı), eşleme gerekmez */
     lines: { lineNo: number; productCardID: number; exclude?: boolean }[];
   },

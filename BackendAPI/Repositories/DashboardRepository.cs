@@ -187,7 +187,7 @@ FROM dbo.CustomerTrans";
         if (hasVoucherType)
             purchaseFilter = "pt.VoucherType IN (2, 8)"; // Alım / Alış iade dışı alım kodları
         if (hasInvoiceId && hasInvoice)
-            purchaseFilter = $"({purchaseFilter}) OR EXISTS (SELECT 1 FROM dbo.Invoice i WHERE i.InvoiceID = pt.InvoiceID AND i.InvoiceType IN (2, 4))";
+            purchaseFilter = $"({purchaseFilter}) OR EXISTS (SELECT 1 FROM dbo.Invoice i WHERE i.InvoiceID = pt.InvoiceID AND i.InvoiceType IN (2, 4, 5))";
 
         // VoucherType yoksa tüm satırlardan son hareketi al (yaklaşık)
         if (!hasVoucherType && !(hasInvoiceId && hasInvoice))

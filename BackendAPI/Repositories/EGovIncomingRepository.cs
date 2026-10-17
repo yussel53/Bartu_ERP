@@ -44,6 +44,8 @@ public sealed class EGovIncomingPreviewLine
     public int? ProductCardID { get; set; }
     public string? ProductCode { get; set; }
     public string? ProductTitle { get; set; }
+    /// <summary>Eşlenen kartın ProductCard.ProductType'ı (1 Malzeme · 3 Alınan Hizmet)</summary>
+    public int? ProductType { get; set; }
 }
 
 public sealed class EGovIncomingPreview
@@ -62,7 +64,10 @@ public sealed class EGovIncomingPreview
     public decimal LineExtensionAmount { get; set; }
     public decimal TaxTotal { get; set; }
     public decimal PayableAmount { get; set; }
-    /// <summary>Invoice.InvoiceType: 2 Alış Faturası · 3 Satış İade (gelen IADE faturası)</summary>
+    /// <summary>
+    /// Önerilen Invoice.InvoiceType (bkz. <see cref="IncomingTypes"/>): IADE → 3, tüm satırlar
+    /// Alınan Hizmet kartına eşliyse → 5, değilse → 2. Kullanıcı kayıtta başka türe çevirebilir.
+    /// </summary>
     public int InvoiceType { get; set; }
     /// <summary>Satırların mal/hizmet tutarı toplamı (LineExtensionAmount toplamı)</summary>
     public decimal LinesTotal { get; set; }
@@ -85,6 +90,8 @@ public sealed class EGovIncomingSaveRequest
     public int? CompanyId { get; set; }
     public int? WhouseId { get; set; }
     public string? Description { get; set; }
+    /// <summary>Kaydedilecek fatura türü («… Faturasına Çevir»); boşsa önerilen tür</summary>
+    public int? InvoiceType { get; set; }
     public List<EGovIncomingSaveLine> Lines { get; set; } = new();
 }
 
@@ -97,6 +104,23 @@ public sealed class EGovIncomingSaveRequest
 public sealed class EGovIncomingRepository
 {
     public const string ProcessCode = "EGOV_GELEN_FATURA_ONAY";
+
+    /// <summary>
+    /// Gelen e-faturanın çevrilebileceği fatura türleri (Invoice.InvoiceType). Hepsi göndereni alacaklandırır.
+    /// FormCode: kayıt sonrası adımlar ve formda açılış için (satış tarafı türleri SalesInvoiceForm).
+    /// </summary>
+    public static readonly IReadOnlyDictionary<int, (string Title, string FormCode, bool NeedsWarehouse)> IncomingTypes =
+        new Dictionary<int, (string, string, bool)>
+        {
+            [2] = ("Satınalma Faturası", "PurchaseInvoiceForm", true),
+            [5] = ("Alınan Hizmet Faturası", "PurchaseInvoiceForm", false),
+            [3] = ("Toptan Satış İade Faturası", "SalesInvoiceForm", true),
+            [6] = ("Satınalma Fiyat Farkı Faturası", "PurchaseInvoiceForm", false),
+            [7] = ("Satış Fiyat Farkı Faturası", "SalesInvoiceForm", false),
+        };
+
+    /// <summary>ProductCard.ProductType — Alınan Hizmet</summary>
+    private const int ServiceProductType = 3;
     public const string MissingSetupMessage =
         "Gelen e-fatura onay süreci tanımlı değil — Veritabanı Güncelleme ekranından 76_egov_incoming_approval.sql uygulayın.";
 
@@ -316,8 +340,6 @@ public sealed class EGovIncomingRepository
             LineExtensionAmount = ubl.LineExtensionAmount,
             TaxTotal = ubl.TaxTotal,
             PayableAmount = ubl.PayableAmount,
-            // Gelen IADE faturası = bize sattığımız malın iadesi → Satış İade
-            InvoiceType = string.Equals(ubl.TypeCode, "IADE", StringComparison.OrdinalIgnoreCase) ? 3 : 2,
         };
 
         if (!string.IsNullOrWhiteSpace(ubl.Supplier.TaxNr))
@@ -357,11 +379,19 @@ public sealed class EGovIncomingRepository
                     line.ProductCardID = hit.Id;
                     line.ProductCode = hit.Code;
                     line.ProductTitle = hit.Title;
+                    line.ProductType = hit.ProductType;
                 }
             }
             p.Lines.Add(line);
         }
         MarkInfoLines(p, ubl);
+
+        // Gelen IADE faturası = bize sattığımız malın iadesi → Toptan Satış İade;
+        // satırların tamamı Alınan Hizmet kartına eşliyse → Alınan Hizmet Faturası
+        var real = p.Lines.Where(l => !l.IsInfoLine).ToList();
+        p.InvoiceType = string.Equals(ubl.TypeCode, "IADE", StringComparison.OrdinalIgnoreCase) ? 3
+            : real.Count > 0 && real.All(l => l.ProductType == ServiceProductType) ? 5
+            : 2;
         return (p, null);
     }
 
@@ -397,7 +427,7 @@ public sealed class EGovIncomingRepository
     private Task<CardHit?> FindAliasAsync(int customerId, string? code, string? name, CancellationToken ct) =>
         _db.QueryFirstOrDefaultAsync<CardHit?>(new CommandDefinition(
             """
-            SELECT TOP 1 a.ProductCardID AS Id, p.Code, p.Title
+            SELECT TOP 1 a.ProductCardID AS Id, p.Code, p.Title, p.ProductType
             FROM dbo.ProductCustomerAlias a
             JOIN dbo.ProductCard p ON p.ProductCardID = a.ProductCardID
             WHERE a.CustomerCardID = @customerId AND a.IsActive = 1
@@ -409,7 +439,7 @@ public sealed class EGovIncomingRepository
     // ─── ERP'ye kaydet ──────────────────────────────────────────────────────
 
     /// <summary>
-    /// Onaylanmış belgeyi alış faturası olarak kaydeder: önce eşlemeleri ProductCustomerAlias'a yazar,
+    /// Onaylanmış belgeyi seçilen türde faturaya çevirir (<see cref="IncomingTypes"/>): önce eşlemeleri ProductCustomerAlias'a yazar,
     /// sonra Invoice + ProductTrans kaydını genel kayıt yolu (RecordsRepository) ile oluşturur.
     /// Dönen RecordSaveRequest, çağıran tarafta kayıt sonrası adımlar (PostSave / süreç tetikleyici) için kullanılır.
     /// </summary>
@@ -420,10 +450,13 @@ public sealed class EGovIncomingRepository
         if (s is null) return (false, 0, $"e-Belge #{id} bulunamadı.", null);
         if (s.Stage == "saved") return (false, s.InvoiceID ?? 0, "Belge zaten ERP'ye kaydedildi.", null);
         if (s.Stage != "approved") return (false, 0, "Yalnız onaylanmış belgeler kaydedilebilir.", null);
-        if (req.WhouseId is not > 0) return (false, 0, "Depo seçin.", null);
 
         var (p, error) = await PreviewAsync(id, ct);
         if (p is null) return (false, 0, error ?? "Belge okunamadı.", null);
+        var invoiceType = req.InvoiceType ?? p.InvoiceType;
+        if (!IncomingTypes.TryGetValue(invoiceType, out var type))
+            return (false, 0, $"Gelen e-fatura bu türe çevrilemez (InvoiceType {invoiceType}).", null);
+        if (type.NeedsWarehouse && req.WhouseId is not > 0) return (false, 0, "Depo seçin.", null);
         if (p.SupplierCardID is not int supplierId)
             return (false, 0, $"Tedarikçi cari kartı bulunamadı (VKN/TCKN {p.SupplierTaxNr}). Önce cari kartı açın.", null);
         // Kullanıcının dışarıda bıraktığı satırlar (bilgi satırları) faturaya yazılmaz, eşleme istemez
@@ -435,19 +468,26 @@ public sealed class EGovIncomingRepository
         var missing = p.Lines.Where(l => !chosen.ContainsKey(l.LineNo)).Select(l => l.LineNo).ToList();
         if (missing.Count > 0) return (false, 0, $"Eşlenmemiş satır var: {string.Join(", ", missing)}.", null);
 
-        // Malzeme bilgileri (birim, KDV kartı)
+        // Malzeme / hizmet bilgileri (birim, kart türü)
         var productIds = chosen.Values.Distinct().ToArray();
-        var products = (await _db.QueryAsync<(int Id, int? UnitId)>(new CommandDefinition(
-            "SELECT ProductCardID, DefaultUnitID FROM dbo.ProductCard WHERE ProductCardID IN @productIds",
-            new { productIds }, cancellationToken: ct))).ToDictionary(x => x.Id, x => x.UnitId);
+        var products = (await _db.QueryAsync<ProductRow>(new CommandDefinition(
+            "SELECT ProductCardID AS Id, DefaultUnitID AS UnitId, ProductType FROM dbo.ProductCard WHERE ProductCardID IN @productIds",
+            new { productIds }, cancellationToken: ct))).ToDictionary(x => x.Id);
         var unknown = productIds.Where(pid => !products.ContainsKey(pid)).ToList();
         if (unknown.Count > 0) return (false, 0, $"Malzeme kartı bulunamadı: #{string.Join(", #", unknown)}.", null);
+        // Alınan hizmet faturası satırları malzeme kartına değil Alınan Hizmet kartlarına yazılır
+        if (invoiceType == 5)
+        {
+            var notService = p.Lines.Where(l => products[chosen[l.LineNo]].ProductType != ServiceProductType).Select(l => l.LineNo).ToList();
+            if (notService.Count > 0)
+                return (false, 0, $"Alınan Hizmet Faturası'nda satırlar Alınan Hizmet kartına eşlenmeli — satır {string.Join(", ", notService)} malzeme kartında.", null);
+        }
 
         // 1) Eşlemeleri malzeme–cari bağlantısına yaz
         foreach (var l in p.Lines)
             await UpsertAliasAsync(chosen[l.LineNo], supplierId, Blank(l.SellerCode), Blank(l.Name), ct);
 
-        // 2) Alış faturası
+        // 2) Fatura (seçilen tür)
         var taxCards = new Dictionary<decimal, int?>();
         var lines = new List<Dictionary<string, object?>>();
         foreach (var l in p.Lines)
@@ -466,7 +506,7 @@ public sealed class EGovIncomingRepository
                 ["Description1"] = l.Name,
                 ["Description2"] = l.Description,
                 ["Quantity"] = l.Quantity,
-                ["UnitID"] = products[pid],
+                ["UnitID"] = products[pid].UnitId,
                 ["Price"] = l.Price,
                 ["TotalDiscount"] = l.Discount,
                 ["TaxCardID"] = taxCardId,
@@ -489,15 +529,15 @@ public sealed class EGovIncomingRepository
         var body = new RecordSaveRequest
         {
             RecordId = 0,
-            FormCode = "PurchaseInvoiceForm",
+            FormCode = type.FormCode,
             StandardFields = new Dictionary<string, object?>
             {
-                ["InvoiceType"] = p.InvoiceType,
+                ["InvoiceType"] = invoiceType,
                 ["InvoiceDate"] = p.IssueDate?.ToString("yyyy-MM-dd"),
                 ["DocumentNumber"] = p.InvoiceNo,
                 ["CustomerID"] = supplierId,
                 ["CompanyID"] = req.CompanyId is > 0 ? req.CompanyId : null,
-                ["WhouseID"] = req.WhouseId,
+                ["WhouseID"] = req.WhouseId is > 0 ? req.WhouseId : null,
                 ["Status_"] = 1,
                 ["Currency"] = currency,
                 ["CurrencyRate"] = 1,
@@ -513,7 +553,7 @@ public sealed class EGovIncomingRepository
         await _db.ExecuteAsync(new CommandDefinition(
             "UPDATE dbo.EGovDocument SET InvoiceID = @invoiceId WHERE EGovDocumentID = @id AND InvoiceID IS NULL",
             new { invoiceId, id }, cancellationToken: ct));
-        return (true, invoiceId, $"Alış faturası #{invoiceId} kaydedildi.", body);
+        return (true, invoiceId, $"{type.Title} #{invoiceId} kaydedildi.", body);
     }
 
     /// <summary>
@@ -554,6 +594,14 @@ public sealed class EGovIncomingRepository
         public int Id { get; set; }
         public string? Code { get; set; }
         public string? Title { get; set; }
+        public int? ProductType { get; set; }
+    }
+
+    private sealed class ProductRow
+    {
+        public int Id { get; set; }
+        public int? UnitId { get; set; }
+        public int? ProductType { get; set; }
     }
 
     private static string? Blank(string? v) => string.IsNullOrWhiteSpace(v) ? null : v.Trim();

@@ -1,8 +1,8 @@
 import React, { useCallback, useEffect, useState } from 'react';
-import { Check, Eye, FileText, Link2, Pencil, Plus, RefreshCw, Save, Search, Send, Trash2, UserPlus, X } from 'lucide-react';
+import { Check, ChevronDown, Eye, FileText, Link2, Pencil, Plus, RefreshCw, Save, Search, Send, Trash2, UserPlus, X } from 'lucide-react';
 import { MenuScreen } from '../types/formTypes';
 import { EGovDocumentList, EGovDocumentRow, listEGovDocuments } from '../api/egovDocumentsApi';
-import { approveEGovIncoming, rejectEGovIncoming } from '../api/egovIncomingApi';
+import { EGOV_INCOMING_INVOICE_TYPES, approveEGovIncoming, rejectEGovIncoming } from '../api/egovIncomingApi';
 import { EGovDocumentViewer } from '../components/EGovDocumentViewer';
 import { deleteRecord } from '../api/recordsApi';
 import { EGovIncomingSaveModal } from '../components/EGovIncomingSaveModal';
@@ -66,6 +66,10 @@ export const EGovDocumentListPage: React.FC<EGovDocumentListPageProps> = ({ scre
   const [rejectFor, setRejectFor] = useState<EGovDocumentRow | null>(null);
   const [rejectReason, setRejectReason] = useState('');
   const [saveFor, setSaveFor] = useState<EGovDocumentRow | null>(null);
+  /** «… Faturasına Çevir» ile seçilen tür (boş → önerilen) */
+  const [saveType, setSaveType] = useState<number | null>(null);
+  /** Onaylanmış satırın çevir menüsü (sağ tık ya da ▾) — ekran konumu */
+  const [convertMenu, setConvertMenu] = useState<{ row: EGovDocumentRow; x: number; y: number } | null>(null);
   const [viewFor, setViewFor] = useState<EGovDocumentRow | null>(null);
   const [sendFor, setSendFor] = useState<EGovDocumentRow | null>(null);
   const [partyFor, setPartyFor] = useState<EGovDocumentRow | null>(null);
@@ -130,6 +134,28 @@ export const EGovDocumentListPage: React.FC<EGovDocumentListPageProps> = ({ scre
   useEffect(() => {
     void load();
   }, [load]);
+
+  // Çevir menüsü: dışarı tık / Esc / kaydırma ile kapanır
+  useEffect(() => {
+    if (!convertMenu) return;
+    const close = () => setConvertMenu(null);
+    const onKey = (e: KeyboardEvent) => e.key === 'Escape' && close();
+    window.addEventListener('mousedown', close);
+    window.addEventListener('keydown', onKey);
+    window.addEventListener('scroll', close, true);
+    return () => {
+      window.removeEventListener('mousedown', close);
+      window.removeEventListener('keydown', onKey);
+      window.removeEventListener('scroll', close, true);
+    };
+  }, [convertMenu]);
+
+  const canConvert = (r: EGovDocumentRow) => stage === 'approved' && r.approvalStage === 'approved';
+  const openSave = (r: EGovDocumentRow, type: number | null) => {
+    setConvertMenu(null);
+    setSaveType(type);
+    setSaveFor(r);
+  };
 
   // Arama: yazmayı bırakınca uygula
   useEffect(() => {
@@ -278,6 +304,11 @@ export const EGovDocumentListPage: React.FC<EGovDocumentListPageProps> = ({ scre
                   <tr
                     key={r.eGovDocumentID}
                     onDoubleClick={() => onView(r.eGovDocumentID)}
+                    onContextMenu={(e) => {
+                      if (!canConvert(r)) return;
+                      e.preventDefault();
+                      setConvertMenu({ row: r, x: e.clientX, y: e.clientY });
+                    }}
                     className={`hover:bg-blue-50/40 cursor-default ${r.isActive ? '' : 'text-slate-400'}`}
                   >
                     <td className={`${td} py-0.5`}>
@@ -356,14 +387,29 @@ export const EGovDocumentListPage: React.FC<EGovDocumentListPageProps> = ({ scre
                             </button>
                           </>
                         )}
-                        {stage === 'approved' && r.approvalStage === 'approved' && (
-                          <button
-                            type="button"
-                            onClick={() => setSaveFor(r)}
-                            className={`${textBtn} ml-1 border-blue-600 text-white bg-blue-700 hover:bg-blue-600`}
-                          >
-                            <Save className="w-3 h-3" /> ERP'ye Kaydet
-                          </button>
+                        {canConvert(r) && (
+                          <span className="inline-flex ml-1">
+                            <button
+                              type="button"
+                              onClick={() => openSave(r, null)}
+                              title="Önerilen fatura türüyle kaydet (türü pencerede değiştirebilirsiniz)"
+                              className={`${textBtn} rounded-r-none border-blue-600 text-white bg-blue-700 hover:bg-blue-600`}
+                            >
+                              <Save className="w-3 h-3" /> ERP'ye Kaydet
+                            </button>
+                            <button
+                              type="button"
+                              title="Fatura türüne çevir…"
+                              onMouseDown={(e) => e.stopPropagation()}
+                              onClick={(e) => {
+                                const b = e.currentTarget.getBoundingClientRect();
+                                setConvertMenu(convertMenu?.row === r ? null : { row: r, x: b.right, y: b.bottom + 2 });
+                              }}
+                              className={`${textBtn} rounded-l-none border-l-0 px-1 border-blue-600 text-white bg-blue-700 hover:bg-blue-600`}
+                            >
+                              <ChevronDown className="w-3 h-3" />
+                            </button>
+                          </span>
                         )}
                       </div>
                     </td>
@@ -493,11 +539,34 @@ export const EGovDocumentListPage: React.FC<EGovDocumentListPageProps> = ({ scre
         />
       )}
 
+      {/* Onaylanmış gelen e-fatura: «… Faturasına Çevir» menüsü */}
+      {convertMenu && (
+        <ul
+          onMouseDown={(e) => e.stopPropagation()}
+          style={{ left: Math.min(convertMenu.x, window.innerWidth - 268), top: Math.min(convertMenu.y, window.innerHeight - 190) }}
+          className="fixed z-50 w-64 py-1 rounded-sm border border-slate-300 bg-white shadow-lg text-[12px]"
+        >
+          <li className="px-3 py-1 text-[11px] text-slate-400 truncate">{convertMenu.row.documentNo}</li>
+          {EGOV_INCOMING_INVOICE_TYPES.map((t) => (
+            <li key={t.value}>
+              <button
+                type="button"
+                onClick={() => openSave(convertMenu.row, t.value)}
+                className="w-full text-left px-3 py-1 hover:bg-blue-50"
+              >
+                {t.menuLabel}
+              </button>
+            </li>
+          ))}
+        </ul>
+      )}
+
       {/* ERP'ye kaydet (eşleme) */}
       {saveFor && (
         <EGovIncomingSaveModal
           egovId={saveFor.eGovDocumentID}
           userId={userId}
+          initialType={saveType}
           onClose={() => setSaveFor(null)}
           onSaved={(message) => {
             setSaveFor(null);

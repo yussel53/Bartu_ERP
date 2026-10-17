@@ -79,6 +79,12 @@ export const InvoiceType = {
   Alis: '2',
   SatisIade: '3',
   AlisIade: '4',
+  /** Alınan hizmet faturası — satırlar Alınan Hizmet kartları (ProductType 3) */
+  AlinanHizmet: '5',
+  /** Satınalma fiyat farkı (tedarikçiden gelen) */
+  AlisFiyatFarki: '6',
+  /** Satış fiyat farkı (müşteriden gelen; satışı azaltır) */
+  SatisFiyatFarki: '7',
 } as const;
 
 export const InvoiceTypeLabels: Record<string, string> = {
@@ -86,6 +92,9 @@ export const InvoiceTypeLabels: Record<string, string> = {
   [InvoiceType.Alis]: 'Alış',
   [InvoiceType.SatisIade]: 'Satış İade',
   [InvoiceType.AlisIade]: 'Alış İade',
+  [InvoiceType.AlinanHizmet]: 'Alınan Hizmet',
+  [InvoiceType.AlisFiyatFarki]: 'Satınalma Fiyat Farkı',
+  [InvoiceType.SatisFiyatFarki]: 'Satış Fiyat Farkı',
 };
 
 /**

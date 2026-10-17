@@ -94,6 +94,9 @@ export const INVOICE_ACCOUNT_LINK_TYPE_OPTIONS = [
   { label: InvoiceTypeLabels[InvoiceType.Satis], value: InvoiceType.Satis },
   { label: InvoiceTypeLabels[InvoiceType.AlisIade], value: InvoiceType.AlisIade },
   { label: InvoiceTypeLabels[InvoiceType.SatisIade], value: InvoiceType.SatisIade },
+  { label: InvoiceTypeLabels[InvoiceType.AlinanHizmet], value: InvoiceType.AlinanHizmet },
+  { label: InvoiceTypeLabels[InvoiceType.AlisFiyatFarki], value: InvoiceType.AlisFiyatFarki },
+  { label: InvoiceTypeLabels[InvoiceType.SatisFiyatFarki], value: InvoiceType.SatisFiyatFarki },
 ];
 
 export const SAFE_ACCOUNT_LINK_TYPE_OPTIONS = [

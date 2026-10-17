@@ -1,6 +1,11 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { AlertTriangle, CheckCircle2, Link2, Save, UserPlus, X } from 'lucide-react';
-import { EGovIncomingPreview, getEGovIncomingSavePreview, saveEGovIncoming } from '../api/egovIncomingApi';
+import {
+  EGOV_INCOMING_INVOICE_TYPES,
+  EGovIncomingPreview,
+  getEGovIncomingSavePreview,
+  saveEGovIncoming,
+} from '../api/egovIncomingApi';
 import { LookupOption, loadLookupOptions } from '../api/lookupApi';
 import { isoToDisplay } from '../utils/dateFormat';
 import { EGovPartyCardModal } from './EGovPartyCardModal';
@@ -8,12 +13,13 @@ import { EGovPartyCardModal } from './EGovPartyCardModal';
 const fmt = (v?: number | null, digits = 2) =>
   v == null ? '' : v.toLocaleString('tr-TR', { minimumFractionDigits: digits, maximumFractionDigits: digits });
 
-/** Aranabilir malzeme seçici (ProductCard lookup listesi) */
+/** Aranabilir malzeme / hizmet seçici (ProductCard lookup listesi) */
 const ProductPicker: React.FC<{
   options: LookupOption[];
   value: string;
   onChange: (v: string) => void;
-}> = ({ options, value, onChange }) => {
+  placeholder: string;
+}> = ({ options, value, onChange, placeholder }) => {
   const [open, setOpen] = useState(false);
   const [q, setQ] = useState('');
   const ref = useRef<HTMLDivElement>(null);
@@ -45,13 +51,13 @@ const ProductPicker: React.FC<{
           setQ(e.target.value);
           setOpen(true);
         }}
-        placeholder="Malzeme ara (kod / ad)…"
+        placeholder={placeholder}
         className={`w-full h-7 px-2 text-[12px] rounded-sm border bg-white ${value ? 'border-emerald-400' : 'border-amber-400'}`}
       />
       {open && (
         <ul className="absolute z-10 mt-0.5 w-full max-h-56 overflow-y-auto rounded-sm border border-slate-300 bg-white shadow-lg">
           {filtered.length === 0 ? (
-            <li className="px-2 py-1.5 text-[12px] text-slate-400">Eşleşen malzeme yok</li>
+            <li className="px-2 py-1.5 text-[12px] text-slate-400">Eşleşen kart yok</li>
           ) : (
             filtered.map((o) => (
               <li key={o.value}>
@@ -78,21 +84,28 @@ const ProductPicker: React.FC<{
 interface Props {
   egovId: number;
   userId: number;
+  /** Listeden «… Faturasına Çevir» ile seçilen tür; boşsa önerilen tür */
+  initialType?: number | null;
   onClose: () => void;
   onSaved: (message: string) => void;
 }
 
 /**
- * Onaylanmış gelen e-faturayı alış faturası olarak kaydet.
- * Satırlar malzeme kartı ↔ cari bağlantısıyla (ProductCustomerAlias) eşlenir; seçimler oraya yazılır.
+ * Onaylanmış gelen e-faturayı seçilen fatura türüne çevirip kaydet (Satınalma / Alınan Hizmet / Toptan Satış İade /
+ * fiyat farkı). Satırlar kart ↔ cari bağlantısıyla (ProductCustomerAlias) eşlenir; seçimler oraya yazılır.
+ * Alınan hizmet faturasında satırlar malzeme kartlarına değil Alınan Hizmet kartlarına (ProductType 3) eşlenir.
  */
-export const EGovIncomingSaveModal: React.FC<Props> = ({ egovId, userId, onClose, onSaved }) => {
+export const EGovIncomingSaveModal: React.FC<Props> = ({ egovId, userId, initialType, onClose, onSaved }) => {
   const [preview, setPreview] = useState<EGovIncomingPreview | null>(null);
   const [partyOpen, setPartyOpen] = useState(false);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [products, setProducts] = useState<LookupOption[]>([]);
+  /** ProductCard.ProductType 2 (verilen hizmet) / 3 (alınan hizmet) kartları — malzeme = geri kalanlar */
+  const [givenServiceIds, setGivenServiceIds] = useState<Set<string>>(new Set());
+  const [services, setServices] = useState<LookupOption[]>([]);
+  const [invoiceType, setInvoiceType] = useState<number | null>(initialType ?? null);
   const [companies, setCompanies] = useState<LookupOption[]>([]);
   const [whouses, setWhouses] = useState<LookupOption[]>([]);
   const [companyId, setCompanyId] = useState('');
@@ -106,15 +119,20 @@ export const EGovIncomingSaveModal: React.FC<Props> = ({ egovId, userId, onClose
     let off = false;
     (async () => {
       try {
-        const [pv, prod, comp, wh] = await Promise.all([
+        const [pv, prod, given, svc, comp, wh] = await Promise.all([
           getEGovIncomingSavePreview(egovId),
           loadLookupOptions('ProductCardID'),
+          loadLookupOptions('ProductCardID', { filterColumn: 'ProductType', filterValue: '2' }),
+          loadLookupOptions('ProductCardID', { filterColumn: 'ProductType', filterValue: '3' }),
           loadLookupOptions('CompanyID'),
           loadLookupOptions('WhouseID'),
         ]);
         if (off) return;
         setPreview(pv.preview);
         setProducts(prod ?? []);
+        setGivenServiceIds(new Set((given ?? []).map((o) => o.value)));
+        setServices(svc ?? []);
+        setInvoiceType((t) => t ?? pv.preview.invoiceType);
         setCompanies(comp ?? []);
         setWhouses(wh ?? []);
         // Yeniden yüklemede (cari kart açıldıktan sonra) kullanıcı seçimleri korunur
@@ -137,13 +155,31 @@ export const EGovIncomingSaveModal: React.FC<Props> = ({ egovId, userId, onClose
     };
   }, [egovId, reloadTick]);
 
+  const typeDef = EGOV_INCOMING_INVOICE_TYPES.find((t) => t.value === invoiceType) ?? EGOV_INCOMING_INVOICE_TYPES[0];
+  const isService = typeDef.productType === 3;
+  // Satır kartları türe göre: Alınan Hizmet → yalnız hizmet kartları, satınalma / iade → malzeme, fiyat farkı → tümü
+  const options = useMemo(() => {
+    if (typeDef.productType === 3) return services;
+    if (typeDef.productType === 1) {
+      const svc = new Set(services.map((o) => o.value));
+      return products.filter((o) => !svc.has(o.value) && !givenServiceIds.has(o.value));
+    }
+    return products;
+  }, [typeDef.productType, products, services, givenServiceIds]);
+  const allowed = useMemo(() => new Set(options.map((o) => o.value)), [options]);
+  /** Seçili kart bu türe uymuyorsa (ör. hizmet faturasında malzeme kartı) eşlenmemiş sayılır */
+  const mapped = (lineNo: number) => (mapping[lineNo] && allowed.has(mapping[lineNo]) ? mapping[lineNo] : '');
+  const wrongKind = (lineNo: number) => !!mapping[lineNo] && !allowed.has(mapping[lineNo]);
+  const cardWord = isService ? 'hizmet' : typeDef.productType === 1 ? 'malzeme' : 'malzeme / hizmet';
+
   const lines = preview?.lines ?? [];
   const included = lines.filter((l) => !excluded.has(l.lineNo));
-  const autoCount = included.filter((l) => l.productCardID && mapping[l.lineNo] === String(l.productCardID)).length;
-  const unmapped = included.filter((l) => !mapping[l.lineNo]).length;
+  const autoCount = included.filter((l) => l.productCardID && mapped(l.lineNo) === String(l.productCardID)).length;
+  const unmapped = included.filter((l) => !mapped(l.lineNo)).length;
   const includedTotal = included.reduce((a, l) => a + l.lineAmount, 0);
   const totalsDiffer = !!preview && Math.abs(includedTotal - preview.lineExtensionAmount) > 0.01;
-  const canSave = !!preview?.supplierCardID && !!whouseId && unmapped === 0 && included.length > 0 && !busy;
+  const canSave =
+    !!preview?.supplierCardID && (!typeDef.needsWarehouse || !!whouseId) && unmapped === 0 && included.length > 0 && !busy;
 
   const toggleLine = (lineNo: number) =>
     setExcluded((s) => {
@@ -161,11 +197,12 @@ export const EGovIncomingSaveModal: React.FC<Props> = ({ egovId, userId, onClose
       const r = await saveEGovIncoming(egovId, {
         userId,
         companyId: companyId ? Number(companyId) : null,
-        whouseId: Number(whouseId),
+        whouseId: whouseId ? Number(whouseId) : null,
+        invoiceType: typeDef.value,
         lines: lines.map((l) =>
           excluded.has(l.lineNo)
             ? { lineNo: l.lineNo, productCardID: 0, exclude: true }
-            : { lineNo: l.lineNo, productCardID: Number(mapping[l.lineNo]) },
+            : { lineNo: l.lineNo, productCardID: Number(mapped(l.lineNo)) },
         ),
       });
       onSaved(r.message);
@@ -211,10 +248,22 @@ export const EGovIncomingSaveModal: React.FC<Props> = ({ egovId, userId, onClose
                   <div>
                     <span className="text-slate-500">Senaryo / Tip:</span> {preview.profileId} / {preview.typeCode}
                   </div>
-                  <div>
-                    <span className="text-slate-500">Kaydedilecek:</span>{' '}
-                    <b>{preview.invoiceType === 3 ? 'Satış İade Faturası' : 'Alış Faturası'}</b>
-                  </div>
+                  <label className="flex items-center gap-1.5 pt-1">
+                    <span className="text-slate-500 whitespace-nowrap">Fatura türü:</span>
+                    <select
+                      value={typeDef.value}
+                      onChange={(e) => setInvoiceType(Number(e.target.value))}
+                      className={`${sel} font-semibold`}
+                      title="Gelen e-faturanın ERP'de kaydedileceği fatura türü"
+                    >
+                      {EGOV_INCOMING_INVOICE_TYPES.map((t) => (
+                        <option key={t.value} value={t.value}>
+                          {t.label}
+                          {t.value === preview.invoiceType ? ' (önerilen)' : ''}
+                        </option>
+                      ))}
+                    </select>
+                  </label>
                 </div>
                 <div className="space-y-0.5">
                   <div className="text-slate-500">Tedarikçi</div>
@@ -254,13 +303,13 @@ export const EGovIncomingSaveModal: React.FC<Props> = ({ egovId, userId, onClose
                     </select>
                   </label>
                   <label className="flex items-center gap-2">
-                    <span className="w-12 text-slate-500">Depo*</span>
+                    <span className="w-12 text-slate-500">Depo{typeDef.needsWarehouse ? '*' : ''}</span>
                     <select
                       value={whouseId}
                       onChange={(e) => setWhouseId(e.target.value)}
-                      className={`${sel} flex-1 ${whouseId ? '' : 'border-amber-400'}`}
+                      className={`${sel} flex-1 ${whouseId || !typeDef.needsWarehouse ? '' : 'border-amber-400'}`}
                     >
-                      <option value="">Seçiniz</option>
+                      <option value="">{typeDef.needsWarehouse ? 'Seçiniz' : '—'}</option>
                       {whouses.map((w) => (
                         <option key={w.value} value={w.value}>
                           {w.label}
@@ -279,18 +328,18 @@ export const EGovIncomingSaveModal: React.FC<Props> = ({ egovId, userId, onClose
                       <th className={th} title="Faturaya dahil">Dahil</th>
                       <th className={th}>#</th>
                       <th className={th}>Tedarikçi Kodu</th>
-                      <th className={th}>Tedarikçi Malzeme Adı</th>
+                      <th className={th}>Tedarikçi Mal / Hizmet Adı</th>
                       <th className={thR}>Miktar</th>
                       <th className={thR}>Fiyat</th>
                       <th className={thR}>İskonto</th>
                       <th className={thR}>Tutar</th>
                       <th className={thR}>KDV</th>
-                      <th className={th}>Bizim Malzeme*</th>
+                      <th className={th}>{isService ? 'Alınan Hizmet Kartı*' : typeDef.productType === 1 ? 'Bizim Malzeme*' : 'Bizim Kart*'}</th>
                     </tr>
                   </thead>
                   <tbody>
                     {lines.map((l) => {
-                      const auto = l.productCardID && mapping[l.lineNo] === String(l.productCardID);
+                      const auto = l.productCardID && mapped(l.lineNo) === String(l.productCardID);
                       const out = excluded.has(l.lineNo);
                       return (
                         <tr key={l.lineNo} className={out ? 'bg-slate-50 text-slate-400' : ''}>
@@ -328,15 +377,23 @@ export const EGovIncomingSaveModal: React.FC<Props> = ({ egovId, userId, onClose
                             ) : (
                             <div className="flex items-center gap-1.5">
                               <ProductPicker
-                                options={products}
-                                value={mapping[l.lineNo] ?? ''}
+                                options={options}
+                                value={mapped(l.lineNo)}
                                 onChange={(v) => setMapping((m) => ({ ...m, [l.lineNo]: v }))}
+                                placeholder={isService ? 'Alınan hizmet ara (kod / ad)…' : 'Malzeme ara (kod / ad)…'}
                               />
-                              {auto ? (
+                              {wrongKind(l.lineNo) ? (
+                                <span
+                                  title={`Bağlantıdaki kart bu fatura türüne uymuyor — ${cardWord} kartı seçin`}
+                                  className="inline-flex items-center gap-0.5 text-[10px] text-amber-700 whitespace-nowrap"
+                                >
+                                  <AlertTriangle className="w-3 h-3" /> {isService ? 'malzeme kartıydı' : 'hizmet kartıydı'}
+                                </span>
+                              ) : auto ? (
                                 <span title="Malzeme–cari bağlantısından otomatik eşleşti" className="inline-flex items-center gap-0.5 text-[10px] text-emerald-700 whitespace-nowrap">
                                   <Link2 className="w-3 h-3" /> otomatik
                                 </span>
-                              ) : mapping[l.lineNo] ? (
+                              ) : mapped(l.lineNo) ? (
                                 <span className="text-[10px] text-blue-700 whitespace-nowrap">yeni eşleme</span>
                               ) : null}
                             </div>
@@ -377,8 +434,9 @@ export const EGovIncomingSaveModal: React.FC<Props> = ({ egovId, userId, onClose
                 </div>
               )}
               <p className="text-[11px] text-slate-500">
-                {autoCount} satır malzeme–cari bağlantısından otomatik eşleşti
-                {unmapped > 0 ? ` · ${unmapped} satır için malzeme seçin` : ''}. Seçimler malzeme kartındaki cari bağlantılarına
+                {autoCount} satır kart–cari bağlantısından otomatik eşleşti
+                {unmapped > 0 ? ` · ${unmapped} satır için ${cardWord} kartı seçin` : ''}.
+                {isService ? ' Alınan hizmet faturası satırları malzeme kartlarına değil Alınan Hizmet kartlarına yazılır.' : ''} Seçimler kartın cari bağlantılarına
                 (tedarikçi kodu / adı ile) kaydedilir; bu tedarikçinin sonraki faturalarında ve giden belgelerde kullanılır.
               </p>
             </>
@@ -402,7 +460,7 @@ export const EGovIncomingSaveModal: React.FC<Props> = ({ egovId, userId, onClose
             onClick={() => void save()}
             className="inline-flex items-center gap-1 px-3 h-8 text-[12px] font-semibold rounded-sm text-white bg-blue-700 hover:bg-blue-600 disabled:opacity-40"
           >
-            <Save className="w-3.5 h-3.5" /> {preview?.invoiceType === 3 ? 'Satış iade faturası' : 'Alış faturası'} olarak kaydet
+            <Save className="w-3.5 h-3.5" /> {typeDef.label} olarak kaydet
           </button>
         </div>
       </div>
