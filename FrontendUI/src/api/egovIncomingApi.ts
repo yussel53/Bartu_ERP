@@ -14,6 +14,9 @@ export interface EGovIncomingPreviewLine {
   lineAmount: number;
   taxRate: number;
   taxAmount: number;
+  /** Fatura toplamına dahil olmayan bilgi satırı — kayıtta varsayılan olarak dışarıda */
+  isInfoLine?: boolean;
+  infoReason?: string | null;
   productCardID?: number | null;
   productCode?: string | null;
   productTitle?: string | null;
@@ -36,6 +39,10 @@ export interface EGovIncomingPreview {
   payableAmount: number;
   /** Invoice.InvoiceType: 2 Alış · 3 Satış İade */
   invoiceType: number;
+  /** Satırların mal/hizmet tutarı toplamı */
+  linesTotal?: number;
+  /** Satır toplamı fatura toplamını tutmuyor ve bilgi satırlarıyla açıklanamıyor */
+  totalsMismatch?: boolean;
   lines: EGovIncomingPreviewLine[];
 }
 
@@ -67,7 +74,8 @@ export function saveEGovIncoming(
     companyId?: number | null;
     whouseId: number;
     description?: string | null;
-    lines: { lineNo: number; productCardID: number }[];
+    /** exclude: true → satır faturaya yazılmaz (bilgi satırı), eşleme gerekmez */
+    lines: { lineNo: number; productCardID: number; exclude?: boolean }[];
   },
 ): Promise<Result & { invoiceId: number }> {
   return apiJson(`/api/egov/incoming/${id}/save`, { method: 'POST', body: JSON.stringify(body) });
