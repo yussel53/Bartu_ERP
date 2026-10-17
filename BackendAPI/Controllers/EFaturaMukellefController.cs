@@ -1,4 +1,5 @@
 using BartuERP.Backend.Repositories;
+using Dapper;
 using BartuERP.Backend.Services;
 using Microsoft.AspNetCore.Mvc;
 using System.Data;
@@ -95,6 +96,15 @@ public sealed class EFaturaMukellefController : ControllerBase
     {
         if (body == null || string.IsNullOrWhiteSpace(body.TaxNr))
             return BadRequest(new { message = "TaxNr zorunlu" });
+
+        // Firma kartı şifreyi almaz (kayıt ucu gizler): boşsa kayıtlı şifreyi kullan
+        if (string.IsNullOrEmpty(body.IntegratorPassword) && body.CompanyId is > 0)
+        {
+            body.IntegratorPassword = await _db.ExecuteScalarAsync<string?>(new CommandDefinition(
+                "SELECT IntegratorPassword FROM dbo.SYS_Companies WHERE CompanyId = @id",
+                new { id = body.CompanyId },
+                cancellationToken: ct));
+        }
 
         var result = await _integrator.CheckAsync(body, ct);
         if (result.Found && result.Rows.Count > 0)

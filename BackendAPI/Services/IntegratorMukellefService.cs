@@ -13,6 +13,8 @@ public sealed class IntegratorMukellefRequest
     public string? IntegratorUser { get; set; }
     public string? IntegratorPassword { get; set; }
     public string? IntegratorVkN { get; set; }
+    /// <summary>Şifre boşsa kayıtlı firma şifresi (SYS_Companies) kullanılır</summary>
+    public int? CompanyId { get; set; }
 }
 
 /// <summary>

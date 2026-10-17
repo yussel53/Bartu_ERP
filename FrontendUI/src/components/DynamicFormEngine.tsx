@@ -515,6 +515,10 @@ export const DynamicFormEngine: React.FC<DynamicFormEngineProps> = ({
   const watchedIntegratorUser = watch('standardFields.IntegratorUser');
   const watchedIntegratorPassword = watch('standardFields.IntegratorPassword');
   const watchedIntegratorVkN = watch('standardFields.IntegratorVkN');
+  // Kayıt ucu şifreyi döndürmez; yalnız kayıtlı olup olmadığını bildirir
+  const savedPasswordFlag = initialData?.standardFields?.IntegratorPasswordSet;
+  const integratorPasswordSet = savedPasswordFlag === true || savedPasswordFlag === 1 || savedPasswordFlag === 'true';
+  const companyRecordId = initialData?.recordId ?? 0;
 
   const companyIntegrator = React.useMemo(
     () => ({
@@ -523,6 +527,8 @@ export const DynamicFormEngine: React.FC<DynamicFormEngineProps> = ({
       user: String(watchedIntegratorUser || ''),
       password: String(watchedIntegratorPassword || ''),
       vkn: String(watchedIntegratorVkN || ''),
+      passwordSet: integratorPasswordSet,
+      companyId: companyRecordId > 0 ? companyRecordId : undefined,
     }),
     [
       watchedIntegratorName,
@@ -530,6 +536,8 @@ export const DynamicFormEngine: React.FC<DynamicFormEngineProps> = ({
       watchedIntegratorUser,
       watchedIntegratorPassword,
       watchedIntegratorVkN,
+      integratorPasswordSet,
+      companyRecordId,
     ],
   );
 
