@@ -29,6 +29,7 @@ public sealed class RecordsController : ControllerBase
     private readonly NumberTemplateRepository _numbers;
     private readonly StockService _stock;
     private readonly AccountingPostService _accounting;
+    private readonly RiskService _risk;
 
     public RecordsController(
         RecordsRepository repo,
@@ -39,10 +40,12 @@ public sealed class RecordsController : ControllerBase
         DataScopeService scope,
         NumberTemplateRepository numbers,
         StockService stock,
-        AccountingPostService accounting)
+        AccountingPostService accounting,
+        RiskService risk)
     {
         _stock = stock;
         _accounting = accounting;
+        _risk = risk;
         _scope = scope;
         _numbers = numbers;
         _repo = repo;
@@ -195,6 +198,24 @@ public sealed class RecordsController : ControllerBase
                 }
             }
 
+            // Y-12: risk limiti (satış siparişi / irsaliyesi / faturası) — 1 uyar · 2 yönetici onayı · 3 engelle
+            string? riskWarning = null;
+            if (body.StandardFields != null)
+            {
+                var risk = await _risk.CheckAsync(tableName, body.RecordId, body.StandardFields, body.Lines, ct);
+                if (risk.Action == 3)
+                    return BadRequest(new { success = false, message = risk.Message + " Kayıt engellendi." });
+                if (risk.Action == 2 && !(body.RiskApproved && User.IsAdmin()))
+                    return StatusCode(409, new
+                    {
+                        success = false,
+                        riskApprovalRequired = true,
+                        canApprove = User.IsAdmin(),
+                        message = risk.Message + (User.IsAdmin() ? " Onaylayarak kaydedebilirsiniz." : " Yönetici onayı gerekir."),
+                    });
+                if (risk.Action is 1 or 2) riskWarning = risk.Message + (risk.Action == 2 ? " (yönetici onayıyla)" : "");
+            }
+
             // Y-05: yeni fişte numara kayıtta verilir (açılıp vazgeçilen fiş sayaç tüketmez); elle yazılmışsa dokunulmaz
             string? autoNumber = null;
             if (body.RecordId == 0 && body.AutoNumber is { Field.Length: > 0 } an && body.StandardFields != null)
@@ -291,7 +312,7 @@ public sealed class RecordsController : ControllerBase
             return Ok(new
             {
                 success = true,
-                message = string.Join(" · ", new[] { message, autoNumber != null ? $"Fiş no: {autoNumber}" : null, stockWarning, accountingWarning }
+                message = string.Join(" · ", new[] { message, autoNumber != null ? $"Fiş no: {autoNumber}" : null, stockWarning, riskWarning, accountingWarning }
                     .Where(x => !string.IsNullOrEmpty(x))),
                 recordId = id,
                 autoNumber,

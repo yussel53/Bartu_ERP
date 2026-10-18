@@ -67,6 +67,8 @@ public sealed class RecordSaveRequest
     public List<PostSaveActionDto>? PostSave { get; set; }
     /** Yeni fişte numara kayıtta verilir (Y-05) — RecordsController */
     public AutoNumberRequest? AutoNumber { get; set; }
+    /// <summary>Y-12: risk limiti aşımını yönetici onayladı (RiskAction 2)</summary>
+    public bool RiskApproved { get; set; }
 }
 
 internal sealed class NestedChildSpec

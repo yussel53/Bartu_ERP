@@ -12,6 +12,7 @@ public sealed class CardStatementController : ControllerBase
     private readonly CardStatementRepository _repo;
     private readonly DataScopeService _scope;
     private readonly CustomerAgingService _aging;
+    private readonly RiskService _risk;
 
     /// <summary>Ekstre türü → kart tablosu (Y-02 yetki denetimi)</summary>
     private static readonly Dictionary<string, (string Table, string Pk)> CardTables = new(StringComparer.OrdinalIgnoreCase)
@@ -23,9 +24,10 @@ public sealed class CardStatementController : ControllerBase
         ["safe"] = ("SafeCard", "SafeCardID"),
     };
 
-    public CardStatementController(CardStatementRepository repo, DataScopeService scope, CustomerAgingService aging)
+    public CardStatementController(CardStatementRepository repo, DataScopeService scope, CustomerAgingService aging, RiskService risk)
     {
         _aging = aging;
+        _risk = risk;
         _repo = repo;
         _scope = scope;
     }
@@ -77,6 +79,22 @@ public sealed class CardStatementController : ControllerBase
                 rows = visible;
             }
             return Ok(rows);
+        }
+        catch (Exception ex)
+        {
+            return StatusCode(500, new { message = ex.Message });
+        }
+    }
+
+    /// <summary>Y-12: carinin riski (bakiye + açık sipariş + irsaliye + portföy) ve limiti</summary>
+    [HttpGet("risk/{id:int}")]
+    public async Task<IActionResult> Risk(int id, CancellationToken ct)
+    {
+        try
+        {
+            if (!await _scope.CanSeeRecordAsync("CustomerCard", "CustomerCardID", id, ct))
+                return StatusCode(403, new { message = "Bu kayda yetkiniz yok." });
+            return Ok(await _risk.InfoAsync(id, ct));
         }
         catch (Exception ex)
         {

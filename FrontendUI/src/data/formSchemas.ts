@@ -627,6 +627,9 @@ export const FORM_SCHEMAS: Record<string, FormSchemaDto> = {
       },
       { fieldId: 31, fieldName: 'U_Phone', label: 'Telefon', fieldType: 'text', isRequired: false, colSpan: 4, orderIndex: 13 },
       { fieldId: 32, fieldName: 'U_Email', label: 'E-posta', fieldType: 'text', isRequired: false, colSpan: 8, orderIndex: 14 },
+      // Y-12 (SqlUpdates/87): risk grubu ve cariye özel limit (boş → grubun limiti)
+      { fieldId: 9951, fieldName: 'RiskGroupID', label: 'Risk Grubu', fieldType: 'lookup', isRequired: false, colSpan: 4, orderIndex: 15, useLookup: true },
+      { fieldId: 9952, fieldName: 'RiskLimit', label: 'Risk Limiti', fieldType: 'number', isRequired: false, colSpan: 4, orderIndex: 16 },
     ],
     addressFields: [
       {
@@ -3176,6 +3179,27 @@ Object.assign(FORM_SCHEMAS, {
       { fieldId: 680, fieldName: 'Code', label: 'Kod', fieldType: 'text', isRequired: true, colSpan: 4, orderIndex: 1 },
       { fieldId: 681, fieldName: 'Title', label: 'Ad', fieldType: 'text', isRequired: true, colSpan: 8, orderIndex: 2 },
       { fieldId: 682, fieldName: 'IsActive', label: 'Aktif', fieldType: 'checkbox', isRequired: false, colSpan: 4, orderIndex: 3 },
+      // Y-12 (SqlUpdates/87): limit cari kartında boşsa bu limit geçerli
+      { fieldId: 683, fieldName: 'RiskLimit', label: 'Risk Limiti', fieldType: 'number', isRequired: false, colSpan: 4, orderIndex: 4 },
+      {
+        fieldId: 684,
+        fieldName: 'RiskAction',
+        label: 'Limit Aşılınca',
+        fieldType: 'select',
+        isRequired: false,
+        colSpan: 4,
+        orderIndex: 5,
+        defaultValue: '1',
+        optionsJson: select([
+          { label: 'Yalnız izle', value: '0' },
+          { label: 'Uyar', value: '1' },
+          { label: 'Yönetici onayı', value: '2' },
+          { label: 'Engelle', value: '3' },
+        ]),
+      },
+      { fieldId: 685, fieldName: 'IncOrders', label: 'Açık siparişler riske dahil', fieldType: 'checkbox', isRequired: false, colSpan: 4, orderIndex: 6, defaultValue: 'true' },
+      { fieldId: 686, fieldName: 'IncDispatches', label: 'Faturalanmamış irsaliyeler riske dahil', fieldType: 'checkbox', isRequired: false, colSpan: 4, orderIndex: 7 },
+      { fieldId: 687, fieldName: 'IncBounds', label: 'Portföydeki çek / senetler riske dahil', fieldType: 'checkbox', isRequired: false, colSpan: 4, orderIndex: 8, defaultValue: 'true' },
     ],
   },
   CustomerContactForm: {

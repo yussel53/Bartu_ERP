@@ -1,4 +1,4 @@
-import { apiJson } from '../config/api';
+import { ApiError, apiJson } from '../config/api';
 import type { DynamicFormDataDto } from '../types/formTypes';
 
 export interface RecordListResult {
@@ -76,9 +76,11 @@ export async function saveRecord(
   postSaveOk?: boolean;
 }> {
   const qs = opts?.pk ? `?pk=${encodeURIComponent(opts.pk)}` : '';
-  return apiJson(`/api/records/${encodeURIComponent(tableName)}${qs}`, {
+  const send = (riskApproved: boolean) =>
+    apiJson<Awaited<ReturnType<typeof saveRecord>>>(`/api/records/${encodeURIComponent(tableName)}${qs}`, {
     method: 'POST',
     body: JSON.stringify({
+      riskApproved,
       recordId: data.recordId ?? 0,
       standardFields: data.standardFields || {},
       additionalFields: data.additionalFields || {},
@@ -103,6 +105,15 @@ export async function saveRecord(
       postSave: opts?.postSave,
     }),
   });
+  try {
+    return await send(false);
+  } catch (e) {
+    // Y-12: risk limiti aşımı «yönetici onayı» — yönetici onaylarsa aynı kayıt onayla tekrar gönderilir
+    const body = e instanceof ApiError ? (e.body as { riskApprovalRequired?: boolean; canApprove?: boolean } | null) : null;
+    if (e instanceof ApiError && e.status === 409 && body?.riskApprovalRequired && body.canApprove && window.confirm(`${e.message}\n\nKaydedilsin mi?`))
+      return send(true);
+    throw e;
+  }
 }
 
 export async function deleteRecord(

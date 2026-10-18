@@ -68,6 +68,22 @@ vadesi geçen toplam, en eski ve ortalama gecikme. Satıra tıklayınca açık k
 Bir fişte birden çok satır olabilir (ör. aynı gün birkaç cariden tahsilat). Tahsilat ve tediye cari ekstresinde ve bakiyesinde,
 kasa ↔ banka transferleri banka ekstresinde görünür. Kasa kartında sağ tık → **Ekstre**.
 
+## Risk limiti
+
+*Finans → Ana Kayıtlar → Risk Grupları*: **Risk Limiti**, **Limit Aşılınca** (yalnız izle · uyar · yönetici onayı · engelle) ve riske
+nelerin gireceği (açık siparişler, faturalanmamış irsaliyeler, portföydeki çek / senetler). Cari kartta **Risk Grubu** seçilir;
+cariye özel **Risk Limiti** yazılırsa grubun limiti yerine o geçer.
+
+**Risk** = cari bakiye + açık satış siparişleri + (faturalanmamış satış irsaliyeleri) + portföy / ciro / tahsil / teminattaki müşteri çek-senetleri.
+Satış siparişi, satış irsaliyesi ve satış faturası kaydedilirken belge tutarı eklenir (düzenlenen belgenin eski tutarı düşülür);
+limit aşılırsa:
+
+- **Uyar**: kayıt yapılır, mesajda aşım yazar.
+- **Yönetici onayı**: yönetici «Kaydedilsin mi?» sorusunu onaylarsa kayıt yapılır; diğer kullanıcılar kaydedemez.
+- **Engelle**: kayıt yapılmaz.
+
+Düzenlenen belgenin tutarı artmıyorsa kontrol yapılmaz.
+
 ## Çek / senet portföyü
 
 *Finans → Hareketler → Çek / Senet Portföyü*. Her çek / senedin bir **konumu** vardır; konum yalnız bordroyla değişir.
