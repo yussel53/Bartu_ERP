@@ -23,12 +23,18 @@ public sealed class EGovIncomingController : ControllerBase
     private readonly EGovIncomingRepository _repo;
     private readonly PostSaveRepository _postSave;
     private readonly ProcessRepository _process;
+    private readonly DataScopeService _scope;
+    private readonly AccountingPostService _accounting;
 
-    public EGovIncomingController(EGovIncomingRepository repo, PostSaveRepository postSave, ProcessRepository process)
+    public EGovIncomingController(
+        EGovIncomingRepository repo, PostSaveRepository postSave, ProcessRepository process,
+        DataScopeService scope, AccountingPostService accounting)
     {
         _repo = repo;
         _postSave = postSave;
         _process = process;
+        _scope = scope;
+        _accounting = accounting;
     }
 
     [HttpPost("{id:int}/send")]
@@ -91,6 +97,15 @@ public sealed class EGovIncomingController : ControllerBase
         try
         {
             if (!await _repo.ReadyAsync(ct)) return BadRequest(new { message = EGovIncomingRepository.MissingSetupMessage });
+            // Y-02: kayıt kullanıcının firma / ambar kapsamında olmalı (RecordsController ile aynı kural)
+            var scope = await _scope.GetAsync(ct);
+            if (!scope.Unrestricted && !_scope.CanSee(scope, "Invoice", new Dictionary<string, object?>(StringComparer.OrdinalIgnoreCase)
+                {
+                    ["CompanyID"] = req.CompanyId,
+                    ["WhouseID"] = req.WhouseId,
+                }))
+                return StatusCode(403, new { message = "Seçilen firma / ambar yetki kapsamınızın dışında." });
+
             var (ok, invoiceId, message, body) = await _repo.SaveAsync(id, req, ct);
             if (!ok) return BadRequest(new { message });
 
@@ -132,6 +147,19 @@ public sealed class EGovIncomingController : ControllerBase
             catch
             {
                 /* süreç başlatma kaydı etkilemez */
+            }
+            // Y-09: «Otomatik Mahsup» açıksa muhasebe fişi (RecordsController ile aynı; bağlantı eksikse kayıt kalır, uyarı döner)
+            try
+            {
+                if (await _accounting.AutoPostEnabledAsync())
+                {
+                    var acc = await _accounting.PostAsync("Invoice", invoiceId, ct);
+                    if (!acc.Success) warnings.Add("Muhasebeleştirilmedi: " + acc.Message);
+                }
+            }
+            catch (Exception ex)
+            {
+                warnings.Add("Muhasebeleştirilmedi: " + ex.Message);
             }
 
             return Ok(new
