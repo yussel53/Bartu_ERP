@@ -34,6 +34,8 @@ public sealed class EGovDocumentListRow
     public bool IsActive { get; set; }
     public int? InvoiceID { get; set; }
     public int? OrderVoucherID { get; set; }
+    /// <summary>Gelen e-İrsaliyenin kaydedildiği alış irsaliyesi (84)</summary>
+    public int? ProductVoucherID { get; set; }
     public int? ProcessInstanceID { get; set; }
     public bool HasPdf { get; set; }
     public bool HasXml { get; set; }
@@ -198,7 +200,7 @@ public sealed class EGovDocumentRepository
             $@"SELECT TOP (@Take)
                  e.EGovDocumentID, e.DocumentNo, e.UUID, e.DocumentDate, e.CustomerCode, e.CustomerTitle, e.TaxNr,
                  e.ProfileId, e.Amount, e.TaxAmount, e.CurrencyCode, e.Status, e.IsActive, e.InvoiceID,
-                 {Opt("OrderVoucherID", "CAST(NULL AS int)")}, {Opt("ProcessInstanceID", "CAST(NULL AS int)")},
+                 {Opt("OrderVoucherID", "CAST(NULL AS int)")}, {Opt("ProcessInstanceID", "CAST(NULL AS int)")}, {Opt("ProductVoucherID", "CAST(NULL AS int)")},
                  {hasPdf} AS HasPdf,
                  CAST(CASE WHEN e.XmlContent IS NULL THEN 0 ELSE 1 END AS bit) AS HasXml,
                  {approvalCols}

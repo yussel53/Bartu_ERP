@@ -46,6 +46,8 @@ export interface EGovIncomingPreview {
   /** Satır toplamı fatura toplamını tutmuyor ve bilgi satırlarıyla açıklanamıyor */
   totalsMismatch?: boolean;
   lines: EGovIncomingPreviewLine[];
+  /** Faturadaki irsaliye referansları ve gelen e-İrsaliye karşılıkları (E-05) */
+  despatchRefs?: { documentNo: string; eGovDocumentID?: number | null; productVoucherID?: number | null }[];
 }
 
 type Result = { success: boolean; message: string };

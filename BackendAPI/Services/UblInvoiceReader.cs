@@ -46,28 +46,21 @@ public sealed class UblInvoice
     public decimal LineExtensionAmount { get; set; }
     public decimal TaxTotal { get; set; }
     public decimal PayableAmount { get; set; }
+    /// <summary>Faturanın bağlı olduğu irsaliye numaraları (DespatchDocumentReference/ID)</summary>
+    public List<string> DespatchRefs { get; set; } = new();
     public List<UblInvoiceLine> Lines { get; set; } = new();
 }
 
 /// <summary>UBL-TR Invoice okuyucu (gelen e-fatura → alış faturası). Yalnız gereken alanlar.</summary>
 public static class UblInvoiceReader
 {
-    private static readonly XNamespace Cac = "urn:oasis:names:specification:ubl:schema:xsd:CommonAggregateComponents-2";
-    private static readonly XNamespace Cbc = "urn:oasis:names:specification:ubl:schema:xsd:CommonBasicComponents-2";
+    internal static readonly XNamespace Cac = "urn:oasis:names:specification:ubl:schema:xsd:CommonAggregateComponents-2";
+    internal static readonly XNamespace Cbc = "urn:oasis:names:specification:ubl:schema:xsd:CommonBasicComponents-2";
     private const string KdvTaxTypeCode = "0015";
 
     public static UblInvoice Read(string xml)
     {
-        XDocument doc;
-        using (var reader = XmlReader.Create(new StringReader(xml), new XmlReaderSettings
-        {
-            DtdProcessing = DtdProcessing.Prohibit,
-            XmlResolver = null,
-        }))
-        {
-            doc = XDocument.Load(reader);
-        }
-        var root = doc.Root ?? throw new InvalidOperationException("UBL boş.");
+        var root = Load(xml);
         if (root.Name.LocalName != "Invoice")
             throw new InvalidOperationException($"UBL bir fatura değil ({root.Name.LocalName}).");
 
@@ -88,6 +81,8 @@ public static class UblInvoiceReader
         inv.LineExtensionAmount = Num(total?.Element(Cbc + "LineExtensionAmount")?.Value) ?? 0;
         inv.PayableAmount = Num(total?.Element(Cbc + "PayableAmount")?.Value) ?? 0;
         inv.TaxTotal = root.Elements(Cac + "TaxTotal").Sum(t => Num(t.Element(Cbc + "TaxAmount")?.Value) ?? 0);
+        inv.DespatchRefs = root.Elements(Cac + "DespatchDocumentReference")
+            .Select(r => Text(r, Cbc + "ID")).Where(x => x != null).Select(x => x!).Distinct().ToList();
 
         var i = 0;
         foreach (var l in root.Elements(Cac + "InvoiceLine"))
@@ -120,7 +115,18 @@ public static class UblInvoiceReader
         return inv;
     }
 
-    private static UblParty Party(XElement? wrapper)
+    /// <summary>Güvenli yükleme: DTD yasak, dış kaynak çözümleme yok</summary>
+    internal static XElement Load(string xml)
+    {
+        using var reader = XmlReader.Create(new StringReader(xml), new XmlReaderSettings
+        {
+            DtdProcessing = DtdProcessing.Prohibit,
+            XmlResolver = null,
+        });
+        return XDocument.Load(reader).Root ?? throw new InvalidOperationException("UBL boş.");
+    }
+
+    internal static UblParty Party(XElement? wrapper)
     {
         var p = wrapper?.Element(Cac + "Party");
         if (p is null) return new UblParty();
@@ -136,15 +142,15 @@ public static class UblInvoiceReader
         return new UblParty { TaxNr = tax?.Trim(), Name = string.IsNullOrWhiteSpace(name) ? null : name };
     }
 
-    private static string? Text(XElement? parent, XName name)
+    internal static string? Text(XElement? parent, XName name)
     {
         var v = parent?.Element(name)?.Value?.Trim();
         return string.IsNullOrEmpty(v) ? null : v;
     }
 
-    private static decimal? Num(string? v) =>
+    internal static decimal? Num(string? v) =>
         decimal.TryParse(v?.Trim(), NumberStyles.Number, CultureInfo.InvariantCulture, out var d) ? d : null;
 
-    private static DateTime? Date(string? v) =>
+    internal static DateTime? Date(string? v) =>
         DateTime.TryParseExact(v, "yyyy-MM-dd", CultureInfo.InvariantCulture, DateTimeStyles.None, out var d) ? d : null;
 }

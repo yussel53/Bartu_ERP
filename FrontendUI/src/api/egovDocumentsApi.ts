@@ -15,6 +15,8 @@ export interface EGovDocumentRow {
   status?: string | null;
   isActive: boolean;
   invoiceID?: number | null;
+  /** Gelen e-İrsaliyenin kaydedildiği alış irsaliyesi */
+  productVoucherID?: number | null;
   orderVoucherID?: number | null;
   processInstanceID?: number | null;
   hasPdf: boolean;

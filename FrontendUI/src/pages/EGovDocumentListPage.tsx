@@ -6,6 +6,7 @@ import { EGOV_INCOMING_INVOICE_TYPES, approveEGovIncoming, rejectEGovIncoming } 
 import { EGovDocumentViewer } from '../components/EGovDocumentViewer';
 import { deleteRecord } from '../api/recordsApi';
 import { EGovIncomingSaveModal } from '../components/EGovIncomingSaveModal';
+import { EGovDespatchSaveModal } from '../components/EGovDespatchSaveModal';
 import { EGovPartyCardModal } from '../components/EGovPartyCardModal';
 import { EGovSendApprovalModal } from '../components/EGovSendApprovalModal';
 import { EGovDirection, EGovDocKindLabels } from '../data/egovTypes';
@@ -66,6 +67,8 @@ export const EGovDocumentListPage: React.FC<EGovDocumentListPageProps> = ({ scre
   const [rejectFor, setRejectFor] = useState<EGovDocumentRow | null>(null);
   const [rejectReason, setRejectReason] = useState('');
   const [saveFor, setSaveFor] = useState<EGovDocumentRow | null>(null);
+  /** Gelen e-İrsaliye → alış irsaliyesi (E-05) */
+  const [despatchFor, setDespatchFor] = useState<EGovDocumentRow | null>(null);
   /** «… Faturasına Çevir» ile seçilen tür (boş → önerilen) */
   const [saveType, setSaveType] = useState<number | null>(null);
   /** Onaylanmış satırın çevir menüsü (sağ tık ya da ▾) — ekran konumu */
@@ -411,6 +414,28 @@ export const EGovDocumentListPage: React.FC<EGovDocumentListPageProps> = ({ scre
                             </button>
                           </span>
                         )}
+                        {box.docKind === 3 && isIncoming && !box.archived &&
+                          (r.productVoucherID ? (
+                            <span
+                              className="ml-1 px-1.5 py-px rounded-sm border text-[11px] bg-emerald-50 text-emerald-800 border-emerald-200 whitespace-nowrap"
+                              title="Alış irsaliyesi olarak kaydedildi — stoğa girdi"
+                            >
+                              Alış irsaliyesi #{r.productVoucherID}
+                            </span>
+                          ) : (
+                            <button
+                              type="button"
+                              disabled={!r.hasXml}
+                              onClick={() => {
+                                setInfo(null);
+                                setDespatchFor(r);
+                              }}
+                              title={r.hasXml ? 'Alış irsaliyesi olarak kaydet (stok girişi)' : 'UBL/XML içeriği yok — e-Logo Belge Çekme ile XML dahil yeniden çekin'}
+                              className={`${textBtn} ml-1 border-blue-600 text-white bg-blue-700 hover:bg-blue-600 disabled:opacity-40`}
+                            >
+                              <Save className="w-3 h-3" /> ERP'ye Kaydet
+                            </button>
+                          ))}
                       </div>
                     </td>
                     {stage && (
@@ -570,6 +595,19 @@ export const EGovDocumentListPage: React.FC<EGovDocumentListPageProps> = ({ scre
           onClose={() => setSaveFor(null)}
           onSaved={(message) => {
             setSaveFor(null);
+            setInfo(message);
+            void load();
+          }}
+        />
+      )}
+
+      {/* Gelen e-İrsaliye → alış irsaliyesi */}
+      {despatchFor && (
+        <EGovDespatchSaveModal
+          egovId={despatchFor.eGovDocumentID}
+          onClose={() => setDespatchFor(null)}
+          onSaved={(message) => {
+            setDespatchFor(null);
             setInfo(message);
             void load();
           }}

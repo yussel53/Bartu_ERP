@@ -14,7 +14,7 @@ const fmt = (v?: number | null, digits = 2) =>
   v == null ? '' : v.toLocaleString('tr-TR', { minimumFractionDigits: digits, maximumFractionDigits: digits });
 
 /** Aranabilir malzeme / hizmet seçici (ProductCard lookup listesi) */
-const ProductPicker: React.FC<{
+export const ProductPicker: React.FC<{
   options: LookupOption[];
   value: string;
   onChange: (v: string) => void;
@@ -248,12 +248,12 @@ export const EGovIncomingSaveModal: React.FC<Props> = ({ egovId, userId, initial
                   <div>
                     <span className="text-slate-500">Senaryo / Tip:</span> {preview.profileId} / {preview.typeCode}
                   </div>
-                  <label className="flex items-center gap-1.5 pt-1">
+                  <label className="flex items-center gap-1.5 pt-1 min-w-0">
                     <span className="text-slate-500 whitespace-nowrap">Fatura türü:</span>
                     <select
                       value={typeDef.value}
                       onChange={(e) => setInvoiceType(Number(e.target.value))}
-                      className={`${sel} font-semibold`}
+                      className={`${sel} font-semibold min-w-0 flex-1 max-w-full`}
                       title="Gelen e-faturanın ERP'de kaydedileceği fatura türü"
                     >
                       {EGOV_INCOMING_INVOICE_TYPES.map((t) => (
@@ -319,6 +319,25 @@ export const EGovIncomingSaveModal: React.FC<Props> = ({ egovId, userId, initial
                   </label>
                 </div>
               </div>
+
+              {/* Faturanın bağlı olduğu irsaliyeler (DespatchDocumentReference) */}
+              {(preview.despatchRefs?.length ?? 0) > 0 && (
+                <div className="flex flex-wrap items-center gap-x-3 gap-y-1 rounded-sm border border-slate-200 bg-slate-50 px-2.5 py-1.5 text-[12px]">
+                  <span className="text-slate-500">İlgili irsaliye:</span>
+                  {preview.despatchRefs!.map((d) => (
+                    <span key={d.documentNo} className="whitespace-nowrap">
+                      <b>{d.documentNo}</b>{' '}
+                      {d.productVoucherID ? (
+                        <span className="text-emerald-700">· alış irsaliyesi #{d.productVoucherID} (stoğa girdi)</span>
+                      ) : d.eGovDocumentID ? (
+                        <span className="text-amber-700">· gelen e-İrsaliye var, alış irsaliyesi olarak kaydedilmedi</span>
+                      ) : (
+                        <span className="text-slate-500">· e-İrsaliyesi gelmedi (kâğıt irsaliye olabilir)</span>
+                      )}
+                    </span>
+                  ))}
+                </div>
+              )}
 
               {/* Satırlar */}
               <div className="rounded-sm border border-slate-300 overflow-x-auto">

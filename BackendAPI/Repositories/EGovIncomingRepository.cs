@@ -48,6 +48,15 @@ public sealed class EGovIncomingPreviewLine
     public int? ProductType { get; set; }
 }
 
+/// <summary>Faturadaki irsaliye referansı ve gelen e-İrsaliyeler arasındaki karşılığı (E-05)</summary>
+public sealed class EGovDespatchRef
+{
+    public string DocumentNo { get; set; } = "";
+    public int? EGovDocumentID { get; set; }
+    /// <summary>Gelen e-İrsaliye alış irsaliyesi olarak kaydedildiyse ProductVoucherID</summary>
+    public int? ProductVoucherID { get; set; }
+}
+
 public sealed class EGovIncomingPreview
 {
     public string? InvoiceNo { get; set; }
@@ -74,6 +83,8 @@ public sealed class EGovIncomingPreview
     /// <summary>Satır toplamı fatura toplamını tutmuyor ve bilgi satırlarıyla açıklanamıyor</summary>
     public bool TotalsMismatch { get; set; }
     public List<EGovIncomingPreviewLine> Lines { get; set; } = new();
+    /// <summary>Faturanın bağlı olduğu irsaliyeler (DespatchDocumentReference) — gelen e-İrsaliyelerle eşleşmesi</summary>
+    public List<EGovDespatchRef> DespatchRefs { get; set; } = new();
 }
 
 public sealed class EGovIncomingSaveLine
@@ -386,6 +397,23 @@ public sealed class EGovIncomingRepository
         }
         MarkInfoLines(p, ubl);
 
+        if (ubl.DespatchRefs.Count > 0)
+        {
+            var hasPv = await _db.ExecuteScalarAsync<int>(new CommandDefinition(
+                "SELECT CASE WHEN COL_LENGTH(N'dbo.EGovDocument', N'ProductVoucherID') IS NULL THEN 0 ELSE 1 END", cancellationToken: ct)) == 1;
+            var found = (await _db.QueryAsync<EGovDespatchRef>(new CommandDefinition(
+                $"""
+                SELECT DocumentNo, EGovDocumentID, {(hasPv ? "ProductVoucherID" : "CAST(NULL AS int)")} AS ProductVoucherID
+                FROM dbo.EGovDocument
+                WHERE DocKind = 3 AND Direction = 1 AND ISNULL(IsActive, 1) = 1 AND DocumentNo IN @refs
+                """, new { refs = ubl.DespatchRefs }, cancellationToken: ct)))
+                .GroupBy(x => x.DocumentNo, StringComparer.OrdinalIgnoreCase)
+                .ToDictionary(g => g.Key, g => g.First(), StringComparer.OrdinalIgnoreCase);
+            p.DespatchRefs = ubl.DespatchRefs
+                .Select(r => found.TryGetValue(r, out var f) ? f : new EGovDespatchRef { DocumentNo = r })
+                .ToList();
+        }
+
         // Gelen IADE faturası = bize sattığımız malın iadesi → Toptan Satış İade;
         // satırların tamamı Alınan Hizmet kartına eşliyse → Alınan Hizmet Faturası
         var real = p.Lines.Where(l => !l.IsInfoLine).ToList();
@@ -424,7 +452,7 @@ public sealed class EGovIncomingRepository
     }
 
     /// <summary>Tedarikçinin kodu varsa kodla, yoksa malzeme adıyla eşleşen aktif bağlantı.</summary>
-    private Task<CardHit?> FindAliasAsync(int customerId, string? code, string? name, CancellationToken ct) =>
+    internal Task<CardHit?> FindAliasAsync(int customerId, string? code, string? name, CancellationToken ct) =>
         _db.QueryFirstOrDefaultAsync<CardHit?>(new CommandDefinition(
             """
             SELECT TOP 1 a.ProductCardID AS Id, p.Code, p.Title, p.ProductType
@@ -560,7 +588,7 @@ public sealed class EGovIncomingRepository
     /// Malzeme + cari için tek bağlantı (UX_ProductCustomerAlias_Product_Customer). Aynı tedarikçi kodu
     /// başka bir malzemede kayıtlıysa o eski bağlantı pasife alınır — kod tek malzemeyi göstersin.
     /// </summary>
-    private async Task UpsertAliasAsync(int productId, int customerId, string? code, string? name, CancellationToken ct)
+    internal async Task UpsertAliasAsync(int productId, int customerId, string? code, string? name, CancellationToken ct)
     {
         Open();
         if (code != null)
@@ -589,7 +617,7 @@ public sealed class EGovIncomingRepository
         }
     }
 
-    private sealed class CardHit
+    internal sealed class CardHit
     {
         public int Id { get; set; }
         public string? Code { get; set; }
