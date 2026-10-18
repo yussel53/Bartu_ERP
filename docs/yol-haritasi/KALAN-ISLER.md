@@ -21,14 +21,13 @@ Y-12: risk grubu / cari limiti, satış belgesinde uyar / yönetici onayı / eng
 ## @WebRoot12 (E-Devlet)
 
 Bitenler: E-01 (oturum token'ı), E-02 (otomatik çekme), E-05 gelen e-İrsaliye, E-06 (GİB mükellef senkronu),
-e-Belge Konsolu.
+e-Belge Konsolu, E-08 (KDV özeti ve Ba / Bs), gelen e-faturada otomatik muhasebe (Y-09) + yetki kapsamı (Y-02).
 
 - [ ] **E-03 Giden e-fatura** — UBL üret → `EGovRuleEngine.ApplyForSendAsync` (belge kuralları) → XSLT → eLogo gönderim → durum /
   uygulama yanıtı.
 - [ ] **E-04 e-Arşiv** (E-03'e bağlı).
 - [ ] **E-05 giden e-İrsaliye** (gelen kısmı bitti).
 - [ ] **E-07 e-Defter** (Y-09 bitti, başlanabilir).
-- [ ] **E-08 KDV beyan raporu ve Ba / Bs** (Y-09 bitti).
 - [ ] **E-09 e-Belge hata izleme** — konsol bitti; gönderim hata günlüğü ve «yeniden dene» E-03 ile.
 
 ## Bekleyen küçük işler
