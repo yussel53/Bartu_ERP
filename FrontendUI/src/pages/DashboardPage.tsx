@@ -24,6 +24,7 @@ import {
   type DashboardTab,
   type DashboardTabItem,
 } from '../api/dashboardApi';
+import { ManagementPanel } from '../components/ManagementPanel';
 import {
   listSqlReports,
   runSqlReport,
@@ -599,6 +600,8 @@ export const DashboardPage: React.FC<DashboardPageProps> = ({ onNavigate }) => {
           ))}
         </div>
       )}
+
+      {(fallbackMode || activeTab?.showBuiltInSummary) && <ManagementPanel refreshKey={refreshKey} onNavigate={onNavigate} />}
 
       {(fallbackMode || activeTab?.showBuiltInSummary) && (
         <BuiltInSummary data={summary} loading={summaryLoading} onNavigate={onNavigate} />

@@ -83,6 +83,8 @@ function buildProductCardFields(codeLabel: string, titleLabel: string, includeMa
     },
     { fieldId: 5, fieldName: 'U_UnitPrice', label: 'Birim Fiyat', fieldType: 'number', isRequired: false, colSpan: 4, orderIndex: 5 },
     { fieldId: 6, fieldName: 'IsActive', label: 'Aktif', fieldType: 'checkbox', isRequired: false, colSpan: 4, orderIndex: 6 },
+    // Y-14 (SqlUpdates/90): eldeki miktar bu değere inince Genel Durum → Kritik stok
+    { fieldId: 9953, fieldName: 'MinStock', label: 'Kritik Stok (min.)', fieldType: 'number', isRequired: false, colSpan: 4, orderIndex: 6 },
     { fieldId: 7, fieldName: 'U_Description', label: 'Açıklama', fieldType: 'textarea', isRequired: false, colSpan: 12, orderIndex: 7 },
     {
       fieldId: 8,

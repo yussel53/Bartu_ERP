@@ -1,5 +1,20 @@
 # Raporlar
 
+## Genel Durum — yönetim paneli
+
+Sol menüde **Genel Durum** (Özet sekmesi) en üstte yönetim panelini gösterir; **Yenile** ile güncellenir, her kartta **Aç** ilgili ekrana gider.
+
+| Kart | İçerik |
+|---|---|
+| Alacak / borç vadeleri | Vadesi geçen alacak ve cari sayısı, 7 gün içinde vadesi gelen; vadesi geçen / 7 gün içinde ödenecek borçlar; en çok geciken 5 cari (FIFO kapama sonrası) |
+| Satış | Bugün, bu ay ve geçen ayın aynı dönemi (KDV hariç, iadeler düşülmüş); son 7 gün grafiği; açık satış siparişleri |
+| Çek / senet | 7 / 30 gün içinde tahsil edilecek müşteri belgeleri, 30 gün içinde ödenecek kendi belgelerimiz, vadesi geçmiş portföy |
+| Kritik stok | Eldeki miktarı malzeme kartındaki **Kritik Stok (min.)** değerine ya da altına inen ya da eksiye düşen malzemeler |
+| Onay bekleyenler | Size (rolünüze / onay grubunuza) düşen bekleyen onaylar |
+| Döviz | Son TCMB satış kurları; para birimine göre kasa + banka bakiyeleri |
+
+Yetki kapsamınız dışındaki carilerin vadeleri panelde görünmez.
+
 ## Standart raporlar
 
 İlgili modülün **Raporlar → Standart Raporlar** menüsünde hazır gelir. Hepsi SQL Rapor Tasarımcısı raporudur: filtrelenir, sıralanır,

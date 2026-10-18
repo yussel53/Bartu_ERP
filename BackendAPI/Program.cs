@@ -26,6 +26,7 @@ builder.Services.AddScoped<CustomerAgingService>();
 builder.Services.AddScoped<BoundPortfolioService>();
 builder.Services.AddScoped<RiskService>();
 builder.Services.AddScoped<ReportScheduleService>();
+builder.Services.AddScoped<ManagementPanelService>();
 // Uygulama içinden güncelleme (iis-site-staging → servis) + veritabanı yedeği (gece 02:00 ve SQL öncesi)
 builder.Services.AddSingleton<AppUpdateService>();
 builder.Services.AddScoped<DbBackupService>();
