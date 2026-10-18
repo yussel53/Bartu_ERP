@@ -10,6 +10,7 @@ import { ModuleWorkspace, findScreenInModule } from './components/ModuleWorkspac
 import { ModuleOverviewPage } from './pages/ModuleOverviewPage';
 import { canScreen } from './data/permissions';
 import { loadExtraFields } from './data/extraFields';
+import { HelpPage } from './pages/HelpPage';
 import {
   OpenDocumentsProvider,
   createOpenDocId,
@@ -94,6 +95,8 @@ function AppRoutes() {
     content = <HomePage onNavigate={navigate} />;
   } else if (segments[0] === 'rapor' || segments[0] === 'ozet') {
     content = <DashboardPage onNavigate={navigate} />;
+  } else if (segments[0] === 'yardim') {
+    content = <HelpPage slug={segments.slice(1).join('/') || undefined} onNavigate={navigate} />;
   } else {
     const moduleMeta = findModuleByPath(modules, segments[0]);
 

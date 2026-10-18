@@ -20,6 +20,7 @@ import {
   Handshake,
   KeyRound,
   UserCircle2,
+  LifeBuoy,
 } from 'lucide-react';
 import { AppModule, MenuScreen } from '../types/formTypes';
 import { exitApp } from '../utils/exitApp';
@@ -345,6 +346,17 @@ export const AppShell: React.FC<AppShellProps> = ({ currentPath, onNavigate, chi
         </nav>
 
         <div className="shrink-0 pt-1.5 mt-1 border-t border-slate-100 dark:border-slate-800">
+          <button
+            type="button"
+            onClick={() => go('yardim')}
+            className={`w-full flex items-center gap-1.5 px-2 h-7 mb-0.5 rounded-md text-[11px] font-semibold transition-colors ${
+              rootModule === 'yardim' ? 'bg-blue-600 text-white' : 'text-slate-600 hover:bg-slate-100 dark:text-slate-300 dark:hover:bg-slate-800'
+            }`}
+            title="Yardım (yalnız program içinden)"
+          >
+            <LifeBuoy className="w-3.5 h-3.5 shrink-0" />
+            Yardım
+          </button>
           <UserBlock />
           <button
             type="button"
