@@ -48,6 +48,11 @@ public sealed class UblInvoice
     public decimal PayableAmount { get; set; }
     /// <summary>Faturanın bağlı olduğu irsaliye numaraları (DespatchDocumentReference/ID)</summary>
     public List<string> DespatchRefs { get; set; } = new();
+    /// <summary>KDV tevkifatı toplamı (WithholdingTaxTotal/TaxAmount) — KDV / Ba-Bs raporu</summary>
+    public decimal WithholdingTax { get; set; }
+    /// <summary>İstisna / muaf matrah (TaxExemptionReasonCode olan %0 KDV alt toplamları)</summary>
+    public decimal ExemptBase { get; set; }
+    public List<string> ExemptionCodes { get; set; } = new();
     public List<UblInvoiceLine> Lines { get; set; } = new();
 }
 
@@ -81,6 +86,14 @@ public static class UblInvoiceReader
         inv.LineExtensionAmount = Num(total?.Element(Cbc + "LineExtensionAmount")?.Value) ?? 0;
         inv.PayableAmount = Num(total?.Element(Cbc + "PayableAmount")?.Value) ?? 0;
         inv.TaxTotal = root.Elements(Cac + "TaxTotal").Sum(t => Num(t.Element(Cbc + "TaxAmount")?.Value) ?? 0);
+        inv.WithholdingTax = root.Elements(Cac + "WithholdingTaxTotal").Sum(t => Num(t.Element(Cbc + "TaxAmount")?.Value) ?? 0);
+        foreach (var sub in root.Elements(Cac + "TaxTotal").Elements(Cac + "TaxSubtotal"))
+        {
+            var code = Text(sub.Element(Cac + "TaxCategory"), Cbc + "TaxExemptionReasonCode");
+            if (code is null || (Num(sub.Element(Cbc + "Percent")?.Value) ?? 0) != 0) continue;
+            inv.ExemptBase += Num(sub.Element(Cbc + "TaxableAmount")?.Value) ?? 0;
+            if (!inv.ExemptionCodes.Contains(code)) inv.ExemptionCodes.Add(code);
+        }
         inv.DespatchRefs = root.Elements(Cac + "DespatchDocumentReference")
             .Select(r => Text(r, Cbc + "ID")).Where(x => x != null).Select(x => x!).Distinct().ToList();
 

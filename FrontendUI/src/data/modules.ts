@@ -1369,6 +1369,19 @@ export const APP_MODULES: AppModule[] = [
           },
         ],
       },
+      {
+        key: 'raporlar',
+        title: 'Raporlar',
+        screens: [
+          {
+            id: 'kdv-babs',
+            path: 'edevlet/raporlar/kdv-babs',
+            title: 'KDV ve Ba / Bs',
+            subtitle: 'Dönemlik hesaplanan / indirilecek KDV (oran, tevkifat, istisna) · Form Ba / Bs listeleri',
+            isEGovTaxReport: true,
+          },
+        ],
+      },
     ],
   },
   {
