@@ -12,6 +12,7 @@ import { ApprovalGroupsPage } from '../pages/ApprovalGroupsPage';
 import { EGovAutoFetchPage } from '../pages/EGovAutoFetchPage';
 import { EGovMukellefCheckPage } from '../pages/EGovMukellefCheckPage';
 import { EGovConsolePage } from '../pages/EGovConsolePage';
+import { EGovTaxReportPage } from '../pages/EGovTaxReportPage';
 import { ExtraFieldsAdminPage } from '../pages/ExtraFieldsAdminPage';
 import { UserPermissionsPage } from '../pages/UserPermissionsPage';
 import { ExternalEmbedPage } from '../pages/ExternalEmbedPage';
@@ -160,6 +161,9 @@ export const ModuleWorkspace: React.FC<ModuleWorkspaceProps> = ({
     }
     if (activeScreen.isEGovConsole) {
       return <EGovConsolePage onBack={() => onNavigate(module.path)} onNavigate={onNavigate} />;
+    }
+    if (activeScreen.isEGovTaxReport) {
+      return <EGovTaxReportPage onBack={() => onNavigate(module.path)} />;
     }
     if (activeScreen.isJournalNumbering) {
       return <JournalNumberingPage onBack={() => onNavigate(module.path)} />;

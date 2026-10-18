@@ -229,6 +229,8 @@ export interface MenuScreen {
   isEGovMukellefCheck?: boolean;
   /** E-Devlet → İşlemler → e-Belge Konsolu */
   isEGovConsole?: boolean;
+  /** E-Devlet → Raporlar → KDV ve Ba / Bs (E-08) */
+  isEGovTaxReport?: boolean;
   /** Veritabanı SqlUpdates (01_xxx.sql) güncelleme ekranı */
   isDbUpdatesAdmin?: boolean;
   /** Muhasebe → Yevmiye madde numaralandırma işlemi */
