@@ -149,6 +149,7 @@ export const ModuleWorkspace: React.FC<ModuleWorkspaceProps> = ({
     }
     if (activeScreen.isEGovMukellefCheck) {
       return <EGovMukellefCheckPage onBack={() => onNavigate(module.path)} />;
+    }
     if (activeScreen.isEGovConsole) {
       return <EGovConsolePage onBack={() => onNavigate(module.path)} onNavigate={onNavigate} />;
     }
