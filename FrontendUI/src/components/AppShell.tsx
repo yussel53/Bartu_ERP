@@ -114,13 +114,18 @@ export const AppShell: React.FC<AppShellProps> = ({ currentPath, onNavigate, chi
   const [openModules, setOpenModules] = React.useState<Record<string, boolean>>({});
   const [openGroups, setOpenGroups] = React.useState<Record<string, boolean>>({});
 
+  // Yalnız sayfa değişince bulunulan modül / grup açılır; menü listesi yenilenince (rapor menüleri)
+  // kullanıcının kapattığı menü yeniden açılmaz
+  const lastPathRef = React.useRef<string | null>(null);
   React.useEffect(() => {
+    const pathChanged = lastPathRef.current !== currentPath;
+    lastPathRef.current = currentPath;
     setOpenModules((prev) => {
       const next = { ...prev };
       APP_MODULES.forEach((m) => {
         if (next[m.id] === undefined) next[m.id] = m.path === rootModule;
+        if (pathChanged && m.path === rootModule) next[m.id] = true;
       });
-      if (rootModule) next[rootModule] = true;
       return next;
     });
     setOpenGroups((prev) => {
@@ -128,10 +133,9 @@ export const AppShell: React.FC<AppShellProps> = ({ currentPath, onNavigate, chi
       APP_MODULES.forEach((m) => {
         m.groups.forEach((g) => {
           const key = `${m.id}:${g.key}`;
-          if (next[key] === undefined) {
-            next[key] = currentPath.startsWith(`${m.path}/${g.key}`);
-          }
-          if (currentPath.startsWith(`${m.path}/${g.key}`)) next[key] = true;
+          const inside = currentPath.startsWith(`${m.path}/${g.key}`);
+          if (next[key] === undefined) next[key] = inside;
+          if (pathChanged && inside) next[key] = true;
         });
       });
       return next;
@@ -142,11 +146,6 @@ export const AppShell: React.FC<AppShellProps> = ({ currentPath, onNavigate, chi
 
   React.useEffect(() => {
     if (!rootModule) return;
-    setOpenModules((prev) => ({ ...prev, [rootModule]: true }));
-    const parts = currentPath.split('/');
-    if (parts.length >= 2) {
-      setOpenGroups((prev) => ({ ...prev, [`${parts[0]}:${parts[1]}`]: true }));
-    }
     if (currentPath.includes('/firmalar/')) {
       setOpenParents((prev) => ({ ...prev, 'sistem/tanimlar/firmalar': true }));
     }
@@ -167,18 +166,21 @@ export const AppShell: React.FC<AppShellProps> = ({ currentPath, onNavigate, chi
     setMobileOpen(false);
   };
 
+  /** Tek tıkla aç / kapat: kapatmak sayfa değiştirmez; açarken modülün dışındaysak özet sayfasına gidilir */
   const toggleModule = (mod: AppModule) => {
     const willOpen = !openModules[mod.id];
     setOpenModules((prev) => ({ ...prev, [mod.id]: willOpen }));
-    // Modül başlığı → özet dashboard (grafik / KPI)
-    go(mod.path);
+    // Modül başlığı → özet dashboard (grafik / KPI) — yalnız açarken ve başka modüldeyken
+    if (willOpen && rootModule !== mod.path) go(mod.path);
   };
 
   const toggleGroup = (moduleId: string, groupKey: string, modulePath: string) => {
     const key = `${moduleId}:${groupKey}`;
-    setOpenGroups((prev) => ({ ...prev, [key]: true }));
-    // Grup başlığı → grup özeti
-    go(`${modulePath}/${groupKey}`);
+    const groupPath = `${modulePath}/${groupKey}`;
+    const willOpen = !openGroups[key];
+    setOpenGroups((prev) => ({ ...prev, [key]: willOpen }));
+    // Grup başlığı → grup özeti — yalnız açarken ve grubun dışındaysak
+    if (willOpen && !(currentPath === groupPath || currentPath.startsWith(`${groupPath}/`))) go(groupPath);
   };
 
   const renderScreen = (screen: MenuScreen, depth: number) => {
