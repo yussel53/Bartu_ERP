@@ -369,6 +369,14 @@ export function defaultFilterValue(f: SqlReportFilterDef): string {
   const raw = (f.default_val ?? '').trim();
   if (f.type === 'date') {
     if (!raw) return new Date().toISOString().slice(0, 10);
+    // Y-13: yıl / ay başı ve önceki ay (zamanlanmış raporlarla aynı anahtarlar)
+    const now = new Date();
+    const iso = (d: Date) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+    const key = raw.toLowerCase();
+    if (key === 'year_start') return iso(new Date(now.getFullYear(), 0, 1));
+    if (key === 'month_start') return iso(new Date(now.getFullYear(), now.getMonth(), 1));
+    if (key === 'prev_month_start') return iso(new Date(now.getFullYear(), now.getMonth() - 1, 1));
+    if (key === 'prev_month_end') return iso(new Date(now.getFullYear(), now.getMonth(), 0));
     const m = raw.match(/^(-?\d+)\s*days?$/i);
     if (m) {
       const d = new Date();

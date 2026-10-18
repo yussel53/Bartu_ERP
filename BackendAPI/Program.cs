@@ -25,6 +25,7 @@ builder.Services.AddScoped<AccountingPostService>();
 builder.Services.AddScoped<CustomerAgingService>();
 builder.Services.AddScoped<BoundPortfolioService>();
 builder.Services.AddScoped<RiskService>();
+builder.Services.AddScoped<ReportScheduleService>();
 // Uygulama içinden güncelleme (iis-site-staging → servis) + veritabanı yedeği (gece 02:00 ve SQL öncesi)
 builder.Services.AddSingleton<AppUpdateService>();
 builder.Services.AddScoped<DbBackupService>();
@@ -79,6 +80,7 @@ builder.Services.AddHttpClient("Tcmb", client =>
 });
 // Günlük TCMB kur indirme (her 30 dk kontrol)
 builder.Services.AddHostedService<CurrencyRateJob>();
+builder.Services.AddHostedService<ReportScheduleJob>();
 builder.Services.AddScoped<ModuleOverviewRepository>();
 builder.Services.AddScoped<ProductPricesRepository>();
 builder.Services.AddScoped<JournalNumberingRepository>();

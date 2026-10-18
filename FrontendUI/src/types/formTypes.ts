@@ -223,6 +223,8 @@ export interface MenuScreen {
   isCustomerAging?: boolean;
   /** Finans → Çek / Senet Portföyü (bordrolar, konum, vade takvimi) */
   isBoundPortfolio?: boolean;
+  /** Rapor Üretici → Zamanlanmış Raporlar (Excel e-postası) */
+  isReportSchedules?: boolean;
   /** Onay grupları (SYS_ApprovalGroup) */
   isApprovalGroups?: boolean;
   /** E-Devlet → Tanımlar → Otomatik Belge Çekme (E-02) */

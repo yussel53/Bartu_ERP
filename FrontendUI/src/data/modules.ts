@@ -1461,6 +1461,13 @@ export const APP_MODULES: AppModule[] = [
             isSqlReportsAdmin: true,
             sqlReportsView: 'runner',
           },
+          {
+            id: 'zamanlanmis-raporlar',
+            path: 'raporlama/raporlar/zamanlanmis',
+            title: 'Zamanlanmış Raporlar',
+            subtitle: 'SYS_SqlReportSchedule · günlük / haftalık / aylık Excel e-postası',
+            isReportSchedules: true,
+          },
         ],
       },
       {
