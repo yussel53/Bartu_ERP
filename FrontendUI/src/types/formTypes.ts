@@ -219,6 +219,8 @@ export interface MenuScreen {
   isStockCosting?: boolean;
   /** Onay grupları (SYS_ApprovalGroup) */
   isApprovalGroups?: boolean;
+  /** E-Devlet → İşlemler → e-Belge Konsolu */
+  isEGovConsole?: boolean;
   /** Veritabanı SqlUpdates (01_xxx.sql) güncelleme ekranı */
   isDbUpdatesAdmin?: boolean;
   /** Muhasebe → Yevmiye madde numaralandırma işlemi */

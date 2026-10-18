@@ -7,6 +7,7 @@ import { EGovDesignTemplatesPage } from '../pages/EGovDesignTemplatesPage';
 import { EGovRulesPage } from '../pages/EGovRulesPage';
 import { StockCostingPage } from '../pages/StockCostingPage';
 import { ApprovalGroupsPage } from '../pages/ApprovalGroupsPage';
+import { EGovConsolePage } from '../pages/EGovConsolePage';
 import { ExtraFieldsAdminPage } from '../pages/ExtraFieldsAdminPage';
 import { UserPermissionsPage } from '../pages/UserPermissionsPage';
 import { ExternalEmbedPage } from '../pages/ExternalEmbedPage';
@@ -140,6 +141,9 @@ export const ModuleWorkspace: React.FC<ModuleWorkspaceProps> = ({
     }
     if (activeScreen.isApprovalGroups) {
       return <ApprovalGroupsPage onBack={() => onNavigate(module.path)} />;
+    }
+    if (activeScreen.isEGovConsole) {
+      return <EGovConsolePage onBack={() => onNavigate(module.path)} onNavigate={onNavigate} />;
     }
     if (activeScreen.isJournalNumbering) {
       return <JournalNumberingPage onBack={() => onNavigate(module.path)} />;
