@@ -66,7 +66,10 @@ GetDocumentData/Logout). Referans proje: D:\Dosyalar\YAZILIMLARIMIZ\eftaura_elog
 1. UblInvoiceWriter (Services): Invoice + satırlar + cari + firma bilgisinden UBL-TR 1.2 XML
    (TEMELFATURA/TICARIFATURA/IHRACAT/ISTISNA/TEVKIFAT/IADE profilleri; KDV, tevkifat, istisna kodları,
    iskonto, döviz). Mevcut UblInvoiceReader ile gidiş-dönüş testi (yaz → oku → aynı toplamlar).
-2. XSLT: mevcut EGovXsltDesign şablonu UBL'e gömülsün (önizleme EGovDesignTemplatesPage'de var).
+2. Belge kuralları: UBL üretildikten sonra, XSLT gömme ve imzadan ÖNCE
+   EGovRuleEngine.ApplyForSendAsync(xml, docKind, invoiceId, egovDocumentId, companyId) çağrılsın
+   (E-Devlet → Tanımlar → Belge Kuralları; ayrıntı docs/egov-belge-kurallari.md — Yusuf ekledi).
+   XSLT: mevcut EGovXsltDesign şablonu UBL'e gömülsün (önizleme EGovDesignTemplatesPage'de var).
 3. Gönderim: eLogo SendDocument (test ortamı) → EGovDocument (Direction=2) kaydı, ETTN, durum.
    Alıcı etiketi (PK) cari adresindeki PostLabel'dan; yoksa mükellef sorgusu (IntegratorMukellefService).
    e-Fatura mükellefi değilse e-Arşiv'e yönlendir (E-04).

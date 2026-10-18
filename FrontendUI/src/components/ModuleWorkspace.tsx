@@ -4,6 +4,7 @@ import { FormTabs } from './FormTabs';
 import { ModuleListPage } from '../pages/ModuleListPage';
 import { CurrencyRatesPage } from '../pages/CurrencyRatesPage';
 import { EGovDesignTemplatesPage } from '../pages/EGovDesignTemplatesPage';
+import { EGovRulesPage } from '../pages/EGovRulesPage';
 import { ApprovalGroupsPage } from '../pages/ApprovalGroupsPage';
 import { ExtraFieldsAdminPage } from '../pages/ExtraFieldsAdminPage';
 import { UserPermissionsPage } from '../pages/UserPermissionsPage';
@@ -129,6 +130,9 @@ export const ModuleWorkspace: React.FC<ModuleWorkspaceProps> = ({
     }
     if (activeScreen.isEGovDesignTemplates) {
       return <EGovDesignTemplatesPage onBack={() => onNavigate(module.path)} />;
+    }
+    if (activeScreen.isEGovRules) {
+      return <EGovRulesPage onBack={() => onNavigate(module.path)} />;
     }
     if (activeScreen.isApprovalGroups) {
       return <ApprovalGroupsPage onBack={() => onNavigate(module.path)} />;

@@ -211,6 +211,8 @@ export interface MenuScreen {
   isCurrencyRates?: boolean;
   /** E-Devlet → Tasarım Şablonları (EGovXsltDesign + EGovDesignRule) */
   isEGovDesignTemplates?: boolean;
+  /** E-Devlet → Belge Kuralları (EGovTransformRule — gönderim öncesi UBL değişikliği) */
+  isEGovRules?: boolean;
   /** Onay grupları (SYS_ApprovalGroup) */
   isApprovalGroups?: boolean;
   /** Veritabanı SqlUpdates (01_xxx.sql) güncelleme ekranı */

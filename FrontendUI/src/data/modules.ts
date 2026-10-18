@@ -1316,6 +1316,13 @@ export const APP_MODULES: AppModule[] = [
             isEGovDesignTemplates: true,
           },
           {
+            id: 'egov-belge-kurallari',
+            path: 'edevlet/tanimlar/belge-kurallari',
+            title: 'Belge Kuralları',
+            subtitle: 'EGovTransformRule · gönderim öncesi UBL değişiklikleri (ek alan, satır, birim, plaka…)',
+            isEGovRules: true,
+          },
+          {
             id: 'onay-gruplari',
             path: 'edevlet/tanimlar/onay-gruplari',
             title: 'Onay Grupları',
