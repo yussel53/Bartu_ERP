@@ -59,6 +59,7 @@ builder.Services.AddScoped<CrmOrderRepository>();
 builder.Services.AddScoped<FormLayoutRepository>();
 builder.Services.AddScoped<BarcodeRepository>();
 builder.Services.AddScoped<EGovPartyCardRepository>();
+builder.Services.AddScoped<BartuERP.Backend.Services.EGovRules.EGovRuleEngine>();
 builder.Services.AddScoped<TcmbRateService>();
 builder.Services.AddHttpClient("Tcmb", client =>
 {

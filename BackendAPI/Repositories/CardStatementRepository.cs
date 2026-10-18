@@ -617,6 +617,19 @@ LEFT JOIN dbo.BankAccountCard ba ON ba.BankAccountCardID = bt.BankAccountCardID
         return parts;
     }
 
+    /// <summary>Tek carinin borç / alacak toplamı (ekstre ile aynı kaynaklar) — e-Belge kuralları «Cari.Bakiye»</summary>
+    public async Task<(decimal Debit, decimal Credit)> CustomerBalanceAsync(int id, CancellationToken ct = default)
+    {
+        if (_db.State != ConnectionState.Open) _db.Open();
+        var parts = await CustomerMovementSqlAsync(single: true, ct);
+        if (parts.Count == 0) return (0m, 0m);
+        var union = string.Join("\nUNION ALL\n", parts.Select(p => $"SELECT Debit, Credit FROM ({p}) p"));
+        var r = await _db.QueryFirstAsync(new CommandDefinition($@"
+SELECT SUM(CAST(ISNULL(m.Debit, 0) AS decimal(19,2))) AS Debit, SUM(CAST(ISNULL(m.Credit, 0) AS decimal(19,2))) AS Credit
+FROM ({union}) m", new { id }, cancellationToken: ct));
+        return ((decimal)(r.Debit ?? 0m), (decimal)(r.Credit ?? 0m));
+    }
+
     /// <summary>
     /// Cari listesi özeti: borç / alacak / bakiye (ekstre ile aynı kaynaklar), son hareket, açık sipariş,
     /// varsayılan adres il/ilçe, yetkili telefon / e-posta, risk grubu.
