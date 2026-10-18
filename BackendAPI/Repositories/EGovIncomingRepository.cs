@@ -86,7 +86,6 @@ public sealed class EGovIncomingSaveLine
 
 public sealed class EGovIncomingSaveRequest
 {
-    public int UserId { get; set; }
     public int? CompanyId { get; set; }
     public int? WhouseId { get; set; }
     public string? Description { get; set; }

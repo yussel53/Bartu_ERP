@@ -68,17 +68,19 @@ export const EGOV_INCOMING_INVOICE_TYPES: {
   { value: 7, label: 'Satış Fiyat Farkı Faturası', menuLabel: 'Satış Fiyat Farkı Faturasına Çevir', productType: null, needsWarehouse: false },
 ];
 
+// İşlemi yapan kullanıcı gönderilmez: sunucu oturum token'ından alır.
+
 /** comment: onay açıklaması (zorunlu) · groupId: onay grubu (SYS_ApprovalGroup) */
-export function sendEGovIncoming(id: number, userId: number, comment: string, groupId?: number | null): Promise<Result> {
-  return apiJson(`/api/egov/incoming/${id}/send`, { method: 'POST', body: JSON.stringify({ userId, comment, groupId }) });
+export function sendEGovIncoming(id: number, comment: string, groupId?: number | null): Promise<Result> {
+  return apiJson(`/api/egov/incoming/${id}/send`, { method: 'POST', body: JSON.stringify({ comment, groupId }) });
 }
 
-export function approveEGovIncoming(id: number, userId: number, comment?: string): Promise<Result> {
-  return apiJson(`/api/egov/incoming/${id}/approve`, { method: 'POST', body: JSON.stringify({ userId, comment }) });
+export function approveEGovIncoming(id: number, comment?: string): Promise<Result> {
+  return apiJson(`/api/egov/incoming/${id}/approve`, { method: 'POST', body: JSON.stringify({ comment }) });
 }
 
-export function rejectEGovIncoming(id: number, userId: number, comment: string): Promise<Result> {
-  return apiJson(`/api/egov/incoming/${id}/reject`, { method: 'POST', body: JSON.stringify({ userId, comment }) });
+export function rejectEGovIncoming(id: number, comment: string): Promise<Result> {
+  return apiJson(`/api/egov/incoming/${id}/reject`, { method: 'POST', body: JSON.stringify({ comment }) });
 }
 
 export function getEGovIncomingSavePreview(
@@ -90,7 +92,6 @@ export function getEGovIncomingSavePreview(
 export function saveEGovIncoming(
   id: number,
   body: {
-    userId: number;
     companyId?: number | null;
     whouseId?: number | null;
     description?: string | null;
