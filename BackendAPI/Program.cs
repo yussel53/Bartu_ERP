@@ -91,8 +91,11 @@ builder.Services.AddScoped<NumberTemplateRepository>();
 builder.Services.AddScoped<DbUpdateRepository>();
 builder.Services.AddScoped<DbBootstrapRepository>();
 builder.Services.AddScoped<EFaturaMukellefRepository>();
+builder.Services.AddScoped<EGovMukellefCheckRepository>();
 builder.Services.AddScoped<EGovDocumentRepository>();
 builder.Services.AddSingleton<GibEFaturaUserListService>();
+// GİB mükellef listesi gece senkronu (E-06) — GibEFatura:NightlySyncEnabled / NightlySyncHour
+builder.Services.AddHostedService<EFaturaMukellefSyncJob>();
 builder.Services.AddScoped<IntegratorMukellefService>();
 builder.Services.AddScoped<ELogoDocumentSyncService>();
 builder.Services.AddScoped<EGovDesignRepository>();

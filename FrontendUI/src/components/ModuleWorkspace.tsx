@@ -8,6 +8,7 @@ import { EGovRulesPage } from '../pages/EGovRulesPage';
 import { StockCostingPage } from '../pages/StockCostingPage';
 import { ApprovalGroupsPage } from '../pages/ApprovalGroupsPage';
 import { EGovAutoFetchPage } from '../pages/EGovAutoFetchPage';
+import { EGovMukellefCheckPage } from '../pages/EGovMukellefCheckPage';
 import { ExtraFieldsAdminPage } from '../pages/ExtraFieldsAdminPage';
 import { UserPermissionsPage } from '../pages/UserPermissionsPage';
 import { ExternalEmbedPage } from '../pages/ExternalEmbedPage';
@@ -144,6 +145,9 @@ export const ModuleWorkspace: React.FC<ModuleWorkspaceProps> = ({
     }
     if (activeScreen.isEGovAutoFetch) {
       return <EGovAutoFetchPage onBack={() => onNavigate(module.path)} />;
+    }
+    if (activeScreen.isEGovMukellefCheck) {
+      return <EGovMukellefCheckPage onBack={() => onNavigate(module.path)} />;
     }
     if (activeScreen.isJournalNumbering) {
       return <JournalNumberingPage onBack={() => onNavigate(module.path)} />;

@@ -321,6 +321,16 @@ public sealed class ELogoDocumentSyncService
         public int Pdf { get; set; }
     }
 
+    /// <summary>Kullanıcı / şifresi girili ilk e-Logo firması (GİB kullanıcı listesi e-Logo'dan alınırken — E-06)</summary>
+    public async Task<ELogoCompanyCredentials?> FindELogoCompanyAsync(CancellationToken ct)
+    {
+        var companies = await ListCompaniesAsync(ct);
+        return companies.FirstOrDefault(c =>
+            (c.IntegratorName ?? "").Trim().ToUpperInvariant() is "ELOGO" or "LOGO" or "E-LOGO"
+            && !string.IsNullOrWhiteSpace(c.IntegratorUser)
+            && !string.IsNullOrWhiteSpace(c.IntegratorPassword));
+    }
+
     private async Task<ELogoCompanyCredentials?> ResolveCredentialsAsync(int? companyId, CancellationToken ct)
     {
         var companies = await ListCompaniesAsync(ct);

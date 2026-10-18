@@ -14,17 +14,20 @@ public sealed class EFaturaMukellefController : ControllerBase
     private readonly GibEFaturaUserListService _gib;
     private readonly IntegratorMukellefService _integrator;
     private readonly IDbConnection _db;
+    private readonly ELogoDocumentSyncService _elogo;
 
     public EFaturaMukellefController(
         EFaturaMukellefRepository repo,
         GibEFaturaUserListService gib,
         IntegratorMukellefService integrator,
-        IDbConnection db)
+        IDbConnection db,
+        ELogoDocumentSyncService elogo)
     {
         _repo = repo;
         _gib = gib;
         _integrator = integrator;
         _db = db;
+        _elogo = elogo;
     }
 
     /// <summary>
@@ -161,11 +164,14 @@ public sealed class EFaturaMukellefController : ControllerBase
         });
     }
 
-    /// <summary>GİB PK+GB zip listelerini indirip yerel tabloya senkron eder (uzun sürebilir).</summary>
+    /// <summary>
+    /// GİB PK+GB zip listelerini indirip yerel tabloya senkron eder (uzun sürebilir).
+    /// GİB adresine erişilemezse liste e-Logo hesabından (getUserListNew) alınır.
+    /// </summary>
     [HttpPost("sync")]
     public async Task<ActionResult<GibSyncOutcome>> Sync(CancellationToken ct)
     {
-        var outcome = await _gib.SyncFullAsync(_db, ct);
+        var outcome = await _gib.SyncFullAsync(_db, ct, await _elogo.FindELogoCompanyAsync(ct));
         if (!outcome.Success) return StatusCode(502, outcome);
         return Ok(outcome);
     }
