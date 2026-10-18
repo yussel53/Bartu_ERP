@@ -44,7 +44,7 @@ SQL parametreleri: `@InvoiceID`, `@DespatchID`, `@CustomerID`, `@EGovDocumentID`
 
 Başlık: `{Belge.No}` `{Belge.Tarih}` `{Belge.Senaryo}` `{Belge.Tip}` `{Belge.ParaBirimi}` `{Belge.Kur}` `{Belge.SatirSayisi}`
 `{Belge.ToplamMiktar}` `{Belge.OdenecekTutar}` `{Belge.VadeTarihi}` `{Belge.Aciklama}` `{Cari.Kod}` `{Cari.Unvan}` `{Cari.VKN}`
-`{Cari.Bakiye}` `{Cari.BakiyeBA}` `{Cari.BakiyeMutlak}` `{Cari.AcikSiparis}` `{Siparis.No}` `{Siparis.Tarih}` `{Irsaliye.No}`
+`{Cari.Bakiye}` `{Cari.BakiyeBA}` `{Cari.BakiyeMutlak}` `{Cari.AcikSiparis}` `{Cari.GecikenVade}` `{Cari.GecikenGun}` `{Siparis.No}` `{Siparis.Tarih}` `{Irsaliye.No}`
 `{Irsaliye.Tarih}` `{Bugun}`
 
 Satır: `{Satir.No}` `{Satir.MalzemeKodu}` `{Satir.MalzemeAdi}` `{Satir.Aciklama}` `{Satir.Aciklama2}` `{Satir.OzelKod}`

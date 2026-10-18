@@ -6,11 +6,9 @@ Son güncelleme: 18.10.2026.
 
 ## Yusuf (Claude oturumu)
 
-Bitenler: Y-01 … Y-09 (Y-09: fatura / kasa fişi → muhasebe fişi, *Genel Muhasebe → İşlemler → Muhasebeleştirme*;
-kullanmadan önce hesap kartları ve muhasebe bağlantıları girilmeli).
+Bitenler: Y-01 … Y-10 (Y-09: fatura / kasa fişi → muhasebe fişi, *Genel Muhasebe → İşlemler → Muhasebeleştirme* —
+kullanmadan önce hesap kartları ve muhasebe bağlantıları girilmeli; Y-10: *Finans → Raporlar → Cari Yaşlandırma*, FIFO kapama).
 
-- [ ] **Y-10 Tahsilat / ödeme eşleştirme ve vade yaşlandırma** — açık kalemler, FIFO kapama, cari listesinde «Vadesi geçen»,
-  yaşlandırma raporu (0-30 / 31-60 / 61-90 / 90+). Sonra e-belge kuralına `{Cari.GecikenVade}`.
 - [ ] **Y-11 Çek / senet portföy hareketleri** — portföy → ciro / tahsile / teminat → tahsil / karşılıksız; bordrolar,
   vade takvimi.
 - [ ] **Y-12 Risk limiti** — açık bakiye + açık sipariş + portföy; sipariş / irsaliye / faturada uyar / onaya düşür / engelle.

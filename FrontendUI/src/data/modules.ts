@@ -254,7 +254,7 @@ export const APP_MODULES: AppModule[] = [
             title: 'Cari Kartlar',
             subtitle: 'CustomerCard · CardKind=2 · adres / yetkili kart içinde',
             formCode: 'CustomerCardForm',
-            listColumns: cols(['code', 'Kod'], ['title', 'Ünvan'], ['taxNr', 'VKN'], ['type', 'Tür'], ['borc', 'Borç'], ['alacak', 'Alacak'], ['bakiye', 'Bakiye'], ['ba', 'B/A'], ['sonHareket', 'Son Hareket'], ['acikSiparis', 'Açık Sip.'], ['ilIlce', 'İl / İlçe'], ['telefon', 'Telefon'], ['riskGrubu', 'Risk Grubu'], ['status', 'Durum']),
+            listColumns: cols(['code', 'Kod'], ['title', 'Ünvan'], ['taxNr', 'VKN'], ['type', 'Tür'], ['borc', 'Borç'], ['alacak', 'Alacak'], ['bakiye', 'Bakiye'], ['ba', 'B/A'], ['sonHareket', 'Son Hareket'], ['vadesiGecen', 'Vadesi Geçen'], ['acikSiparis', 'Açık Sip.'], ['ilIlce', 'İl / İlçe'], ['telefon', 'Telefon'], ['riskGrubu', 'Risk Grubu'], ['status', 'Durum']),
             sampleRows: [
               { id: 1, code: '120.01', title: 'ABC Ticaret A.Ş.', taxNr: '1234567890', type: 'Alıcı', status: 'Aktif', authCode: 'SAT' },
               { id: 2, code: '320.01', title: 'Demir Tedarik', taxNr: '1122334455', type: 'Satıcı', status: 'Aktif', authCode: 'MUH' },
@@ -510,7 +510,19 @@ export const APP_MODULES: AppModule[] = [
           }),
         ],
       },
-      { key: 'raporlar', title: 'Raporlar', screens: [] },
+      {
+        key: 'raporlar',
+        title: 'Raporlar',
+        screens: [
+          {
+            id: 'cari-yaslandirma',
+            path: 'finans/raporlar/cari-yaslandirma',
+            title: 'Cari Yaşlandırma',
+            subtitle: 'Açık kalemler · FIFO kapama · 1-30 / 31-60 / 61-90 / 90+',
+            isCustomerAging: true,
+          },
+        ],
+      },
     ],
   },
   {

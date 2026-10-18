@@ -11,6 +11,7 @@ public sealed class CardStatementController : ControllerBase
 {
     private readonly CardStatementRepository _repo;
     private readonly DataScopeService _scope;
+    private readonly CustomerAgingService _aging;
 
     /// <summary>Ekstre türü → kart tablosu (Y-02 yetki denetimi)</summary>
     private static readonly Dictionary<string, (string Table, string Pk)> CardTables = new(StringComparer.OrdinalIgnoreCase)
@@ -22,8 +23,9 @@ public sealed class CardStatementController : ControllerBase
         ["safe"] = ("SafeCard", "SafeCardID"),
     };
 
-    public CardStatementController(CardStatementRepository repo, DataScopeService scope)
+    public CardStatementController(CardStatementRepository repo, DataScopeService scope, CustomerAgingService aging)
     {
+        _aging = aging;
         _repo = repo;
         _scope = scope;
     }
@@ -35,6 +37,13 @@ public sealed class CardStatementController : ControllerBase
         try
         {
             var list = await _repo.CustomerSummariesAsync(ct);
+            // Y-10: vadesi geçen
+            foreach (var a in await _aging.AgingAsync(null, ct))
+                if (list.FirstOrDefault(c => c.CustomerCardID == a.CustomerCardID) is { } s && a.Overdue > 0)
+                {
+                    s.Overdue = a.Overdue;
+                    s.OverdueDays = a.MaxDays;
+                }
             var scope = await _scope.GetAsync(ct);
             if (!scope.Unrestricted)
             {
@@ -45,6 +54,45 @@ public sealed class CardStatementController : ControllerBase
                 list = list.Where(c => visible.Contains(c.CustomerCardID)).ToList();
             }
             return Ok(list);
+        }
+        catch (Exception ex)
+        {
+            return StatusCode(500, new { message = ex.Message });
+        }
+    }
+
+    /// <summary>Y-10: cari vade yaşlandırma (FIFO kapama sonrası açık kalemler)</summary>
+    [HttpGet("aging")]
+    public async Task<IActionResult> Aging([FromQuery] DateTime? asOf, CancellationToken ct)
+    {
+        try
+        {
+            var rows = await _aging.AgingAsync(asOf, ct);
+            var scope = await _scope.GetAsync(ct);
+            if (!scope.Unrestricted)
+            {
+                var visible = new List<AgingRow>();
+                foreach (var r in rows)
+                    if (await _scope.CanSeeRecordAsync("CustomerCard", "CustomerCardID", r.CustomerCardID, ct)) visible.Add(r);
+                rows = visible;
+            }
+            return Ok(rows);
+        }
+        catch (Exception ex)
+        {
+            return StatusCode(500, new { message = ex.Message });
+        }
+    }
+
+    /// <summary>Y-10: carinin açık kalemleri</summary>
+    [HttpGet("open-items/{id:int}")]
+    public async Task<IActionResult> OpenItems(int id, [FromQuery] DateTime? asOf, CancellationToken ct)
+    {
+        try
+        {
+            if (!await _scope.CanSeeRecordAsync("CustomerCard", "CustomerCardID", id, ct))
+                return StatusCode(403, new { message = "Bu kayda yetkiniz yok." });
+            return Ok(await _aging.OpenItemsAsync(id, asOf, ct));
         }
         catch (Exception ex)
         {

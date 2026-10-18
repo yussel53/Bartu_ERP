@@ -219,6 +219,8 @@ export interface MenuScreen {
   isStockCosting?: boolean;
   /** Genel Muhasebe → Muhasebeleştirme (fatura / kasa fişi → muhasebe fişi) */
   isAccountingPost?: boolean;
+  /** Finans → Raporlar → Cari Yaşlandırma (açık kalemler, vade dağılımı) */
+  isCustomerAging?: boolean;
   /** Onay grupları (SYS_ApprovalGroup) */
   isApprovalGroups?: boolean;
   /** E-Devlet → Tanımlar → Otomatik Belge Çekme (E-02) */

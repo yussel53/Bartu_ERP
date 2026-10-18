@@ -7,6 +7,7 @@ import { EGovDesignTemplatesPage } from '../pages/EGovDesignTemplatesPage';
 import { EGovRulesPage } from '../pages/EGovRulesPage';
 import { StockCostingPage } from '../pages/StockCostingPage';
 import { AccountingPostPage } from '../pages/AccountingPostPage';
+import { CustomerAgingPage } from '../pages/CustomerAgingPage';
 import { ApprovalGroupsPage } from '../pages/ApprovalGroupsPage';
 import { EGovAutoFetchPage } from '../pages/EGovAutoFetchPage';
 import { EGovMukellefCheckPage } from '../pages/EGovMukellefCheckPage';
@@ -141,6 +142,9 @@ export const ModuleWorkspace: React.FC<ModuleWorkspaceProps> = ({
     }
     if (activeScreen.isAccountingPost) {
       return <AccountingPostPage onBack={() => onNavigate(module.path)} />;
+    }
+    if (activeScreen.isCustomerAging) {
+      return <CustomerAgingPage onBack={() => onNavigate(module.path)} />;
     }
     if (activeScreen.isEGovRules) {
       return <EGovRulesPage onBack={() => onNavigate(module.path)} />;

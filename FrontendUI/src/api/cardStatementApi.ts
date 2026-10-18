@@ -76,6 +76,9 @@ export interface CustomerListSummary {
   phone?: string | null;
   email?: string | null;
   riskGroup?: string | null;
+  /** Vadesi geçmiş açık borç (FIFO kapama sonrası) */
+  overdue?: number;
+  overdueDays?: number;
 }
 
 export function getCustomerSummaries(): Promise<CustomerListSummary[]> {

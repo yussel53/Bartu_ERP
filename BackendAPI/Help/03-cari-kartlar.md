@@ -19,6 +19,7 @@ Listede kod, unvan, VKN ve tür yanında:
 | Borç / Alacak | Cari fişleri + faturalar + banka hareketlerinin toplamı (ekstre ile aynı) |
 | Bakiye, B/A | Borç − alacak; **B** borçlu (kırmızı), **A** alacaklı (yeşil) |
 | Son hareket | En son hareket tarihi |
+| Vadesi geçen | Vadesi geçmiş açık borç ve en eski gecikme (gün) — bkz. *Vade yaşlandırma* |
 | Açık sip. | Açık / kısmi siparişler |
 | İl / İlçe, Telefon | Varsayılan adres ve ilk ilgili kişi |
 | Risk grubu | Kartta seçili risk grubu |
@@ -32,6 +33,17 @@ Cari üzerinde sağ tık:
 - **Siparişler, Malzeme Hareketleri, Ödeme Planı, Çek / Senet** ve CRM (Fırsatlar, Teklifler, Görüşmeler, Yazışmalar) — **Müşteri 360°**.
 
 Aynı sağ tık menüsü malzeme, banka, kasa, muhasebe ve çek/senet kartlarında da vardır.
+
+## Vade yaşlandırma
+
+*Finans → Raporlar → Cari Yaşlandırma*. Her carinin açık kalemleri vadeye göre: **vadesi gelmemiş, 1-30, 31-60, 61-90, 90+ gün**;
+vadesi geçen toplam, en eski ve ortalama gecikme. Satıra tıklayınca açık kalemler (belge, vade, kalan tutar, gün) açılır.
+*Tarih itibarıyla* ile geçmiş bir güne göre bakılabilir.
+
+- **Kapama FIFO'dur**: tahsilatlar (kasa, banka, cari fişi, iade faturası) en eski vadeli borçtan başlayarak düşülür; elle eşleştirme gerekmez.
+  Alacaklı caride (ör. tedarikçi) aynı hesap ters yönde yapılır, tutarlar eksi görünür.
+- **Vade**: hareketin vadesi; faturada ödeme planı (taksitli planda her taksit ayrı kalem, yoksa plan gün sayısı); hiçbiri yoksa belge tarihi.
+- e-Belge kurallarında `{Cari.GecikenVade}` (vadesi geçmiş borç) ve `{Cari.GecikenGun}` kullanılabilir.
 
 ## Kart
 

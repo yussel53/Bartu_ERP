@@ -63,6 +63,18 @@ public sealed class CardStatementResult
 }
 
 /// <summary>Cari listesi özet satırı (bakiye ve önemli bilgiler)</summary>
+public sealed class AgingMove
+{
+    public int CustId { get; set; }
+    public DateTime? Dt { get; set; }
+    public DateTime? DueDate { get; set; }
+    public decimal Debit { get; set; }
+    public decimal Credit { get; set; }
+    public string? Source { get; set; }
+    public int? SourceId { get; set; }
+    public string? DocNo { get; set; }
+}
+
 public sealed class CustomerListSummary
 {
     public int CustomerCardID { get; set; }
@@ -78,6 +90,9 @@ public sealed class CustomerListSummary
     public string? Phone { get; set; }
     public string? Email { get; set; }
     public string? RiskGroup { get; set; }
+    /// <summary>Vadesi geçmiş açık borç (Y-10, FIFO kapama sonrası)</summary>
+    public decimal Overdue { get; set; }
+    public int OverdueDays { get; set; }
 }
 
 /// <summary>
@@ -580,6 +595,7 @@ SELECT
   CASE WHEN i.[{invType}] IN (1,4) THEN ISNULL(s.Tot, 0) ELSE 0 END AS Debit,
   CASE WHEN i.[{invType}] IN (2,3,5,6,7) THEN ISNULL(s.Tot, 0) ELSE 0 END AS Credit,
   s.Tot AS Amount,
+  CAST(NULL AS datetime) AS DueDate,
   i.InvoiceID AS SourceId,
   i.CustomerID AS CustId
 FROM dbo.Invoice i
@@ -605,6 +621,7 @@ SELECT
   CASE WHEN {type} IN {BankOutTypes} THEN 0
        WHEN {type} IN {BankInTypes} OR ISNULL(bt.Amount, 0) >= 0 THEN ABS(ISNULL(bt.Amount, 0)) ELSE 0 END AS Credit,
   bt.Amount AS Amount,
+  CAST(NULL AS datetime) AS DueDate,
   {(join ? "bt.BankVoucherID" : "bt.BankTtansID")} AS SourceId,
   bt.CustomerID AS CustId
 FROM dbo.BankTrans bt
@@ -675,6 +692,18 @@ JOIN dbo.SafeVoucher sv ON sv.SafeVoucherID = st.SafeVoucherID
 LEFT JOIN dbo.BankAccountCard ba ON ba.BankAccountCardID = st.BankAccountCardID
 LEFT JOIN dbo.SafeCard sc ON sc.SafeCardID = sv.SafeCardID
 WHERE sv.Type_ IN (3, 4) AND ISNULL(sv.Status_, 0) <> 2 AND {cond}", new { id }, ct);
+    }
+
+    /// <summary>Vade yaşlandırma (Y-10): carinin (id null → tüm cariler) borç / alacak hareketleri, vadesiyle.</summary>
+    public async Task<List<AgingMove>> CustomerMovesAsync(int? id, CancellationToken ct = default)
+    {
+        if (_db.State != ConnectionState.Open) _db.Open();
+        var parts = await CustomerMovementSqlAsync(single: id != null, ct);
+        if (parts.Count == 0) return new();
+        var union = string.Join("\nUNION ALL\n", parts.Select(p => $"SELECT CustId, Dt, DueDate, Debit, Credit, Source, SourceId, DocNo FROM ({p}) p"));
+        return (await _db.QueryAsync<AgingMove>(new CommandDefinition(
+            $"SELECT CAST(m.CustId AS int) AS CustId, m.Dt, m.DueDate, CAST(ISNULL(m.Debit, 0) AS decimal(19,2)) AS Debit, CAST(ISNULL(m.Credit, 0) AS decimal(19,2)) AS Credit, m.Source, m.SourceId, m.DocNo FROM ({union}) m",
+            new { id }, cancellationToken: ct))).ToList();
     }
 
     /// <summary>Tek carinin borç / alacak toplamı (ekstre ile aynı kaynaklar) — e-Belge kuralları «Cari.Bakiye»</summary>

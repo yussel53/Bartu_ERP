@@ -136,6 +136,7 @@ async function withCustomerSummaries(rows: Record<string, unknown>[], pk: string
       telefon: s?.phone || '',
       eposta: s?.email || '',
       riskGrubu: s?.riskGroup || '',
+      vadesiGecen: s?.overdue ? `${fmtMoney(s.overdue)} (${s.overdueDays} gün)` : '',
     };
   });
 }

@@ -150,8 +150,12 @@ public sealed partial class RuleContext
             h["Cari.BakiyeBA"] = Math.Abs(bal) < 0.005m ? "0,00" : $"{Tr(Math.Abs(bal))} ({(bal > 0 ? "B" : "A")})";
             h["Cari.AcikSiparis"] = (await Db.ExecuteScalarAsync<int>(
                 "SELECT COUNT(1) FROM dbo.OrderVoucher WHERE CustomerID = @cid AND ISNULL(Status_, 1) IN (1, 2)", new { cid })).ToString(CultureInfo.InvariantCulture);
+            // Y-10: vadesi geçmiş açık borç (FIFO kapama sonrası)
+            var (overdue, days) = await new CustomerAgingService(_statement, Db).OverdueAsync(cid, ct);
+            h["Cari.GecikenVade"] = overdue > 0 ? Tr(overdue) : "";
+            h["Cari.GecikenGun"] = overdue > 0 ? days.ToString(CultureInfo.InvariantCulture) : "";
         }
-        foreach (var k in new[] { "Cari.Bakiye", "Cari.BakiyeMutlak", "Cari.BakiyeBA", "Cari.AcikSiparis" }) h.TryAdd(k, "");
+        foreach (var k in new[] { "Cari.Bakiye", "Cari.BakiyeMutlak", "Cari.BakiyeBA", "Cari.AcikSiparis", "Cari.GecikenVade", "Cari.GecikenGun" }) h.TryAdd(k, "");
 
         var lines = await LinesAsync(ct);
         h["Siparis.No"] = string.Join(", ", lines.Select(l => l.OrderNo).Where(s => !string.IsNullOrEmpty(s)).Distinct());
@@ -286,6 +290,7 @@ WHERE ProductCardID = @pid AND CustomerCardID = @cid AND ISNULL(IsActive, 1) = 1
         ("Cari.Kod", "Cari kodu", false), ("Cari.Unvan", "Cari unvanı", false), ("Cari.VKN", "Cari VKN/TCKN", false),
         ("Cari.Bakiye", "Cari bakiye (işaretli, 1234.56)", false), ("Cari.BakiyeBA", "Cari bakiye «1.234,56 (B)»", false),
         ("Cari.BakiyeMutlak", "Cari bakiye (mutlak)", false), ("Cari.AcikSiparis", "Açık sipariş sayısı", false),
+        ("Cari.GecikenVade", "Vadesi geçmiş borç (boşsa gecikme yok)", false), ("Cari.GecikenGun", "En eski gecikme (gün)", false),
         ("Siparis.No", "Sipariş no(ları)", false), ("Siparis.Tarih", "Sipariş tarihi", false),
         ("Irsaliye.No", "İrsaliye no(ları)", false), ("Irsaliye.Tarih", "İrsaliye tarihi", false), ("Bugun", "Bugünün tarihi", false),
         ("Satir.No", "Satır no", true), ("Satir.MalzemeKodu", "Malzeme kodu", true), ("Satir.MalzemeAdi", "Malzeme adı", true),
