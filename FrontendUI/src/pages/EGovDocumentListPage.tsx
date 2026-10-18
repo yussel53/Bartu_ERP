@@ -9,7 +9,6 @@ import { EGovIncomingSaveModal } from '../components/EGovIncomingSaveModal';
 import { EGovPartyCardModal } from '../components/EGovPartyCardModal';
 import { EGovSendApprovalModal } from '../components/EGovSendApprovalModal';
 import { EGovDirection, EGovDocKindLabels } from '../data/egovTypes';
-import { getCurrentUserId } from '../data/permissions';
 import { appConfirm } from '../utils/appConfirm';
 import { isoToDisplay } from '../utils/dateFormat';
 
@@ -98,7 +97,6 @@ export const EGovDocumentListPage: React.FC<EGovDocumentListPageProps> = ({ scre
     }
   }, [box.docKind, box.direction, box.archived, box.stage, from, to, appliedSearch, status]);
 
-  const userId = Number(getCurrentUserId()) || 0;
 
   const act = async (id: number, fn: () => Promise<{ message: string }>) => {
     setBusyId(id);
@@ -119,12 +117,12 @@ export const EGovDocumentListPage: React.FC<EGovDocumentListPageProps> = ({ scre
 
   const approve = async (r: EGovDocumentRow) => {
     if (!(await appConfirm(`${r.documentNo} faturası onaylansın mı?`, { okLabel: 'Onayla' }))) return;
-    await act(r.eGovDocumentID, () => approveEGovIncoming(r.eGovDocumentID, userId));
+    await act(r.eGovDocumentID, () => approveEGovIncoming(r.eGovDocumentID));
   };
 
   const reject = async () => {
     if (!rejectFor || !rejectReason.trim()) return;
-    const ok = await act(rejectFor.eGovDocumentID, () => rejectEGovIncoming(rejectFor.eGovDocumentID, userId, rejectReason.trim()));
+    const ok = await act(rejectFor.eGovDocumentID, () => rejectEGovIncoming(rejectFor.eGovDocumentID, rejectReason.trim()));
     if (ok) {
       setRejectFor(null);
       setRejectReason('');
@@ -521,7 +519,6 @@ export const EGovDocumentListPage: React.FC<EGovDocumentListPageProps> = ({ scre
           egovId={sendFor.eGovDocumentID}
           documentNo={sendFor.documentNo}
           customerTitle={sendFor.customerTitle}
-          userId={userId}
           onClose={() => setSendFor(null)}
           onSent={(message) => {
             setSendFor(null);
@@ -565,7 +562,6 @@ export const EGovDocumentListPage: React.FC<EGovDocumentListPageProps> = ({ scre
       {saveFor && (
         <EGovIncomingSaveModal
           egovId={saveFor.eGovDocumentID}
-          userId={userId}
           initialType={saveType}
           onClose={() => setSaveFor(null)}
           onSaved={(message) => {

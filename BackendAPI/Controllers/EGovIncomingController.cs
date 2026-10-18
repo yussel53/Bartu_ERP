@@ -1,11 +1,12 @@
 using BartuERP.Backend.Repositories;
+using BartuERP.Backend.Services;
 using Microsoft.AspNetCore.Mvc;
 
 namespace BartuERP.Backend.Controllers;
 
+/// <summary>İşlemi yapan kullanıcı gövdeden değil oturum token'ından alınır (User.UserId()).</summary>
 public sealed class EGovIncomingActionDto
 {
-    public int UserId { get; set; }
     public string? Comment { get; set; }
     /// <summary>Onaya gönderirken: SYS_ApprovalGroup.ApprovalGroupID</summary>
     public int? GroupId { get; set; }
@@ -35,7 +36,7 @@ public sealed class EGovIncomingController : ControllerBase
     {
         try
         {
-            var (ok, message) = await _repo.SendAsync(id, dto.UserId, dto.Comment, dto.GroupId, ct);
+            var (ok, message) = await _repo.SendAsync(id, User.UserId(), dto.Comment, dto.GroupId, ct);
             return ok ? Ok(new { success = true, message }) : BadRequest(new { message });
         }
         catch (Exception ex)
@@ -55,7 +56,7 @@ public sealed class EGovIncomingController : ControllerBase
         try
         {
             if (!await _repo.ReadyAsync(ct)) return BadRequest(new { message = EGovIncomingRepository.MissingSetupMessage });
-            var (ok, status, message) = await _repo.DecideAsync(id, dto.UserId, approve, dto.Comment, ct);
+            var (ok, status, message) = await _repo.DecideAsync(id, User.UserId(), approve, dto.Comment, ct);
             return ok ? Ok(new { success = true, message }) : StatusCode(status, new { message });
         }
         catch (Exception ex)
@@ -120,7 +121,7 @@ public sealed class EGovIncomingController : ControllerBase
                     TriggerType = 2, // OnVoucherSave
                     SourceTable = "Invoice",
                     SourceId = invoiceId,
-                    StartedBy = req.UserId > 0 ? req.UserId : null,
+                    StartedBy = User.UserId() > 0 ? User.UserId() : null,
                     Context = new Dictionary<string, string?>(StringComparer.OrdinalIgnoreCase)
                     {
                         ["formCode"] = body!.FormCode,

@@ -83,7 +83,6 @@ const ProductPicker: React.FC<{
 
 interface Props {
   egovId: number;
-  userId: number;
   /** Listeden «… Faturasına Çevir» ile seçilen tür; boşsa önerilen tür */
   initialType?: number | null;
   onClose: () => void;
@@ -95,7 +94,7 @@ interface Props {
  * fiyat farkı). Satırlar kart ↔ cari bağlantısıyla (ProductCustomerAlias) eşlenir; seçimler oraya yazılır.
  * Alınan hizmet faturasında satırlar malzeme kartlarına değil Alınan Hizmet kartlarına (ProductType 3) eşlenir.
  */
-export const EGovIncomingSaveModal: React.FC<Props> = ({ egovId, userId, initialType, onClose, onSaved }) => {
+export const EGovIncomingSaveModal: React.FC<Props> = ({ egovId, initialType, onClose, onSaved }) => {
   const [preview, setPreview] = useState<EGovIncomingPreview | null>(null);
   const [partyOpen, setPartyOpen] = useState(false);
   const [loadError, setLoadError] = useState<string | null>(null);
@@ -195,7 +194,6 @@ export const EGovIncomingSaveModal: React.FC<Props> = ({ egovId, userId, initial
     setError(null);
     try {
       const r = await saveEGovIncoming(egovId, {
-        userId,
         companyId: companyId ? Number(companyId) : null,
         whouseId: whouseId ? Number(whouseId) : null,
         invoiceType: typeDef.value,

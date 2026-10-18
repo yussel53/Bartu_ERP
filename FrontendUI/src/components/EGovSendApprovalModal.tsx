@@ -7,13 +7,12 @@ interface Props {
   egovId: number;
   documentNo?: string | null;
   customerTitle?: string | null;
-  userId: number;
   onClose: () => void;
   onSent: (message: string) => void;
 }
 
 /** Gelen e-fatura → «Onaya Gönder»: onay açıklaması + onay grubu (grubun herhangi bir üyesi onaylar) */
-export const EGovSendApprovalModal: React.FC<Props> = ({ egovId, documentNo, customerTitle, userId, onClose, onSent }) => {
+export const EGovSendApprovalModal: React.FC<Props> = ({ egovId, documentNo, customerTitle, onClose, onSent }) => {
   const [groups, setGroups] = useState<ApprovalGroup[] | null>(null);
   const [groupsReady, setGroupsReady] = useState(true);
   const [groupId, setGroupId] = useState<number | null>(null);
@@ -43,7 +42,7 @@ export const EGovSendApprovalModal: React.FC<Props> = ({ egovId, documentNo, cus
     setBusy(true);
     setError(null);
     try {
-      const r = await sendEGovIncoming(egovId, userId, note.trim(), groupsReady ? groupId : null);
+      const r = await sendEGovIncoming(egovId, note.trim(), groupsReady ? groupId : null);
       onSent(r.message);
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Gönderilemedi');
