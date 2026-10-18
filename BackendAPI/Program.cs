@@ -97,6 +97,9 @@ builder.Services.AddScoped<IntegratorMukellefService>();
 builder.Services.AddScoped<ELogoDocumentSyncService>();
 builder.Services.AddScoped<EGovDesignRepository>();
 builder.Services.AddScoped<EGovIncomingRepository>();
+// Gelen e-belgeleri otomatik çekme (E-02): firma ayarına göre her dakika zamanı geleni çeker
+builder.Services.AddScoped<EGovAutoFetchService>();
+builder.Services.AddHostedService<EGovAutoFetchJob>();
 builder.Services.AddScoped<ApprovalGroupRepository>();
 builder.Services.AddSingleton<AddressSeedService>();
 builder.Services.AddHttpClient("PostSave", client =>
