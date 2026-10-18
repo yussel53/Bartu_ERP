@@ -989,6 +989,13 @@ export const APP_MODULES: AppModule[] = [
             subtitle: 'AccountVoucher.journalNO · tarih + saat sırası',
             isJournalNumbering: true,
           }),
+          {
+            id: 'muhasebelestirme',
+            path: 'muhasebe/islemler/muhasebelestirme',
+            title: 'Muhasebeleştirme',
+            subtitle: 'Fatura / kasa fişi → muhasebe fişi (Muhasebe Bağlantıları)',
+            isAccountingPost: true,
+          },
         ],
       },
       { key: 'raporlar', title: 'Raporlar', screens: [] },

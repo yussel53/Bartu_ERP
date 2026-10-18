@@ -28,6 +28,7 @@ public sealed class RecordsController : ControllerBase
     private readonly DataScopeService _scope;
     private readonly NumberTemplateRepository _numbers;
     private readonly StockService _stock;
+    private readonly AccountingPostService _accounting;
 
     public RecordsController(
         RecordsRepository repo,
@@ -37,9 +38,11 @@ public sealed class RecordsController : ControllerBase
         BarcodeRepository barcodes,
         DataScopeService scope,
         NumberTemplateRepository numbers,
-        StockService stock)
+        StockService stock,
+        AccountingPostService accounting)
     {
         _stock = stock;
+        _accounting = accounting;
         _scope = scope;
         _numbers = numbers;
         _repo = repo;
@@ -256,6 +259,24 @@ public sealed class RecordsController : ControllerBase
                 /* dönüşüm kayıt kaydını etkilemez */
             }
 
+            // Y-09: fatura / kasa fişi → muhasebe fişi (ACC_AUTO_POST «Otomatik Mahsup» = 1; bağlantı eksikse kayıt yapılır, uyarı döner)
+            string? accountingWarning = null;
+            if (tableName.Equals("Invoice", StringComparison.OrdinalIgnoreCase) || tableName.Equals("SafeVoucher", StringComparison.OrdinalIgnoreCase))
+            {
+                try
+                {
+                    if (await _accounting.AutoPostEnabledAsync())
+                    {
+                        var acc = await _accounting.PostAsync(tableName, id, ct);
+                        if (!acc.Success) accountingWarning = "Muhasebeleştirilmedi: " + acc.Message;
+                    }
+                }
+                catch (Exception ex)
+                {
+                    accountingWarning = "Muhasebeleştirilmedi: " + ex.Message;
+                }
+            }
+
             // Onay Tanımları: fiş / kart kaydı tetikleyicileri (hata kaydı bozmaz)
             int processStarted = 0;
             try
@@ -270,7 +291,7 @@ public sealed class RecordsController : ControllerBase
             return Ok(new
             {
                 success = true,
-                message = string.Join(" · ", new[] { message, autoNumber != null ? $"Fiş no: {autoNumber}" : null, stockWarning }
+                message = string.Join(" · ", new[] { message, autoNumber != null ? $"Fiş no: {autoNumber}" : null, stockWarning, accountingWarning }
                     .Where(x => !string.IsNullOrEmpty(x))),
                 recordId = id,
                 autoNumber,
@@ -388,6 +409,12 @@ public sealed class RecordsController : ControllerBase
             if (await _repo.GetAsync(tableName, pk, id, ct) is { } toDelete
                 && !_scope.CanSee(await _scope.GetAsync(ct), tableName, toDelete.StandardFields))
                 return StatusCode(403, new { success = false, message = "Bu kayda yetkiniz yok." });
+            // Y-09: belgenin muhasebe fişi de silinir (yevmiye numarası almışsa belge silinmez)
+            if (tableName.Equals("Invoice", StringComparison.OrdinalIgnoreCase) || tableName.Equals("SafeVoucher", StringComparison.OrdinalIgnoreCase))
+            {
+                var locked = await _accounting.UnpostAsync(tableName, id);
+                if (locked != null) return BadRequest(new { success = false, message = locked });
+            }
             var (ok, message) = await _repo.DeleteAsync(tableName, pk, id, ct);
             if (!ok) return BadRequest(new { success = false, message });
             return Ok(new { success = true, message });

@@ -299,6 +299,7 @@ export function buildOperationAuthTree(): OpTreeNode[] {
             !s.isEGovDesignTemplates &&
             !s.isEGovRules &&
             !s.isStockCosting &&
+            !s.isAccountingPost &&
             !s.isApprovalGroups &&
             !s.isCrmWorkspace &&
             !s.isCrmSettings &&

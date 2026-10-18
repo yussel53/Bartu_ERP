@@ -217,6 +217,8 @@ export interface MenuScreen {
   isEGovRules?: boolean;
   /** Malzeme → Maliyetlendirme (ağırlıklı ortalama maliyet, stok değeri, brüt kâr) */
   isStockCosting?: boolean;
+  /** Genel Muhasebe → Muhasebeleştirme (fatura / kasa fişi → muhasebe fişi) */
+  isAccountingPost?: boolean;
   /** Onay grupları (SYS_ApprovalGroup) */
   isApprovalGroups?: boolean;
   /** E-Devlet → Tanımlar → Otomatik Belge Çekme (E-02) */

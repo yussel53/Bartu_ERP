@@ -6,9 +6,9 @@ Son güncelleme: 18.10.2026.
 
 ## Yusuf (Claude oturumu)
 
-- [ ] **Y-09 Fatura → otomatik muhasebe fişi** — satış / alış / iade faturasında cari (120/320), satış-alış (600/153),
-  KDV (391/191) satırları; hesaplar AccountLinkDetail'den (kart, yoksa öndeğer −1). Kasa / banka / cari fişleri için aynı.
-  *Not: hesap planı (AccountCard) şu an boş — kullanmadan önce muhasebe hesapları girilmeli.*
+Bitenler: Y-01 … Y-09 (Y-09: fatura / kasa fişi → muhasebe fişi, *Genel Muhasebe → İşlemler → Muhasebeleştirme*;
+kullanmadan önce hesap kartları ve muhasebe bağlantıları girilmeli).
+
 - [ ] **Y-10 Tahsilat / ödeme eşleştirme ve vade yaşlandırma** — açık kalemler, FIFO kapama, cari listesinde «Vadesi geçen»,
   yaşlandırma raporu (0-30 / 31-60 / 61-90 / 90+). Sonra e-belge kuralına `{Cari.GecikenVade}`.
 - [ ] **Y-11 Çek / senet portföy hareketleri** — portföy → ciro / tahsile / teminat → tahsil / karşılıksız; bordrolar,
@@ -30,11 +30,11 @@ e-Belge Konsolu.
   uygulama yanıtı.
 - [ ] **E-04 e-Arşiv** (E-03'e bağlı).
 - [ ] **E-05 giden e-İrsaliye** (gelen kısmı bitti).
-- [ ] **E-07 e-Defter** (Y-09'a bağlı).
-- [ ] **E-08 KDV beyan raporu ve Ba / Bs** (Y-09 önerilir).
+- [ ] **E-07 e-Defter** (Y-09 bitti, başlanabilir).
+- [ ] **E-08 KDV beyan raporu ve Ba / Bs** (Y-09 bitti).
 - [ ] **E-09 e-Belge hata izleme** — konsol bitti; gönderim hata günlüğü ve «yeniden dene» E-03 ile.
 
 ## Bekleyen küçük işler
 
 - [ ] Tanıtım sitesi (`website/index.html`): iletişim e-posta / telefonu gerçek bilgilerle değiştirilmeli.
-- [ ] Canlıda «Şimdi uygula» ile bekleyen SQL scriptleri (81–84) kayda geçirilmeli (81–82 veritabanında var, 83–84 yeni).
+- [ ] Canlıda «Şimdi uygula» ile bekleyen SQL scriptleri (81–85) kayda geçirilmeli (81–82 veritabanında var, 83–85 yeni).
