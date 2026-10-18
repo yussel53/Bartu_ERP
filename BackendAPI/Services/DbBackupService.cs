@@ -28,10 +28,12 @@ public sealed class DbBackupService
     private readonly DbConnectionStore _store;
     private readonly IConfiguration _cfg;
     private readonly ILogger<DbBackupService> _log;
+    private readonly CurrentDatabase _current;
 
-    public DbBackupService(DbConnectionStore store, IConfiguration cfg, ILogger<DbBackupService> log)
+    public DbBackupService(DbConnectionStore store, IConfiguration cfg, ILogger<DbBackupService> log, CurrentDatabase current)
     {
         _store = store;
+        _current = current;
         _cfg = cfg;
         _log = log;
     }
@@ -64,10 +66,10 @@ SELECT @d;");
     public async Task<DbBackupResult> BackupAsync(string reason, CancellationToken ct = default)
     {
         if (!_store.IsConfigured()) return new DbBackupResult { Message = "Veritabanı bağlantısı tanımlı değil." };
-        var db = _store.GetSettings().Database.Trim();
+        var db = _current.Name.Trim();
         try
         {
-            await using var cn = new SqlConnection(_store.GetConnectionString());
+            await using var cn = new SqlConnection(_store.GetConnectionString(_current.Name));
             await cn.OpenAsync(ct);
             var folder = await FolderAsync(cn);
             var safeReason = new string((reason ?? "elle").Where(char.IsLetterOrDigit).Take(20).ToArray());
@@ -90,10 +92,10 @@ SELECT @d;");
     public async Task<(string Folder, List<DbBackupFile> Files)> ListAsync(CancellationToken ct = default)
     {
         if (!_store.IsConfigured()) return ("", new List<DbBackupFile>());
-        await using var cn = new SqlConnection(_store.GetConnectionString());
+        await using var cn = new SqlConnection(_store.GetConnectionString(_current.Name));
         await cn.OpenAsync(ct);
         var folder = await FolderAsync(cn);
-        var db = _store.GetSettings().Database.Trim();
+        var db = _current.Name.Trim();
         var files = new List<DbBackupFile>();
         try
         {
@@ -158,14 +160,20 @@ public sealed class DbBackupJob : BackgroundService
             {
                 return;
             }
-            try
+            // Sunucudaki her Bartu veritabanı ayrı yedeklenir
+            var dbs = _scopes.CreateScope().ServiceProvider.GetRequiredService<TenantDbRegistry>().List();
+            foreach (var name in dbs)
             {
-                using var scope = _scopes.CreateScope();
-                await scope.ServiceProvider.GetRequiredService<DbBackupService>().BackupAsync("gece", stoppingToken);
-            }
-            catch (Exception ex)
-            {
-                _log.LogWarning(ex, "Gece yedeği çalışmadı");
+                try
+                {
+                    using var scope = _scopes.CreateScope();
+                    scope.ServiceProvider.GetRequiredService<CurrentDatabase>().Name = name;
+                    await scope.ServiceProvider.GetRequiredService<DbBackupService>().BackupAsync("gece", stoppingToken);
+                }
+                catch (Exception ex)
+                {
+                    _log.LogWarning(ex, "Gece yedeği çalışmadı: {Db}", name);
+                }
             }
         }
     }

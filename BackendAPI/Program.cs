@@ -45,10 +45,15 @@ builder.Services.AddAuthorization(o =>
     o.AddPolicy(AuthClaims.AdminPolicy, p => p.RequireClaim(AuthClaims.Admin, "1"));
 });
 builder.Services.AddSingleton<DbConnectionStore>();
+// Çok veritabanı: istek token'daki (girişte X-Bartu-Db başlığındaki) Bartu veritabanında çalışır
+builder.Services.AddHttpContextAccessor();
+builder.Services.AddSingleton<TenantDbRegistry>();
+builder.Services.AddScoped(sp =>
+    sp.GetRequiredService<TenantDbRegistry>().Resolve(sp.GetRequiredService<IHttpContextAccessor>().HttpContext));
 builder.Services.AddScoped<IDbConnection>(sp =>
 {
     var store = sp.GetRequiredService<DbConnectionStore>();
-    return store.CreateConnection();
+    return store.CreateConnection(sp.GetRequiredService<CurrentDatabase>().Name);
 });
 builder.Services.AddScoped<DynamicFormRepository>();
 builder.Services.AddScoped<RecordsRepository>();
@@ -184,14 +189,20 @@ if (Directory.Exists(www))
     app.MapFallbackToFile("index.html").AllowAnonymous();
 }
 
-// Giriş şeması (SqlUpdates/79) yoksa açılışta uygula — giriş yapılamadan güncelleme ekranına ulaşılamaz
-using (var scope = app.Services.CreateScope())
+// Giriş şeması (SqlUpdates/79) yoksa açılışta uygula — giriş yapılamadan güncelleme ekranına ulaşılamaz.
+// Sunucudaki her Bartu veritabanı için (çok veritabanı).
+if (app.Services.GetRequiredService<DbConnectionStore>().IsConfigured())
 {
-    try
+    var registry = app.Services.GetRequiredService<TenantDbRegistry>();
+    var names = registry.List().ToList();
+    if (!names.Contains(registry.DefaultDatabase, StringComparer.OrdinalIgnoreCase)) names.Add(registry.DefaultDatabase);
+    foreach (var name in names)
     {
-        var sp = scope.ServiceProvider;
-        if (sp.GetRequiredService<DbConnectionStore>().IsConfigured())
+        using var scope = app.Services.CreateScope();
+        try
         {
+            var sp = scope.ServiceProvider;
+            sp.GetRequiredService<CurrentDatabase>().Name = name;
             var db = sp.GetRequiredService<IDbConnection>();
             db.Open();
             var missing = db.ExecuteScalar<int>(
@@ -199,13 +210,13 @@ using (var scope = app.Services.CreateScope())
             if (missing)
             {
                 var r = await sp.GetRequiredService<DbUpdateRepository>().ApplyAsync("79_sys_auth_login.sql", "startup");
-                app.Logger.LogInformation("Giriş şeması (79) uygulandı: {Ok} {Msg}", r.Success, r.Message);
+                app.Logger.LogInformation("Giriş şeması (79) uygulandı ({Db}): {Ok} {Msg}", name, r.Success, r.Message);
             }
         }
-    }
-    catch (Exception ex)
-    {
-        app.Logger.LogWarning(ex, "Giriş şeması kontrolü yapılamadı");
+        catch (Exception ex)
+        {
+            app.Logger.LogWarning(ex, "Giriş şeması kontrolü yapılamadı ({Db})", name);
+        }
     }
 }
 

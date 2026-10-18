@@ -16,6 +16,8 @@ public sealed class AuthUser
     public string DisplayName { get; set; } = "";
     public bool IsAdmin { get; set; }
     public bool MustChangePassword { get; set; }
+    /// <summary>Kullanıcının bağlı olduğu veritabanı (girişte seçilen; tüm işlemler orada)</summary>
+    public string Database { get; set; } = "";
 }
 
 public static class AuthClaims
@@ -48,10 +50,12 @@ public sealed class AuthService
     private const int Pbkdf2Iterations = 100_000;
 
     private readonly IDbConnection _db;
+    private readonly CurrentDatabase _current;
 
-    public AuthService(IDbConnection db)
+    public AuthService(IDbConnection db, CurrentDatabase current)
     {
         _db = db;
+        _current = current;
     }
 
     // ── İmza anahtarı ───────────────────────────────────────────────────
@@ -107,6 +111,7 @@ public sealed class AuthService
         };
         if (u.IsAdmin) claims.Add(new Claim(AuthClaims.Admin, "1"));
         if (u.MustChangePassword) claims.Add(new Claim(AuthClaims.MustChange, "1"));
+        if (!string.IsNullOrWhiteSpace(u.Database)) claims.Add(new Claim(CurrentDatabase.Claim, u.Database));
 
         var creds = new SigningCredentials(new SymmetricSecurityKey(SigningKey(contentRoot)), SecurityAlgorithms.HmacSha256);
         var token = new JwtSecurityToken(Issuer, Issuer, claims, DateTime.UtcNow, DateTime.UtcNow.Add(AccessLifetime), creds);
@@ -187,6 +192,7 @@ WHERE ur.SystemUserID = @userId AND r.IsAdmin = 1 AND ISNULL(r.IsActive, 1) = 1"
             : r.NickName?.Trim() ?? "",
         IsAdmin = await IsAdminAsync(r.SystemUserID, r.Type),
         MustChangePassword = r.MustChangePassword == true,
+        Database = _current.Name,
     };
 
     private const string UserSelect = @"

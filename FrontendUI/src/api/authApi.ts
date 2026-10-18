@@ -7,6 +7,8 @@ export interface AuthUser {
   displayName: string;
   isAdmin: boolean;
   mustChangePassword: boolean;
+  /** Bağlı veritabanı (girişte seçilen) */
+  database: string;
 }
 
 export function getAuthStatus(): Promise<{ dbReady: boolean; needsSetup: boolean; message?: string }> {

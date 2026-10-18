@@ -60,6 +60,7 @@ const UserBlock: React.FC = () => {
         <div className="truncate text-[10px] text-slate-500">
           {user.userName}
           {user.isAdmin ? ' · Yönetici' : ''}
+          {user.database ? ` · ${user.database}` : ''}
         </div>
       </div>
       <button

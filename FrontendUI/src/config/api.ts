@@ -62,6 +62,26 @@ export async function apiJson<T>(path: string, init?: RequestInit): Promise<T> {
 /** Oturum süresi doldu: AuthGate bu olayla giriş penceresini açar */
 export const AUTH_REQUIRED_EVENT = 'bartu:auth-required';
 
+const DB_KEY = 'bartu_erp_db';
+
+/** Girişte seçilen veritabanı (aynı sunucuda birden çok Bartu veritabanı) — X-Bartu-Db başlığıyla gönderilir */
+export function getSelectedDb(): string {
+  try {
+    return localStorage.getItem(DB_KEY) || '';
+  } catch {
+    return '';
+  }
+}
+
+export function setSelectedDb(name: string): void {
+  try {
+    if (name) localStorage.setItem(DB_KEY, name);
+    else localStorage.removeItem(DB_KEY);
+  } catch {
+    /* depolama kapalı olabilir */
+  }
+}
+
 let refreshing: Promise<boolean> | null = null;
 
 /**
@@ -75,7 +95,10 @@ export function installAuthFetch(): void {
   const orig = window.fetch.bind(window);
 
   const tryRefresh = () => {
-    refreshing ??= orig(`${API_BASE}/api/auth/refresh`, { method: 'POST' })
+    refreshing ??= orig(`${API_BASE}/api/auth/refresh`, {
+      method: 'POST',
+      headers: getSelectedDb() ? { 'X-Bartu-Db': getSelectedDb() } : undefined,
+    })
       .then((r) => r.ok)
       .catch(() => false)
       .finally(() => {
@@ -85,6 +108,14 @@ export function installAuthFetch(): void {
   };
 
   window.fetch = async (input: RequestInfo | URL, init?: RequestInit) => {
+    // Veritabanı adı: girişte / oturum yenilemede kullanılır (oturum açıkken sunucu token'daki veritabanını esas alır)
+    const db = getSelectedDb();
+    const target = typeof input === 'string' ? input : input instanceof URL ? input.href : input.url;
+    if (db && target.includes('/api/')) {
+      const headers = new Headers(init?.headers ?? (input instanceof Request ? input.headers : undefined));
+      if (!headers.has('X-Bartu-Db')) headers.set('X-Bartu-Db', db);
+      init = { ...init, headers };
+    }
     const res = await orig(input, init);
     if (res.status !== 401) return res;
     const url = typeof input === 'string' ? input : input instanceof URL ? input.href : input.url;

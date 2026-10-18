@@ -9,7 +9,7 @@ import {
   logout as apiLogout,
   setupAdmin,
 } from '../api/authApi';
-import { ApiError, AUTH_REQUIRED_EVENT, installAuthFetch } from '../config/api';
+import { ApiError, AUTH_REQUIRED_EVENT, getSelectedDb, installAuthFetch, setSelectedDb } from '../config/api';
 import { refreshEffectiveAuth, setCurrentUserId } from '../data/permissions';
 import { loadExtraFields } from '../data/extraFields';
 import { useAppModules } from '../contexts/AppModulesContext';
@@ -40,6 +40,7 @@ const LoginForm: React.FC<{
   expired?: boolean;
   onDone: (u: AuthUser) => void;
 }> = ({ setup, expired, onDone }) => {
+  const [database, setDatabase] = useState(getSelectedDb());
   const [userName, setUserName] = useState('');
   const [password, setPassword] = useState('');
   const [password2, setPassword2] = useState('');
@@ -56,7 +57,10 @@ const LoginForm: React.FC<{
     }
     setBusy(true);
     try {
+      // Önce veritabanı: istek o veritabanında çalışır (boş = sunucudaki varsayılan)
+      setSelectedDb(database.trim());
       const r = setup ? await setupAdmin(userName, password) : await apiLogin(userName, password, remember);
+      setSelectedDb(r.user.database || database.trim());
       onDone(r.user);
     } catch (err) {
       setError(errText(err));
@@ -87,8 +91,20 @@ const LoginForm: React.FC<{
       )}
 
       <label className="block space-y-1">
+        <span className="text-[12px] text-slate-600">Veritabanı</span>
+        <input
+          autoFocus={!database}
+          value={database}
+          onChange={(e) => setDatabase(e.target.value.replace(/[^A-Za-z0-9_\-.]/g, ''))}
+          placeholder="Firma veritabanı adı (boş: varsayılan)"
+          className={`${input} font-mono`}
+          autoComplete="organization"
+          spellCheck={false}
+        />
+      </label>
+      <label className="block space-y-1">
         <span className="text-[12px] text-slate-600">Kullanıcı adı</span>
-        <input autoFocus value={userName} onChange={(e) => setUserName(e.target.value)} className={input} autoComplete="username" />
+        <input autoFocus={!!database} value={userName} onChange={(e) => setUserName(e.target.value)} className={input} autoComplete="username" />
       </label>
       <label className="block space-y-1">
         <span className="text-[12px] text-slate-600">{setup ? 'Yeni şifre' : 'Şifre'}</span>
@@ -197,6 +213,8 @@ export const AuthGate: React.FC<{ children: React.ReactNode }> = ({ children }) 
   const { reloadMenus } = useAppModules();
 
   const accept = useCallback(async (u: AuthUser) => {
+    // Sunucunun token'daki veritabanı esastır; tarayıcıdaki seçim onunla eşitlenir
+    if (u.database) setSelectedDb(u.database);
     setCurrentUserId(String(u.userId));
     await refreshEffectiveAuth(String(u.userId));
     // Girişten önce 401 alan yüklemeler (ek alanlar, rapor menüleri) kullanıcıyla yeniden

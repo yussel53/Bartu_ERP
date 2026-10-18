@@ -40,10 +40,12 @@ public sealed class DbUpdateRepository
     private readonly DbConnectionStore _store;
     private readonly IConfiguration _config;
     private readonly IWebHostEnvironment _env;
+    private readonly CurrentDatabase _current;
 
-    public DbUpdateRepository(DbConnectionStore store, IConfiguration config, IWebHostEnvironment env)
+    public DbUpdateRepository(DbConnectionStore store, IConfiguration config, IWebHostEnvironment env, CurrentDatabase current)
     {
         _store = store;
+        _current = current;
         _config = config;
         _env = env;
     }
@@ -81,7 +83,7 @@ public sealed class DbUpdateRepository
         Dictionary<string, DateTime> appliedAt = new(StringComparer.OrdinalIgnoreCase);
         try
         {
-            await using var conn = _store.CreateConnection();
+            await using var conn = _store.CreateConnection(_current.Name);
             await conn.OpenAsync(ct);
             var exists = await conn.ExecuteScalarAsync<int>(
                 @"SELECT CASE WHEN OBJECT_ID(N'dbo.SYS_DbUpdates', N'U') IS NULL THEN 0 ELSE 1 END");
@@ -146,7 +148,7 @@ public sealed class DbUpdateRepository
         try
         {
             var sql = await File.ReadAllTextAsync(path, Encoding.UTF8, ct);
-            await using var conn = (SqlConnection)_store.CreateConnection();
+            await using var conn = (SqlConnection)_store.CreateConnection(_current.Name);
             await conn.OpenAsync(ct);
 
             foreach (var batch in SplitGoBatches(sql))

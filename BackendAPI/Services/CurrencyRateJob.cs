@@ -53,20 +53,32 @@ public sealed class CurrencyRateJob : BackgroundService
         {
             try
             {
-                if (_store.GetSettings().HasMinimumInfo())
+                // Sunucudaki her Bartu veritabanında ayrı (kur ayarları veritabanına özgü)
+                var dbs = _store.GetSettings().HasMinimumInfo()
+                    ? _scopes.CreateScope().ServiceProvider.GetRequiredService<TenantDbRegistry>().List()
+                    : Array.Empty<string>();
+                foreach (var name in dbs)
                 {
-                    using var scope = _scopes.CreateScope();
-                    var svc = scope.ServiceProvider.GetRequiredService<TcmbRateService>();
-                    if (await svc.ReadyAsync() && (await svc.AutoCurrenciesAsync()).Count > 0)
+                    try
                     {
-                        var expected = ExpectedBulletinDate(TurkeyNow());
-                        if (!await svc.HasRatesForAsync(expected))
+                        using var scope = _scopes.CreateScope();
+                        scope.ServiceProvider.GetRequiredService<CurrentDatabase>().Name = name;
+                        var svc = scope.ServiceProvider.GetRequiredService<TcmbRateService>();
+                        if (await svc.ReadyAsync() && (await svc.AutoCurrenciesAsync()).Count > 0)
                         {
-                            // today.xml: son yayımlanan bülten (tatilde önceki iş günü) — zaten kayıtlıysa sessizce geçer
-                            var r = await svc.DownloadAsync(null, "Otomatik", skipIfPresent: true, ct: stoppingToken);
-                            if (r.RateCount > 0)
-                                _log.LogInformation("TCMB kurları indirildi: {Msg}", r.Message);
+                            var expected = ExpectedBulletinDate(TurkeyNow());
+                            if (!await svc.HasRatesForAsync(expected))
+                            {
+                                // today.xml: son yayımlanan bülten (tatilde önceki iş günü) — zaten kayıtlıysa sessizce geçer
+                                var r = await svc.DownloadAsync(null, "Otomatik", skipIfPresent: true, ct: stoppingToken);
+                                if (r.RateCount > 0)
+                                    _log.LogInformation("TCMB kurları indirildi ({Db}): {Msg}", name, r.Message);
+                            }
                         }
+                    }
+                    catch (Exception ex) when (!stoppingToken.IsCancellationRequested)
+                    {
+                        _log.LogWarning(ex, "Otomatik kur görevi hatası: {Db}", name);
                     }
                 }
             }

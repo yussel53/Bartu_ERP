@@ -96,6 +96,16 @@ public sealed class DbConnectionStore
         return new SqlConnection(GetConnectionString());
     }
 
+    /// <summary>Aynı sunucuda başka veritabanı (çok veritabanlı kullanım — CurrentDatabase); boşsa varsayılan</summary>
+    public string GetConnectionString(string? database)
+    {
+        var cs = GetConnectionString();
+        if (string.IsNullOrWhiteSpace(database)) return cs;
+        return new SqlConnectionStringBuilder(cs) { InitialCatalog = database.Trim() }.ConnectionString;
+    }
+
+    public SqlConnection CreateConnection(string? database) => new(GetConnectionString(database));
+
     public SqlConnection CreateMasterConnection(DbConnectionSettings? settings = null)
     {
         var s = settings ?? GetSettings();

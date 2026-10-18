@@ -29,13 +29,21 @@ public sealed class AuthController : ControllerBase
     private readonly AuthService _auth;
     private readonly IWebHostEnvironment _env;
     private readonly DbConnectionStore _store;
+    private readonly CurrentDatabase _current;
 
-    public AuthController(AuthService auth, IWebHostEnvironment env, DbConnectionStore store)
+    public AuthController(AuthService auth, IWebHostEnvironment env, DbConnectionStore store, CurrentDatabase current)
     {
         _auth = auth;
         _env = env;
         _store = store;
+        _current = current;
     }
+
+    /// <summary>Girişte istenen veritabanı bu sunucuda bir Bartu veritabanı değilse (ya da izin listesinde yoksa)</summary>
+    private IActionResult? RejectDatabase() =>
+        _current.RejectedName == null
+            ? null
+            : BadRequest(new { message = $"«{_current.RejectedName}» veritabanı bulunamadı ya da erişime kapalı.", field = "database" });
 
     private CookieOptions Cookie(string path, DateTimeOffset? expires) => new()
     {
@@ -70,9 +78,11 @@ public sealed class AuthController : ControllerBase
     public async Task<IActionResult> Status()
     {
         if (!_store.IsConfigured()) return Ok(new { dbReady = false, needsSetup = false });
+        if (_current.RejectedName != null)
+            return Ok(new { dbReady = false, needsSetup = false, databaseValid = false, message = $"«{_current.RejectedName}» veritabanı bulunamadı." });
         try
         {
-            return Ok(new { dbReady = true, needsSetup = await _auth.NeedsSetupAsync() });
+            return Ok(new { dbReady = true, needsSetup = await _auth.NeedsSetupAsync(), databaseValid = true });
         }
         catch (Exception ex)
         {
@@ -84,6 +94,7 @@ public sealed class AuthController : ControllerBase
     [HttpPost("login")]
     public async Task<IActionResult> Login([FromBody] LoginRequest req)
     {
+        if (RejectDatabase() is { } bad) return bad;
         try
         {
             var (user, error) = await _auth.LoginAsync(req.UserName, req.Password);
@@ -101,6 +112,7 @@ public sealed class AuthController : ControllerBase
     [HttpPost("setup")]
     public async Task<IActionResult> Setup([FromBody] LoginRequest req)
     {
+        if (RejectDatabase() is { } bad) return bad;
         try
         {
             var (user, error) = await _auth.SetupAdminAsync(req.UserName, req.Password);
