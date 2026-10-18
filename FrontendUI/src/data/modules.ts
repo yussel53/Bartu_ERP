@@ -207,23 +207,13 @@ export const APP_MODULES: AppModule[] = [
             listColumns: cols(['no', 'Fiş No'], ['date', 'Tarih'], ['warehouse', 'Depo'], ['status', 'Durum']),
             sampleRows: [{ id: 1, no: 'SY-001', date: '24.09.2026', warehouse: 'Merkez', status: 'Taslak' }],
           }),
-          screen({
+          {
             id: 'maliyetlendirme',
             path: 'malzeme/islemler/maliyetlendirme',
             title: 'Maliyetlendirme',
-            subtitle: 'ProductTransCostCalc · dönem maliyet hesabı',
-            formCode: 'MaterialCostingForm',
-            listColumns: cols(
-              ['no', 'İşlem No'],
-              ['date', 'Tarih'],
-              ['period', 'Dönem'],
-              ['warehouse', 'Depo'],
-              ['status', 'Durum'],
-            ),
-            sampleRows: [
-              { id: 1, no: 'ML-2026-08', date: '01.09.2026', period: '2026 / 8', warehouse: 'Tümü', status: 'Hesaplandı' },
-            ],
-          }),
+            subtitle: 'Ağırlıklı ortalama maliyet · stok değeri · brüt kâr (ProductTransCostCalc)',
+            isStockCosting: true,
+          },
           screen({
             id: 'yukleme',
             path: 'malzeme/islemler/yukleme',

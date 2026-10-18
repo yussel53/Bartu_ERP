@@ -215,6 +215,8 @@ export interface MenuScreen {
   isEGovDesignTemplates?: boolean;
   /** E-Devlet → Belge Kuralları (EGovTransformRule — gönderim öncesi UBL değişikliği) */
   isEGovRules?: boolean;
+  /** Malzeme → Maliyetlendirme (ağırlıklı ortalama maliyet, stok değeri, brüt kâr) */
+  isStockCosting?: boolean;
   /** Onay grupları (SYS_ApprovalGroup) */
   isApprovalGroups?: boolean;
   /** Veritabanı SqlUpdates (01_xxx.sql) güncelleme ekranı */

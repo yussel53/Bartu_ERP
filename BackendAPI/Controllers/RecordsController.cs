@@ -27,6 +27,7 @@ public sealed class RecordsController : ControllerBase
     private readonly BarcodeRepository _barcodes;
     private readonly DataScopeService _scope;
     private readonly NumberTemplateRepository _numbers;
+    private readonly StockService _stock;
 
     public RecordsController(
         RecordsRepository repo,
@@ -35,8 +36,10 @@ public sealed class RecordsController : ControllerBase
         CustomerKindRepository customerKind,
         BarcodeRepository barcodes,
         DataScopeService scope,
-        NumberTemplateRepository numbers)
+        NumberTemplateRepository numbers,
+        StockService stock)
     {
+        _stock = stock;
         _scope = scope;
         _numbers = numbers;
         _repo = repo;
@@ -173,6 +176,22 @@ public sealed class RecordsController : ControllerBase
                     return StatusCode(403, new { success = false, message = "Kayıt yetki kodu / firma / işyeri / ambar kapsamınızın dışında." });
             }
 
+            // Y-06: eksi stok kontrolü (Setting STK_NEG_CTRL: 0 izin · 1 uyar · 2 engelle) — malzeme fişi / irsaliye çıkışları
+            string? stockWarning = null;
+            if (tableName.Equals("ProductVoucher", StringComparison.OrdinalIgnoreCase) && body.Lines is { Count: > 0 } && body.StandardFields != null)
+            {
+                static int? IntOf(object? v) => int.TryParse(Convert.ToString(v), out var i) && i > 0 ? i : null;
+                var vtRaw = body.StandardFields.FirstOrDefault(kv => kv.Key.Equals("VoucherType", StringComparison.OrdinalIgnoreCase)).Value;
+                var whRaw = body.StandardFields.FirstOrDefault(kv => kv.Key.Equals("WhouseID", StringComparison.OrdinalIgnoreCase)).Value;
+                if (IntOf(vtRaw) is int vt)
+                {
+                    var (mode, problems) = await _stock.CheckNegativeAsync(body.RecordId, vt, IntOf(whRaw), body.Lines, ct);
+                    if (problems.Count > 0 && mode == "2")
+                        return BadRequest(new { success = false, message = "Eksi stok — kayıt engellendi: " + string.Join(" · ", problems) });
+                    if (problems.Count > 0) stockWarning = "Eksi stok uyarısı: " + string.Join(" · ", problems);
+                }
+            }
+
             // Y-05: yeni fişte numara kayıtta verilir (açılıp vazgeçilen fiş sayaç tüketmez); elle yazılmışsa dokunulmaz
             string? autoNumber = null;
             if (body.RecordId == 0 && body.AutoNumber is { Field.Length: > 0 } an && body.StandardFields != null)
@@ -251,7 +270,8 @@ public sealed class RecordsController : ControllerBase
             return Ok(new
             {
                 success = true,
-                message = autoNumber != null ? $"{message} · Fiş no: {autoNumber}" : message,
+                message = string.Join(" · ", new[] { message, autoNumber != null ? $"Fiş no: {autoNumber}" : null, stockWarning }
+                    .Where(x => !string.IsNullOrEmpty(x))),
                 recordId = id,
                 autoNumber,
                 postSave = postResults,

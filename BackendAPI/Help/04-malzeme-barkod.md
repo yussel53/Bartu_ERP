@@ -30,3 +30,29 @@ Fişte `27000000500` okutulunca malzeme bulunur, miktar 500 (ya da 0,5 kg) yazı
 ## Birim çevrimleri
 
 Kartın birim sekmesinde ana birim ve çevrimler (koli = 24 adet gibi) tanımlanır; barkodlar birim başına girilir.
+
+## Stok ve ambar
+
+Stok, malzeme fişleri ve irsaliyelerden hesaplanır: devir, alış, satış iadesi, üretimden giriş **artırır**; satış, alış iadesi,
+sarf ve fire **azaltır**; ambar transferi kaynak ambardan düşüp hedef ambara ekler. Sayım ve maliyet dağıtım fişleri stoğu değiştirmez.
+
+Malzeme üzerinde sağ tık → **Ekstre → Ambar Durumu**: ambar bazında giriş, çıkış ve kalan.
+
+### Eksi stok kontrolü
+
+*Sistem → Parametreler* altındaki **STK_NEG_CTRL**:
+
+| Değer | Davranış |
+|---|---|
+| 0 | Eksi stoğa izin verilir (varsayılan) |
+| 1 | Kayıt yapılır, mesajda «eksi stok uyarısı» gösterilir |
+| 2 | Çıkış ambardaki stoğu aşıyorsa kayıt **engellenir** |
+
+## Maliyetlendirme
+
+*Malzeme Yönetimi → İşlemler → Maliyetlendirme*: **ağırlıklı ortalama maliyet**. Girişler satır tutarıyla, satış iadesi o anki
+ortalama ile stoğa girer; çıkışlar o anki ortalama ile değerlenir. **Maliyeti yeniden hesapla** (yönetici) tüm hareketleri tarih
+sırasıyla yeniden hesaplar — geriye dönük girilen fişten sonra çalıştırın.
+
+Ekranda malzeme bazında eldeki miktar, ortalama maliyet, stok değeri ve seçilen tarih aralığında satış tutarı, satış maliyeti ve
+**brüt kâr**. Parametre **STK_COST_SCOPE**: 0 firma geneli, 1 ambar bazında maliyet.
