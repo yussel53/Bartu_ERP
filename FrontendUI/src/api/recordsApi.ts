@@ -40,9 +40,14 @@ export async function listRecords(
     filterColumn?: string;
     filterValue?: string | number;
     take?: number;
+    /** Y-15: sunucu tarafı sayfalama ve arama */
+    skip?: number;
+    search?: string;
   },
 ): Promise<RecordListResult> {
   const q = new URLSearchParams();
+  if (opts?.skip) q.set('skip', String(opts.skip));
+  if (opts?.search?.trim()) q.set('search', opts.search.trim());
   if (opts?.pk) q.set('pk', opts.pk);
   if (opts?.filterColumn) q.set('filterColumn', opts.filterColumn);
   if (opts?.filterValue != null) q.set('filterValue', String(opts.filterValue));

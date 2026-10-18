@@ -1,6 +1,7 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import {
   Plus,
+  History,
   ArrowLeft,
   RefreshCw,
   Database,
@@ -24,6 +25,7 @@ import {
   useGridSortFilter,
 } from '../components/GridSortFilter';
 import { RowContextMenu, RowContextMenuItem } from '../components/RowContextMenu';
+import { AuditHistoryModal } from '../components/AuditHistoryModal';
 import { CardStatementModal } from '../components/CardStatementModal';
 import { getCardStatementDef } from '../data/cardStatementKinds';
 import { ActiveStatusBadge, isActiveValue } from '../components/ActiveToggle';
@@ -211,6 +213,13 @@ export const ModuleListPage: React.FC<ModuleListPageProps> = ({
     null,
   );
   const [statement, setStatement] = useState<{ cardId: number; tab: string } | null>(null);
+  // Y-15: sunucu tarafı sayfalama / arama ve değişiklik geçmişi
+  const PAGE = 500;
+  const [serverTotal, setServerTotal] = useState(0);
+  const [serverSearch, setServerSearch] = useState('');
+  const [searchInput, setSearchInput] = useState('');
+  const [loadingMore, setLoadingMore] = useState(false);
+  const [audit, setAudit] = useState<{ id: number; label: string } | null>(null);
   const closeCtxMenu = useCallback(() => setCtxMenu(null), []);
   const stmtDef = getCardStatementDef(tableName);
 
@@ -239,11 +248,13 @@ export const ModuleListPage: React.FC<ModuleListPageProps> = ({
         pk,
         filterColumn,
         filterValue,
-        take: 500,
+        take: PAGE,
+        search: serverSearch,
       });
       let rows = res.rows as Record<string, unknown>[];
       if (tableName === 'CustomerCard') rows = await withCustomerSummaries(rows, pk || 'CustomerCardID');
       setDbRows(rows);
+      setServerTotal(res.total ?? rows.length);
       setSource('db');
       if (res.warning) setError(res.warning);
     } catch (e) {
@@ -253,11 +264,29 @@ export const ModuleListPage: React.FC<ModuleListPageProps> = ({
     } finally {
       setLoading(false);
     }
-  }, [useDb, tableName, pk, screen, schema]);
+  }, [useDb, tableName, pk, screen, schema, serverSearch]);
 
   useEffect(() => {
     void loadDb();
   }, [loadDb, tick]);
+
+  /** Y-15: sonraki sayfa (sunucuda) — mevcut satırların sonuna eklenir */
+  const loadMore = async () => {
+    if (!tableName || loadingMore) return;
+    setLoadingMore(true);
+    try {
+      const { column: filterColumn, value: filterValue } = resolveListFilter(screen, schema);
+      const res = await listRecords(tableName, { pk, filterColumn, filterValue, take: PAGE, skip: dbRows.length, search: serverSearch });
+      let more = res.rows as Record<string, unknown>[];
+      if (tableName === 'CustomerCard') more = await withCustomerSummaries(more, pk || 'CustomerCardID');
+      setDbRows((prev) => [...prev, ...more]);
+      setServerTotal(res.total ?? serverTotal);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'Sonraki sayfa okunamadı');
+    } finally {
+      setLoadingMore(false);
+    }
+  };
 
   const rawRows = useMemo(() => {
     if (useDb) return dbRows;
@@ -391,6 +420,14 @@ export const ModuleListPage: React.FC<ModuleListPageProps> = ({
       });
     const stmt = statementItemsFor(rowId);
     stmt.forEach((s, i) => items.push({ ...s, separatorBefore: i === 0 && items.length > 0 }));
+    if (allowed.view && source === 'db' && tableName && Number(rowId) > 0)
+      items.push({
+        key: 'audit',
+        label: 'Değişiklik Geçmişi',
+        icon: <History className="w-3.5 h-3.5" />,
+        separatorBefore: true,
+        onClick: () => setAudit({ id: Number(rowId), label: ctxMenu?.label ?? '' }),
+      });
     if (isMusteriList && allowed.update && source === 'db' && Number(rowId) > 0)
       items.push({
         key: 'to-cari',
@@ -478,7 +515,7 @@ export const ModuleListPage: React.FC<ModuleListPageProps> = ({
                   ? `${tableName}${(() => {
                       const f = resolveListFilter(screen, schema);
                       return f.column ? `.${f.column}=${f.value}` : '';
-                    })()} · ${rows.length}`
+                    })()} · ${rows.length}${serverTotal > dbRows.length ? ` / ${serverTotal}` : ''}`
                   : 'demo'}
             </span>
             {filterNote && (
@@ -679,8 +716,57 @@ export const ModuleListPage: React.FC<ModuleListPageProps> = ({
             </tbody>
           </table>
         </div>
+        {source === 'db' && (serverTotal > dbRows.length || serverSearch || dbRows.length >= PAGE) && (
+          <div className="flex flex-wrap items-center gap-2 px-2 py-1.5 border-t border-slate-200 dark:border-slate-700 text-[11px] text-slate-500">
+            <span>
+              {dbRows.length} / {serverTotal} kayıt yüklendi{serverSearch ? ` · sunucu araması «${serverSearch}»` : ''}
+            </span>
+            {serverTotal > dbRows.length && (
+              <button
+                type="button"
+                onClick={() => void loadMore()}
+                disabled={loadingMore}
+                className="h-6 px-2 rounded-sm border border-slate-300 dark:border-slate-600 text-slate-700 dark:text-slate-200 hover:bg-slate-50 dark:hover:bg-slate-800 disabled:opacity-50"
+              >
+                {loadingMore ? 'Yükleniyor…' : `Sonraki ${Math.min(PAGE, serverTotal - dbRows.length)} kaydı yükle`}
+              </button>
+            )}
+            <form
+              className="inline-flex items-center gap-1 ml-auto"
+              onSubmit={(e) => {
+                e.preventDefault();
+                setServerSearch(searchInput.trim());
+              }}
+            >
+              <input
+                value={searchInput}
+                onChange={(e) => setSearchInput(e.target.value)}
+                placeholder="Tüm kayıtlarda ara (sunucu)"
+                className="h-6 px-2 w-52 border border-slate-300 dark:border-slate-600 rounded-sm bg-white dark:bg-slate-900"
+              />
+              <button type="submit" className="h-6 px-2 rounded-sm bg-slate-800 text-white hover:bg-slate-700">
+                Ara
+              </button>
+              {serverSearch && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    setSearchInput('');
+                    setServerSearch('');
+                  }}
+                  className="h-6 px-2 rounded-sm border border-slate-300 dark:border-slate-600 hover:bg-slate-50 dark:hover:bg-slate-800"
+                >
+                  Temizle
+                </button>
+              )}
+            </form>
+          </div>
+        )}
       </div>
 
+      {audit && tableName && (
+        <AuditHistoryModal tableName={tableName} recordId={audit.id} pk={pk} title={audit.label} onClose={() => setAudit(null)} />
+      )}
       {ctxMenu && (
         <RowContextMenu
           x={ctxMenu.x}

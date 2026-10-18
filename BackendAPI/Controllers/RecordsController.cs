@@ -30,6 +30,7 @@ public sealed class RecordsController : ControllerBase
     private readonly StockService _stock;
     private readonly AccountingPostService _accounting;
     private readonly RiskService _risk;
+    private readonly AuditService _audit;
 
     public RecordsController(
         RecordsRepository repo,
@@ -41,8 +42,10 @@ public sealed class RecordsController : ControllerBase
         NumberTemplateRepository numbers,
         StockService stock,
         AccountingPostService accounting,
-        RiskService risk)
+        RiskService risk,
+        AuditService audit)
     {
+        _audit = audit;
         _stock = stock;
         _accounting = accounting;
         _risk = risk;
@@ -63,11 +66,14 @@ public sealed class RecordsController : ControllerBase
         [FromQuery] string? filterValue = null,
         [FromQuery] int take = 500,
         [FromQuery] bool includeTemplates = false,
+        [FromQuery] int skip = 0,
+        [FromQuery] string? search = null,
         CancellationToken ct = default)
     {
         try
         {
-            var result = await _repo.ListAsync(tableName, pk, filterColumn, filterValue, take, ct, includeTemplates);
+            // Y-15: sunucu tarafı sayfalama (skip) ve arama (search); Total süzme öncesi toplam kayıt sayısıdır
+            var result = await _repo.ListAsync(tableName, pk, filterColumn, filterValue, take, ct, includeTemplates, skip, search);
             // Y-02: yetki kodu + firma / işyeri / ambar süzmesi sunucuda
             var scope = await _scope.GetAsync(ct);
             if (!scope.Unrestricted)
@@ -232,11 +238,14 @@ public sealed class RecordsController : ControllerBase
                 }
             }
 
+            // Y-15: değişiklik geçmişi için kaydın önceki hali
+            var auditBefore = body.RecordId > 0 ? await _repo.GetAsync(tableName, pk, body.RecordId, ct) : null;
             var (ok, id, message) = await _repo.SaveAsync(tableName, pk, body, ct);
             // Veritabanı tetikleyicisi (TR_ProductBarcode_Unique, hata 51077) — eşzamanlı kayıtta son güvence
             if (!ok && message != null && message.Contains("TR_ProductBarcode_Unique", StringComparison.OrdinalIgnoreCase))
                 message = "Barkod benzersiz olmalı — girilen barkod başka bir malzemede kayıtlı.";
             if (!ok) return BadRequest(new { success = false, message, recordId = id });
+            await _audit.LogAsync(tableName, id, body.RecordId > 0 ? 'U' : 'I', auditBefore, await _repo.GetAsync(tableName, pk, id, ct), User.UserId(), User.Identity?.Name);
 
             var actions = new List<PostSaveActionDto>();
             if (!string.IsNullOrWhiteSpace(body.FormCode))
@@ -427,8 +436,8 @@ public sealed class RecordsController : ControllerBase
         {
             if (AdminOnlyTables.Contains(tableName) && !User.IsAdmin())
                 return StatusCode(403, new { success = false, message = "Bu kartı yalnızca yönetici silebilir." });
-            if (await _repo.GetAsync(tableName, pk, id, ct) is { } toDelete
-                && !_scope.CanSee(await _scope.GetAsync(ct), tableName, toDelete.StandardFields))
+            var toDelete = await _repo.GetAsync(tableName, pk, id, ct);
+            if (toDelete != null && !_scope.CanSee(await _scope.GetAsync(ct), tableName, toDelete.StandardFields))
                 return StatusCode(403, new { success = false, message = "Bu kayda yetkiniz yok." });
             // Y-09: belgenin muhasebe fişi de silinir (yevmiye numarası almışsa belge silinmez)
             if (tableName.Equals("Invoice", StringComparison.OrdinalIgnoreCase) || tableName.Equals("SafeVoucher", StringComparison.OrdinalIgnoreCase))
@@ -438,6 +447,7 @@ public sealed class RecordsController : ControllerBase
             }
             var (ok, message) = await _repo.DeleteAsync(tableName, pk, id, ct);
             if (!ok) return BadRequest(new { success = false, message });
+            await _audit.LogAsync(tableName, id, 'D', toDelete, null, User.UserId(), User.Identity?.Name);
             return Ok(new { success = true, message });
         }
         catch (ArgumentException ex)

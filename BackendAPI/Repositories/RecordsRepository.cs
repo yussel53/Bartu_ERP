@@ -477,7 +477,9 @@ public sealed class RecordsRepository
         string? filterValue,
         int take = 500,
         CancellationToken ct = default,
-        bool includeTemplates = false)
+        bool includeTemplates = false,
+        int skip = 0,
+        string? search = null)
     {
         EnsureSafe(tableName);
         if (!string.IsNullOrWhiteSpace(filterColumn)) EnsureSafe(filterColumn);
@@ -502,8 +504,9 @@ public sealed class RecordsRepository
         }
 
         take = Math.Clamp(take, 1, 2000);
+        skip = Math.Max(0, skip);
         var selectList = BuildSelectList(tableName, cols);
-        var sql = $"SELECT TOP ({take}) {selectList} FROM [{tableName}]";
+        var sql = $"SELECT {selectList} FROM [{tableName}]";
         var parameters = new DynamicParameters();
         var whereParts = new List<string>();
 
@@ -523,13 +526,34 @@ public sealed class RecordsRepository
             whereParts.Add($"[{pk}] > 0");
         }
 
-        if (whereParts.Count > 0)
-            sql += " WHERE " + string.Join(" AND ", whereParts);
-
-        if (!string.IsNullOrWhiteSpace(pk) && cols.Contains(pk, StringComparer.OrdinalIgnoreCase))
+        // Y-15: sunucuda arama — tablonun metin kolonlarında (en çok 12, gizli kolonlar hariç) içerir araması
+        if (!string.IsNullOrWhiteSpace(search))
         {
-            sql += $" ORDER BY [{pk}] DESC";
+            var textCols = (await _db.QueryAsync<string>(new CommandDefinition(
+                @"SELECT TOP 12 c.name FROM sys.columns c JOIN sys.tables t ON t.object_id = c.object_id
+                  WHERE t.name = @table AND SCHEMA_NAME(t.schema_id) = N'dbo'
+                    AND TYPE_NAME(c.user_type_id) IN (N'nvarchar', N'varchar', N'nchar', N'char') AND (c.max_length = -1 OR c.max_length <= 1000)
+                  ORDER BY c.column_id", new { table = tableName }, cancellationToken: ct)))
+                .Where(c => !IsSecretColumn(tableName, c)).ToList();
+            var idCol = !string.IsNullOrWhiteSpace(pk) && cols.Contains(pk, StringComparer.OrdinalIgnoreCase) && int.TryParse(search.Trim(), out _)
+                ? $"[{pk}] = @SearchId" : null;
+            var ors = textCols.Select(c => $"[{c}] LIKE @Search").Concat(idCol != null ? new[] { idCol } : Array.Empty<string>()).ToList();
+            if (ors.Count > 0)
+            {
+                whereParts.Add("(" + string.Join(" OR ", ors) + ")");
+                parameters.Add("Search", "%" + search.Trim().Replace("[", "[[]").Replace("%", "[%]").Replace("_", "[_]") + "%");
+                if (idCol != null) parameters.Add("SearchId", int.Parse(search.Trim()));
+            }
         }
+
+        var where = whereParts.Count > 0 ? " WHERE " + string.Join(" AND ", whereParts) : "";
+        sql += where;
+        var total = await _db.ExecuteScalarAsync<int>(new CommandDefinition($"SELECT COUNT(1) FROM [{tableName}]{where}", parameters, cancellationToken: ct));
+
+        sql += !string.IsNullOrWhiteSpace(pk) && cols.Contains(pk, StringComparer.OrdinalIgnoreCase)
+            ? $" ORDER BY [{pk}] DESC"
+            : " ORDER BY (SELECT NULL)";
+        sql += $" OFFSET {skip} ROWS FETCH NEXT {take} ROWS ONLY";
 
         var raw = await _db.QueryAsync(new CommandDefinition(sql, parameters, cancellationToken: ct));
         var rows = new List<Dictionary<string, object?>>();
@@ -578,7 +602,7 @@ public sealed class RecordsRepository
         {
             TableName = tableName,
             PrimaryKeyColumn = pk,
-            Total = rows.Count,
+            Total = Math.Max(total, skip + rows.Count),
             Rows = rows,
         };
     }

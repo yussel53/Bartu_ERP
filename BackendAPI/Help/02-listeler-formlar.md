@@ -7,6 +7,22 @@
 - **Sağ tık menüsü**: kayıt üzerinde sağ tıklayınca İncele, Değiştir, Kopyala, Sil ve karta özel bölümler (Ekstre, Hareketler…).
 - **Liste / Detay Rapor**: liste görünümü ile rapor görünümü arasında geçiş.
 
+### Çok kayıtlı listeler
+
+Liste ilk 500 kaydı getirir (en yeniler önce). Daha fazla kayıt varsa altta **«500 / 12.340 kayıt yüklendi»** yazar:
+
+- **Sonraki 500 kaydı yükle**: sıradaki sayfayı sunucudan alıp listenin sonuna ekler.
+- **Tüm kayıtlarda ara (sunucu)**: yazılan metni tablonun tüm metin alanlarında (kod, ad, belge no …) ya da kayıt numarasında arar;
+  yüklenmemiş kayıtlar da bulunur. **Temizle** ile tam listeye dönülür.
+
+Sütun başlığındaki süzgeçler yalnız yüklenmiş satırlarda çalışır.
+
+### Değişiklik geçmişi
+
+Listede satıra sağ tık → **Değişiklik Geçmişi**: kaydın ne zaman, kim tarafından eklendiği / değiştirildiği / silindiği; değişikliklerde
+alanın eski ve yeni değeri (fişlerde satır sayısı ve tutar özeti). Şifre gibi gizli alanlar yazılmaz. Geçmiş, özelliğin açıldığı
+sürümden sonraki kayıtlarda tutulur.
+
 ## Kart formları
 
 Kart formları (cari, malzeme, banka…) kurumsal düzende, alanlar etiketleriyle yan yana yerleşir. Adres, ilgili kişi,
