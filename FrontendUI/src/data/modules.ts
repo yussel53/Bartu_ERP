@@ -473,26 +473,13 @@ export const APP_MODULES: AppModule[] = [
               },
             ],
           }),
-          screen({
+          {
             id: 'cek-senet-hareket',
             path: 'finans/hareketler/cek-senet',
-            title: 'Çek / Senet Fişleri',
-            subtitle: 'BoundTrans · Fiş tipi: giriş / çıkış / bordro…',
-            formCode: 'BoundTransForm',
-            listColumns: cols(
-              ['date', 'Tarih'],
-              ['type', 'Fiş Tipi'],
-              ['doc', 'Belge'],
-              ['customer', 'Cari'],
-              ['amount', 'Tutar'],
-              ['status', 'Durum'],
-            ),
-            sampleRows: [
-              { id: 1, date: '20.09.2026', type: 'Çek Girişi', doc: 'CK-1001', customer: 'ABC Ticaret', amount: '25.000,00', status: 'Açık' },
-              { id: 2, date: '22.09.2026', type: 'Senet Çıkış (Banka Teminat)', doc: 'SN-2002', customer: 'Demir Tedarik', amount: '40.000,00', status: 'Açık' },
-              { id: 3, date: '24.09.2026', type: 'İşlem Bordrosu (Müşteri Çeki)', doc: 'CK-1001', customer: 'ABC Ticaret', amount: '25.000,00', status: 'Kapalı' },
-            ],
-          }),
+            title: 'Çek / Senet Portföyü',
+            subtitle: 'BoundRoll + BoundTrans · giriş / ciro / tahsil / teminat / karşılıksız bordroları · vade takvimi',
+            isBoundPortfolio: true,
+          },
         ],
       },
       {

@@ -152,12 +152,10 @@ public sealed class CardStatementRepository
 
     private static readonly Dictionary<int, string> BoundTransTypes = new()
     {
-        [1] = "Çek Girişi", [2] = "Senet Girişi", [3] = "Çek Çıkış (Cari Hesaba)",
-        [4] = "Senet Çıkış (Cari Hesaba)", [5] = "Çek Çıkış (Banka Tahsil)", [6] = "Senet Çıkış (Banka Tahsil)",
-        [7] = "Çek Çıkış (Banka Teminat)", [8] = "Senet Çıkış (Banka Teminat)",
-        [9] = "İşlem Bordrosu (Müşteri Çeki)", [10] = "İşlem Bordrosu (Müşteri Senedi)",
-        [11] = "İşlem Bordrosu (Kendi Çekimiz)", [12] = "İşlem Bordrosu (Borç Senedimiz)",
-        [13] = "İşyerleri Arası İ. Bord. (Müşteri Çeki)", [14] = "İşyerleri Arası İ. Bord. (Müşteri Senedi)",
+        // Y-11 bordro türleri (BoundRoll.Type_ = BoundTrans.Type_)
+        [1] = "Müşteriden giriş", [2] = "Cariye ciro", [3] = "Bankaya tahsile", [4] = "Bankaya teminata", [5] = "Bankadan tahsil",
+        [6] = "Elden / kasaya tahsil", [7] = "Karşılıksız", [8] = "Müşteriye iade", [9] = "Borç çeki / senedi çıkışı",
+        [10] = "Borç çeki / senedi ödemesi", [11] = "Portföye geri alma",
     };
 
     private static readonly Dictionary<int, string> AccountVoucherTypes = new()
@@ -180,6 +178,7 @@ public sealed class CardStatementRepository
         ["AccountVoucher"] = "Muhasebe Fişi",
         ["PaymentTrans"] = "Ödeme / Tahsilat Planı",
         ["SafeVoucher"] = "Kasa Fişi",
+        ["BoundRoll"] = "Çek / Senet Bordrosu",
     };
 
     /// <summary>Kasa fişi tipleri (SqlUpdates/82)</summary>
@@ -198,7 +197,7 @@ public sealed class CardStatementRepository
             "OrderVoucher" => OrderTypes,
             "ProductVoucher" => DispatchTypes,
             "BankVoucher" => BankVoucherTypes,
-            "BoundTrans" => BoundTransTypes,
+            "BoundTrans" or "BoundRoll" => BoundTransTypes,
             "BoundCard" => BoundCardTypes,
             "AccountVoucher" => AccountVoucherTypes,
             "PaymentTrans" => PaymentTypes,
@@ -351,6 +350,7 @@ public sealed class CardStatementRepository
                 res.DebitLabel = "Giriş";
                 res.CreditLabel = "Çıkış";
                 raw = await SafeStatementAsync(id, ct);
+                raw.AddRange(await BoundRollMovesAsync("safe", id, ct));
                 res.StatementNote = "Kasa fişleri: tahsilat, bankadan kasaya ve gelen virman giriş; tediye, kasadan bankaya, masraf ve giden virman çıkış.";
                 break;
 
@@ -651,6 +651,41 @@ JOIN dbo.SafeVoucher sv ON sv.SafeVoucherID = st.SafeVoucherID
 LEFT JOIN dbo.SafeCard sc ON sc.SafeCardID = sv.SafeCardID
 {Where("st.CustomerID")} AND sv.Type_ IN (1, 2) AND ISNULL(sv.Status_, 0) <> 2");
 
+        // 5) Çek / senet bordroları (Y-11): müşteriden giriş → alacak · ciro, iade, borç çeki çıkışı → borç ·
+        //    karşılıksız → belgeyi veren cariye borç; ciro edilmişse ciro edilen cari belgeyi geri verdiği için alacak
+        if (await HasAsync("BoundRoll", ct) && await HasColAsync("BoundTrans", "BoundRollID", ct))
+        {
+            const string bound = @"
+SELECT
+  br.RollDate AS Dt,
+  br.DocumentNumber AS DocNo,
+  'BoundRoll' AS Source,
+  CAST(br.Type_ AS int) AS TypeCode,
+  CAST(CONCAT(CASE bc.Type_ WHEN 2 THEN N'Senet ' ELSE N'Çek ' END, bc.DocumentNr, N' vade ', CONVERT(nvarchar(10), bc.DueDate, 104),
+    CASE WHEN br.Description IS NULL THEN N'' ELSE N' · ' + br.Description END) AS nvarchar(max)) AS Description,
+  CAST(NULL AS nvarchar(200)) AS Party,
+  {0} AS Debit,
+  {1} AS Credit,
+  t.Amount AS Amount,
+  CAST(NULL AS datetime) AS DueDate,
+  br.BoundRollID AS SourceId,
+  {2} AS CustId
+FROM dbo.BoundTrans t
+JOIN dbo.BoundRoll br ON br.BoundRollID = t.BoundRollID
+JOIN dbo.BoundCard bc ON bc.BoundCardID = t.CheckID
+{3}
+{4} AND ISNULL(br.Status_, 0) <> 2 AND {5}";
+            var amt = "ABS(ISNULL(t.Amount, 0))";
+            parts.Add(string.Format(bound,
+                $"CASE WHEN br.Type_ IN (2, 8, 9) THEN {amt} ELSE 0 END", $"CASE WHEN br.Type_ = 1 THEN {amt} ELSE 0 END",
+                "br.CustomerID", "", Where("br.CustomerID"), "br.Type_ IN (1, 2, 8, 9)"));
+            parts.Add(string.Format(bound, amt, "0", "bc.CustomerID", "", Where("bc.CustomerID"), "br.Type_ = 7"));
+            parts.Add(string.Format(bound, "0", amt, "ciro.CustomerID",
+                @"CROSS APPLY (SELECT TOP 1 r2.CustomerID FROM dbo.BoundTrans t2 JOIN dbo.BoundRoll r2 ON r2.BoundRollID = t2.BoundRollID
+             WHERE t2.CheckID = t.CheckID AND r2.Type_ = 2 AND t2.BoundTransID < t.BoundTransID ORDER BY t2.BoundTransID DESC) ciro",
+                Where("ciro.CustomerID"), "br.Type_ = 7 AND t.PrevStatus = 2"));
+        }
+
         return parts;
     }
 
@@ -692,6 +727,34 @@ JOIN dbo.SafeVoucher sv ON sv.SafeVoucherID = st.SafeVoucherID
 LEFT JOIN dbo.BankAccountCard ba ON ba.BankAccountCardID = st.BankAccountCardID
 LEFT JOIN dbo.SafeCard sc ON sc.SafeCardID = sv.SafeCardID
 WHERE sv.Type_ IN (3, 4) AND ISNULL(sv.Status_, 0) <> 2 AND {cond}", new { id }, ct);
+    }
+
+    /// <summary>Çek / senet bordroları (Y-11): banka — 5 bankadan tahsil giriş, 10 borç çeki ödemesi çıkış · kasa — 6 elden tahsil giriş</summary>
+    private async Task<List<RawRow>> BoundRollMovesAsync(string kind, int id, CancellationToken ct)
+    {
+        if (!await HasAsync("BoundRoll", ct) || !await HasColAsync("BoundTrans", "BoundRollID", ct)) return new();
+        var cond = kind switch
+        {
+            "bank" => "br.Type_ IN (5, 10) AND ba.BankCardID = @id",
+            "bankAccount" => "br.Type_ IN (5, 10) AND br.BankAccountCardID = @id",
+            "safe" => "br.Type_ = 6 AND br.SafeCardID = @id",
+            _ => null,
+        };
+        if (cond == null) return new();
+        return await RawAsync($@"
+SELECT
+  br.RollDate AS Dt, br.DocumentNumber AS DocNo, 'BoundRoll' AS Source, CAST(br.Type_ AS int) AS TypeCode,
+  CAST(CONCAT(CASE bc.Type_ WHEN 2 THEN N'Senet ' ELSE N'Çek ' END, bc.DocumentNr, N' · ', COALESCE(br.Description, bc.Debtor)) AS nvarchar(max)) AS Description,
+  CAST(cc.Title AS nvarchar(300)) AS Party,
+  CASE WHEN br.Type_ IN (5, 6) THEN ABS(ISNULL(t.Amount, 0)) ELSE 0 END AS Debit,
+  CASE WHEN br.Type_ = 10 THEN ABS(ISNULL(t.Amount, 0)) ELSE 0 END AS Credit,
+  t.Amount AS Amount, bc.DueDate AS DueDate, br.BoundRollID AS SourceId
+FROM dbo.BoundTrans t
+JOIN dbo.BoundRoll br ON br.BoundRollID = t.BoundRollID
+JOIN dbo.BoundCard bc ON bc.BoundCardID = t.CheckID
+LEFT JOIN dbo.BankAccountCard ba ON ba.BankAccountCardID = br.BankAccountCardID
+LEFT JOIN dbo.CustomerCard cc ON cc.CustomerCardID = bc.CustomerID
+WHERE ISNULL(br.Status_, 0) <> 2 AND {cond}", new { id }, ct);
     }
 
     /// <summary>Vade yaşlandırma (Y-10): carinin (id null → tüm cariler) borç / alacak hareketleri, vadesiyle.</summary>
@@ -1426,6 +1489,7 @@ WHERE {where}";
             res.StatementNote = "Banka masrafları çıkış tutarına eklenmiştir.";
         var rows = await RawAsync(sql, new { id }, ct);
         rows.AddRange(await SafeBankTransfersAsync(kind, id, ct));
+        rows.AddRange(await BoundRollMovesAsync(kind, id, ct));
         return rows;
     }
 

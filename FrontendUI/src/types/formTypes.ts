@@ -221,6 +221,8 @@ export interface MenuScreen {
   isAccountingPost?: boolean;
   /** Finans → Raporlar → Cari Yaşlandırma (açık kalemler, vade dağılımı) */
   isCustomerAging?: boolean;
+  /** Finans → Çek / Senet Portföyü (bordrolar, konum, vade takvimi) */
+  isBoundPortfolio?: boolean;
   /** Onay grupları (SYS_ApprovalGroup) */
   isApprovalGroups?: boolean;
   /** E-Devlet → Tanımlar → Otomatik Belge Çekme (E-02) */

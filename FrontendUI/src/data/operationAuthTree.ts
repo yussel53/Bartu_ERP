@@ -301,6 +301,7 @@ export function buildOperationAuthTree(): OpTreeNode[] {
             !s.isStockCosting &&
             !s.isAccountingPost &&
             !s.isCustomerAging &&
+            !s.isBoundPortfolio &&
             !s.isApprovalGroups &&
             !s.isCrmWorkspace &&
             !s.isCrmSettings &&

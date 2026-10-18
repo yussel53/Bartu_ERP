@@ -6,11 +6,10 @@ Son güncelleme: 18.10.2026.
 
 ## Yusuf (Claude oturumu)
 
-Bitenler: Y-01 … Y-10 (Y-09: fatura / kasa fişi → muhasebe fişi, *Genel Muhasebe → İşlemler → Muhasebeleştirme* —
-kullanmadan önce hesap kartları ve muhasebe bağlantıları girilmeli; Y-10: *Finans → Raporlar → Cari Yaşlandırma*, FIFO kapama).
+Bitenler: Y-01 … Y-11 (Y-09: fatura / kasa fişi → muhasebe fişi, *Genel Muhasebe → İşlemler → Muhasebeleştirme* —
+kullanmadan önce hesap kartları ve muhasebe bağlantıları girilmeli; Y-10: *Finans → Raporlar → Cari Yaşlandırma*, FIFO kapama;
+Y-11: *Finans → Hareketler → Çek / Senet Portföyü* — bordrolar, konum, vade takvimi).
 
-- [ ] **Y-11 Çek / senet portföy hareketleri** — portföy → ciro / tahsile / teminat → tahsil / karşılıksız; bordrolar,
-  vade takvimi.
 - [ ] **Y-12 Risk limiti** — açık bakiye + açık sipariş + portföy; sipariş / irsaliye / faturada uyar / onaya düşür / engelle.
 - [ ] **Y-13 Standart raporlar** — mizan, muavin, cari yaşlandırma, stok yaşlandırma, satış analizi; rapor üreticide
   kayıtlı parametreli rapor, zamanlanmış e-posta.
@@ -35,4 +34,4 @@ e-Belge Konsolu.
 ## Bekleyen küçük işler
 
 - [ ] Tanıtım sitesi (`website/index.html`): iletişim e-posta / telefonu gerçek bilgilerle değiştirilmeli.
-- [ ] Canlıda «Şimdi uygula» ile bekleyen SQL scriptleri (81–85) kayda geçirilmeli (81–82 veritabanında var, 83–85 yeni).
+- [ ] Canlıda «Şimdi uygula» ile bekleyen SQL scriptleri (81–86) kayda geçirilmeli (81–82 veritabanında var, 83–86 yeni).

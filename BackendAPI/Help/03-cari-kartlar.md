@@ -68,6 +68,29 @@ vadesi geçen toplam, en eski ve ortalama gecikme. Satıra tıklayınca açık k
 Bir fişte birden çok satır olabilir (ör. aynı gün birkaç cariden tahsilat). Tahsilat ve tediye cari ekstresinde ve bakiyesinde,
 kasa ↔ banka transferleri banka ekstresinde görünür. Kasa kartında sağ tık → **Ekstre**.
 
+## Çek / senet portföyü
+
+*Finans → Hareketler → Çek / Senet Portföyü*. Her çek / senedin bir **konumu** vardır; konum yalnız bordroyla değişir.
+
+| Bordro | Kabul edilen konum | Yeni konum | Etkisi |
+|---|---|---|---|
+| Müşteriden giriş | — (yeni belge) | Portföyde | Cari **alacak** |
+| Cariye ciro | Portföyde | Ciro edildi | Ciro edilen cari **borç** |
+| Bankaya tahsile / teminata | Portföyde | Tahsilde / Teminatta | — |
+| Bankadan tahsil | Tahsilde, Teminatta | Tahsil edildi | Banka hesabı giriş |
+| Elden / kasaya tahsil | Portföyde | Tahsil edildi | Kasa giriş |
+| Portföye geri alma | Tahsilde, Teminatta | Portföyde | — |
+| Müşteriye iade | Portföyde | İade edildi | Cari **borç** |
+| Karşılıksız | Portföyde, Ciro, Tahsilde, Teminatta | Karşılıksız | Belgeyi veren cari **borç**; ciro edilmişse ciro edilen cari **alacak** |
+| Borç çeki / senedi çıkışı | — (kendi belgemiz) | Verildi | Cari **borç** |
+| Borç çeki / senedi ödemesi | Verildi | Ödendi | Banka hesabı çıkış |
+
+- **Portföy** sekmesi: konum düğmeleriyle süzün, belgeleri işaretleyin; yalnız seçili belgelere uygun bordrolar görünür. Tarih, bordro no,
+  karşı taraf (cari / banka hesabı / kasa) seçip **Bordroyu kaydet**.
+- **Yeni giriş**: müşteriden alınan ya da kendi verdiğimiz çek / senetler satır satır (tür, seri no, vade, tutar, keşideci, banka, şube, hesap no).
+- **Bordrolar**: silinen bordrodaki belgeler önceki konumlarına döner; belge sonraki bir bordroda işlem görmüşse önce o bordro silinmelidir.
+- **Vade takvimi**: portföydeki, tahsildeki, teminattaki ve verilen belgeler ay ay — tahsil edilecek / ödenecek toplamlar. Vadesi geçenler kırmızı.
+
 ## e-Faturadan cari
 
 Gelen e-faturadan cari açmak için bkz. [e-Devlet](e-devlet#e-faturadan-cari-karti).

@@ -157,41 +157,47 @@ export const BANK_VOUCHER_TYPE_OPTIONS = Object.entries(BankVoucherTypeLabels).m
 );
 
 /**
- * Çek / senet fişi — BoundTrans.Type_
- * (giriş / çıkış / işlem bordrosu / işyerleri arası)
+ * Çek / senet bordrosu — BoundRoll.Type_ = BoundTrans.Type_ (Y-11, SqlUpdates/86)
  */
 export const BoundTransType = {
-  CekGiris: '1',
-  SenetGiris: '2',
-  CekCikisCari: '3',
-  SenetCikisCari: '4',
-  CekCikisBankaTahsil: '5',
-  SenetCikisBankaTahsil: '6',
-  CekCikisBankaTeminat: '7',
-  SenetCikisBankaTeminat: '8',
-  BordroMusteriCeki: '9',
-  BordroMusteriSenedi: '10',
-  BordroKendiCekim: '11',
-  BordroBorcSenedimiz: '12',
-  BordroIsyeriMusteriCeki: '13',
-  BordroIsyeriMusteriSenedi: '14',
+  MusteridenGiris: '1',
+  CariyeCiro: '2',
+  BankayaTahsile: '3',
+  BankayaTeminata: '4',
+  BankadanTahsil: '5',
+  KasayaTahsil: '6',
+  Karsiliksiz: '7',
+  MusteriyeIade: '8',
+  BorcCekiCikis: '9',
+  BorcCekiOdeme: '10',
+  PortfoyeGeriAlma: '11',
 } as const;
 
 export const BoundTransTypeLabels: Record<string, string> = {
-  [BoundTransType.CekGiris]: 'Çek Girişi',
-  [BoundTransType.SenetGiris]: 'Senet Girişi',
-  [BoundTransType.CekCikisCari]: 'Çek Çıkış (Cari Hesaba)',
-  [BoundTransType.SenetCikisCari]: 'Senet Çıkış (Cari Hesaba)',
-  [BoundTransType.CekCikisBankaTahsil]: 'Çek Çıkış (Banka Tahsil)',
-  [BoundTransType.SenetCikisBankaTahsil]: 'Senet Çıkış (Banka Tahsil)',
-  [BoundTransType.CekCikisBankaTeminat]: 'Çek Çıkış (Banka Teminat)',
-  [BoundTransType.SenetCikisBankaTeminat]: 'Senet Çıkış (Banka Teminat)',
-  [BoundTransType.BordroMusteriCeki]: 'İşlem Bordrosu (Müşteri Çeki)',
-  [BoundTransType.BordroMusteriSenedi]: 'İşlem Bordrosu (Müşteri Senedi)',
-  [BoundTransType.BordroKendiCekim]: 'İşlem Bordrosu (Kendi Çekimiz)',
-  [BoundTransType.BordroBorcSenedimiz]: 'İşlem Bordrosu (Borç Senedimiz)',
-  [BoundTransType.BordroIsyeriMusteriCeki]: 'İşyerleri Arası İ. Bord. (Müşteri Çeki)',
-  [BoundTransType.BordroIsyeriMusteriSenedi]: 'İşyerleri Arası İ. Bord. (Müşteri Senedi)',
+  [BoundTransType.MusteridenGiris]: 'Müşteriden giriş',
+  [BoundTransType.CariyeCiro]: 'Cariye ciro',
+  [BoundTransType.BankayaTahsile]: 'Bankaya tahsile',
+  [BoundTransType.BankayaTeminata]: 'Bankaya teminata',
+  [BoundTransType.BankadanTahsil]: 'Bankadan tahsil',
+  [BoundTransType.KasayaTahsil]: 'Elden / kasaya tahsil',
+  [BoundTransType.Karsiliksiz]: 'Karşılıksız',
+  [BoundTransType.MusteriyeIade]: 'Müşteriye iade',
+  [BoundTransType.BorcCekiCikis]: 'Borç çeki / senedi çıkışı',
+  [BoundTransType.BorcCekiOdeme]: 'Borç çeki / senedi ödemesi',
+  [BoundTransType.PortfoyeGeriAlma]: 'Portföye geri alma',
+};
+
+/** Çek / senet konumu — BoundCard.Status_ */
+export const BoundPositionLabels: Record<string, string> = {
+  '1': 'Portföyde',
+  '2': 'Ciro edildi',
+  '3': 'Tahsilde',
+  '4': 'Teminatta',
+  '5': 'Tahsil edildi',
+  '6': 'Karşılıksız',
+  '7': 'İade edildi',
+  '8': 'Verildi',
+  '9': 'Ödendi',
 };
 
 export const BOUND_TRANS_TYPE_OPTIONS = Object.entries(BoundTransTypeLabels).map(
