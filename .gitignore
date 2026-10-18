@@ -49,3 +49,6 @@ _claude_build/
 deploy-swap.log
 # JWT imza anahtarı (yerel, ilk açılışta üretilir)
 **/Data/jwt.key
+
+# GİB e-Fatura kullanıcı listesi önbelleği (GibEFaturaUserListService — yüzlerce MB zip)
+BackendAPI/App_Data/

@@ -1340,6 +1340,13 @@ export const APP_MODULES: AppModule[] = [
             subtitle: 'PostBoxService · GetDocumentList / GetDocumentData → EGovDocument + PDF + süreç',
             isELogoSync: true,
           },
+          {
+            id: 'cari-mukellef-kontrolu',
+            path: 'edevlet/islemler/cari-mukellef-kontrolu',
+            title: 'Cari Mükellef Kontrolü',
+            subtitle: 'EFaturaMukellef · carilerin GİB e-Fatura mükellefiyeti, PK / GB etiketleri toplu güncelleme',
+            isEGovMukellefCheck: true,
+          },
         ],
       },
     ],

@@ -1,6 +1,7 @@
 using System.Data;
 using System.IO.Compression;
 using System.Xml;
+using System.Xml.Linq;
 using BartuERP.Backend.Repositories;
 using Dapper;
 using Microsoft.Data.SqlClient;
@@ -43,6 +44,12 @@ public sealed class GibEFaturaUserListOptions
     public int SyncFreshHours { get; set; } = 48;
 
     public int BulkBatchSize { get; set; } = 5000;
+
+    /** Gece tam senkronu (EFaturaMukellefSyncJob) — her veritabanında günde bir */
+    public bool NightlySyncEnabled { get; set; } = true;
+
+    /** Gece senkronunun başlayacağı saat (Türkiye saati, 0-23) */
+    public int NightlySyncHour { get; set; } = 3;
 }
 
 public sealed class GibLookupOutcome
@@ -61,6 +68,10 @@ public sealed class GibSyncOutcome
     public int PkImported { get; set; }
     public int GbImported { get; set; }
     public int TotalLocal { get; set; }
+    /** GİB listesinde artık olmayan, pasife alınan etiket sayısı */
+    public int Deactivated { get; set; }
+    /** Listenin alındığı yer: GİB zip adresi ya da «e-Logo getUserListNew» */
+    public string? Source { get; set; }
 }
 
 /// <summary>
@@ -170,7 +181,16 @@ public sealed class GibEFaturaUserListService
         }
     }
 
-    public async Task<GibSyncOutcome> SyncFullAsync(IDbConnection db, CancellationToken ct = default)
+    /// <param name="elogo">GİB zip adresine erişilemezse liste bu e-Logo hesabından (getUserListNew) alınır</param>
+    /// <param name="mode">SYS_EFaturaMukellefSync.Mode — FullZip (elle) · Nightly (gece görevi)</param>
+    /// <param name="reuseCacheHours">&gt; 0: önbellekteki zip bu kadar saatten yeniyse yeniden indirilmez
+    /// (gece görevinde birden çok veritabanı aynı indirmeyi paylaşır)</param>
+    public async Task<GibSyncOutcome> SyncFullAsync(
+        IDbConnection db,
+        CancellationToken ct = default,
+        ELogoCompanyCredentials? elogo = null,
+        string mode = "FullZip",
+        int reuseCacheHours = 0)
     {
         var outcome = new GibSyncOutcome();
         await Gate.WaitAsync(ct);
@@ -182,23 +202,14 @@ public sealed class GibEFaturaUserListService
 
             syncId = await db.ExecuteScalarAsync<int>(new CommandDefinition(
                 @"INSERT INTO dbo.SYS_EFaturaMukellefSync (Status, Mode, SourceUrl)
-                  VALUES (N'Running', N'FullZip', @url);
+                  VALUES (N'Running', @mode, @url);
                   SELECT CAST(SCOPE_IDENTITY() AS INT);",
-                new { url = _opt.PkListUrl },
+                new { url = _opt.PkListUrl, mode },
                 cancellationToken: ct));
 
-            var pkPath = await EnsureZipAsync(
-                "pk",
-                PrimaryAndFallbacks(_opt.PkListUrl, _opt.PkListFallbackUrls),
-                ct,
-                forceRefresh: true,
-                timeoutMinutes: _opt.DownloadTimeoutMinutes);
-            var gbPath = await EnsureZipAsync(
-                "gb",
-                PrimaryAndFallbacks(_opt.GbListUrl, _opt.GbListFallbackUrls),
-                ct,
-                forceRefresh: true,
-                timeoutMinutes: _opt.DownloadTimeoutMinutes);
+            var (pkPath, pkSource) = await AcquireZipAsync("pk", elogo, reuseCacheHours, ct);
+            var (gbPath, _) = await AcquireZipAsync("gb", elogo, reuseCacheHours, ct);
+            outcome.Source = pkSource;
 
             await db.ExecuteAsync(new CommandDefinition(
                 "TRUNCATE TABLE dbo.EFaturaMukellef_Import",
@@ -209,18 +220,30 @@ public sealed class GibEFaturaUserListService
 
             await MergeStagingAsync(db, ct);
 
+            // Listeden çıkan etiketler pasif — yalnız tam liste geldiyse (yarım indirme yereli silmesin)
+            if (outcome.PkImported + outcome.GbImported >= _opt.MinSyncedLocalCount)
+            {
+                outcome.Deactivated = await db.ExecuteAsync(new CommandDefinition(
+                    @"UPDATE m SET IsActive = 0
+                      FROM dbo.EFaturaMukellef m
+                      WHERE m.IsActive = 1
+                        AND NOT EXISTS (SELECT 1 FROM dbo.EFaturaMukellef_Import i WHERE i.TaxNr = m.TaxNr AND i.Alias = m.Alias)",
+                    cancellationToken: ct,
+                    commandTimeout: 0));
+            }
+
             outcome.TotalLocal = await db.ExecuteScalarAsync<int>(new CommandDefinition(
                 "SELECT COUNT(*) FROM dbo.EFaturaMukellef WHERE IsActive = 1",
                 cancellationToken: ct));
 
             outcome.Success = true;
             outcome.Message =
-                $"GİB senkron tamam: PK {outcome.PkImported:N0}, GB {outcome.GbImported:N0}, yerel toplam {outcome.TotalLocal:N0}";
+                $"GİB senkron tamam: PK {outcome.PkImported:N0}, GB {outcome.GbImported:N0}, pasife alınan {outcome.Deactivated:N0}, yerel toplam {outcome.TotalLocal:N0} · kaynak: {outcome.Source}";
 
             await db.ExecuteAsync(new CommandDefinition(
                 @"UPDATE dbo.SYS_EFaturaMukellefSync
                   SET FinishedAt = GETDATE(), Status = N'Ok',
-                      PkImported = @pk, GbImported = @gb, TotalLocal = @tot, Message = @msg
+                      PkImported = @pk, GbImported = @gb, TotalLocal = @tot, Message = @msg, SourceUrl = @src
                   WHERE SyncID = @id",
                 new
                 {
@@ -229,6 +252,7 @@ public sealed class GibEFaturaUserListService
                     gb = outcome.GbImported,
                     tot = outcome.TotalLocal,
                     msg = outcome.Message,
+                    src = outcome.Source,
                 },
                 cancellationToken: ct));
 
@@ -283,6 +307,45 @@ public sealed class GibEFaturaUserListService
         if (localCount < _opt.MinSyncedLocalCount) return false;
         if (lastOkSync is null) return false;
         return DateTime.Now - lastOkSync.Value <= TimeSpan.FromHours(_opt.SyncFreshHours);
+    }
+
+    /// <summary>
+    /// PK / GB listesi zip'i: önce GİB adresleri (merkez.gib.gov.tr — çoğu ağda yalnız entegratörlere açık),
+    /// olmazsa e-Logo getUserListNew. reuseCacheHours içinde indirilmiş zip yeniden kullanılır.
+    /// </summary>
+    private async Task<(string Path, string Source)> AcquireZipAsync(
+        string role, ELogoCompanyCredentials? elogo, int reuseCacheHours, CancellationToken ct)
+    {
+        var path = Path.Combine(ResolveCacheDir(), $"efatura_{role}_list.xml.zip");
+        if (reuseCacheHours > 0 && File.Exists(path)
+            && DateTime.UtcNow - File.GetLastWriteTimeUtc(path) <= TimeSpan.FromHours(reuseCacheHours))
+            return (path, "önbellek");
+
+        var (url, fallbacks) = role == "pk" ? (_opt.PkListUrl, _opt.PkListFallbackUrls) : (_opt.GbListUrl, _opt.GbListFallbackUrls);
+        try
+        {
+            return (await EnsureZipAsync(role, PrimaryAndFallbacks(url, fallbacks), ct,
+                forceRefresh: true, timeoutMinutes: _opt.DownloadTimeoutMinutes), url);
+        }
+        catch (Exception ex) when (elogo is { IntegratorUser: { Length: > 0 }, IntegratorPassword: { Length: > 0 } } && !ct.IsCancellationRequested)
+        {
+            _log.LogWarning("GİB {Role} listesi doğrudan indirilemedi ({Msg}) — e-Logo'dan alınıyor", role, ex.Message);
+            var wsUrl = ELogoDocumentSyncService.ResolvePostBoxUrl(elogo.IntegratorWsUrl);
+            var http = _httpFactory.CreateClient("GibEFatura");
+            try
+            {
+                await ELogoUserListClient.DownloadAsync(http, wsUrl, elogo.IntegratorUser!, elogo.IntegratorPassword!,
+                    role == "pk" ? "PKLIST" : "GBLIST", path, ct);
+                return (path, "e-Logo getUserListNew");
+            }
+            catch (Exception elogoEx) when (!ct.IsCancellationRequested && File.Exists(path)
+                                            && DateTime.UtcNow - File.GetLastWriteTimeUtc(path) <= TimeSpan.FromHours(Math.Max(1, _opt.CacheMaxAgeHours)))
+            {
+                // e-Logo listeyi 10 dakikadan sık vermez («saatte bir güncellenir») — taze önbellek kullanılır
+                _log.LogWarning("e-Logo {Role} listesi alınamadı ({Msg}) — önbellekteki liste kullanılıyor", role, elogoEx.Message);
+                return (path, $"önbellek ({File.GetLastWriteTime(path):dd.MM.yyyy HH:mm})");
+            }
+        }
     }
 
     private async Task<string> EnsureZipAsync(
@@ -392,10 +455,9 @@ public sealed class GibEFaturaUserListService
                 && !reader.LocalName.Equals("User", StringComparison.OrdinalIgnoreCase))
                 continue;
 
-            var user = await ReadUserAsync(reader, defaultType);
-            if (user is null) continue;
-            if (string.Equals(user.TaxNr, taxNr, StringComparison.Ordinal))
-                list.Add(user);
+            foreach (var user in await ReadUsersAsync(reader, defaultType))
+                if (string.Equals(user.TaxNr, taxNr, StringComparison.Ordinal))
+                    list.Add(user);
         }
 
         return list;
@@ -436,18 +498,17 @@ public sealed class GibEFaturaUserListService
             if (reader.NodeType != XmlNodeType.Element) continue;
             if (!reader.LocalName.Equals("User", StringComparison.OrdinalIgnoreCase)) continue;
 
-            var user = await ReadUserAsync(reader, defaultType);
-            if (user is null || string.IsNullOrWhiteSpace(user.TaxNr) || string.IsNullOrWhiteSpace(user.Alias))
-                continue;
-
-            table.Rows.Add(
-                user.TaxNr,
-                user.Title,
-                user.Alias,
-                user.AliasType,
-                user.UnitType,
-                user.FirstCreateDate.HasValue ? user.FirstCreateDate.Value : DBNull.Value);
-            imported++;
+            foreach (var user in await ReadUsersAsync(reader, defaultType))
+            {
+                table.Rows.Add(
+                    user.TaxNr,
+                    user.Title,
+                    user.Alias,
+                    user.AliasType,
+                    user.UnitType,
+                    user.FirstCreateDate.HasValue ? user.FirstCreateDate.Value : DBNull.Value);
+                imported++;
+            }
 
             if (table.Rows.Count >= batch)
             {
@@ -492,12 +553,12 @@ public sealed class GibEFaturaUserListService
         await db.ExecuteAsync(new CommandDefinition(
             @"MERGE dbo.EFaturaMukellef AS t
               USING (
-                SELECT TaxNr, Title, Alias, AliasType, UnitType, FirstCreateDate
+                SELECT TaxNr, LEFT(Title, 250) AS Title, Alias, AliasType, UnitType, FirstCreateDate
                 FROM (
-                  SELECT *, ROW_NUMBER() OVER (PARTITION BY TaxNr, Alias ORDER BY (SELECT 1)) AS rn
+                  SELECT *, ROW_NUMBER() OVER (PARTITION BY TaxNr, Alias ORDER BY CASE WHEN UnitType = N'e-Fatura' THEN 0 ELSE 1 END) AS rn
                   FROM dbo.EFaturaMukellef_Import
                 ) x
-                WHERE rn = 1
+                WHERE rn = 1 AND LEN(Alias) <= 200
               ) AS s
               ON t.TaxNr = s.TaxNr AND t.Alias = s.Alias
               WHEN MATCHED THEN UPDATE SET
@@ -545,59 +606,74 @@ public sealed class GibEFaturaUserListService
             cancellationToken: ct));
     }
 
-    private static async Task<EFaturaMukellefRow?> ReadUserAsync(XmlReader reader, string defaultType)
+    /// <summary>
+    /// Bir &lt;User&gt; kaydını okur (okuyucu kaydın bitişinde kalır). GİB «newUser» biçimi:
+    /// User/Documents/Document[@type=Invoice|DespatchAdvice]/Alias/{Name, CreationTime, DeletionTime} —
+    /// silinmiş etiketler (DeletionTime) alınmaz; fatura etiketi «e-Fatura», irsaliye etiketi «e-İrsaliye».
+    /// Eski düz biçim (User/Alias metni) de okunur. Etiket türü (PK / GB) listeden gelir.
+    /// </summary>
+    private static async Task<List<EFaturaMukellefRow>> ReadUsersAsync(XmlReader reader, string defaultType)
     {
-        string? identifier = null, alias = null, title = null, type = null;
-        DateTime? first = null;
+        var rows = new List<EFaturaMukellefRow>();
+        if (reader.IsEmptyElement) return rows;
 
-        if (reader.IsEmptyElement) return null;
+        XElement user;
+        using (var sub = reader.ReadSubtree())
+            user = await XElement.LoadAsync(sub, LoadOptions.None, CancellationToken.None);
 
-        var depth = reader.Depth;
-        while (await reader.ReadAsync())
+        static string? Child(XElement e, params string[] names) =>
+            e.Elements().FirstOrDefault(c => names.Any(n => c.Name.LocalName.Equals(n, StringComparison.OrdinalIgnoreCase)))?.Value?.Trim();
+        static DateTime? Date(string? v) => DateTime.TryParse(v, out var d) ? d : null;
+
+        var identifier = NormalizeTax(Child(user, "Identifier", "VKN", "TaxNr"));
+        if (string.IsNullOrWhiteSpace(identifier)) return rows;
+        var title = Child(user, "Title", "Unvan");
+        var first = Date(Child(user, "FirstCreationTime", "FirstCreateDate", "RegisterTime"));
+
+        var aliasType = defaultType;
+        var flatType = Child(user, "AliasType");
+        if (flatType?.Contains("PK", StringComparison.OrdinalIgnoreCase) == true) aliasType = "PK";
+        else if (flatType?.Contains("GB", StringComparison.OrdinalIgnoreCase) == true) aliasType = "GB";
+
+        void Add(string? alias, string unit, DateTime? created)
         {
-            if (reader.NodeType == XmlNodeType.EndElement && reader.Depth == depth)
-                break;
-            if (reader.NodeType != XmlNodeType.Element) continue;
-
-            var name = reader.LocalName;
-            var val = await reader.ReadElementContentAsStringAsync();
-            if (name.Equals("Identifier", StringComparison.OrdinalIgnoreCase)
-                || name.Equals("VKN", StringComparison.OrdinalIgnoreCase)
-                || name.Equals("TaxNr", StringComparison.OrdinalIgnoreCase))
-                identifier = NormalizeTax(val);
-            else if (name.Equals("Alias", StringComparison.OrdinalIgnoreCase))
-                alias = val?.Trim();
-            else if (name.Equals("Title", StringComparison.OrdinalIgnoreCase)
-                     || name.Equals("Unvan", StringComparison.OrdinalIgnoreCase))
-                title = val?.Trim();
-            else if (name.Equals("Type", StringComparison.OrdinalIgnoreCase)
-                     || name.Equals("AliasType", StringComparison.OrdinalIgnoreCase))
-                type = val?.Trim();
-            else if (name.Equals("FirstCreationTime", StringComparison.OrdinalIgnoreCase)
-                     || name.Equals("FirstCreateDate", StringComparison.OrdinalIgnoreCase)
-                     || name.Equals("RegisterTime", StringComparison.OrdinalIgnoreCase))
+            if (string.IsNullOrWhiteSpace(alias)) return;
+            rows.Add(new EFaturaMukellefRow
             {
-                if (DateTime.TryParse(val, out var dt)) first = dt;
+                TaxNr = identifier,
+                Alias = alias.Trim(),
+                Title = title,
+                AliasType = aliasType,
+                UnitType = unit,
+                // Mükellefiyet başlangıcı (cari kartta e-Fatura başlangıç tarihi): kullanıcının ilk kaydı, yoksa etiket kaydı
+                FirstCreateDate = first ?? created,
+                IsActive = true,
+            });
+        }
+
+        foreach (var doc in user.Descendants().Where(d => d.Name.LocalName == "Document"))
+        {
+            var unit = string.Equals((string?)doc.Attribute("type"), "DespatchAdvice", StringComparison.OrdinalIgnoreCase)
+                ? "e-İrsaliye" : "e-Fatura";
+            foreach (var a in doc.Elements().Where(x => x.Name.LocalName == "Alias"))
+            {
+                if (a.HasElements)
+                {
+                    if (!string.IsNullOrWhiteSpace(Child(a, "DeletionTime"))) continue;
+                    Add(Child(a, "Name"), unit, Date(Child(a, "CreationTime")));
+                }
+                else
+                {
+                    Add(a.Value, unit, null);
+                }
             }
         }
 
-        if (string.IsNullOrWhiteSpace(identifier) || string.IsNullOrWhiteSpace(alias))
-            return null;
+        // Eski düz biçim: User/Alias metni
+        foreach (var a in user.Elements().Where(x => x.Name.LocalName == "Alias" && !x.HasElements))
+            Add(a.Value, "e-Fatura", null);
 
-        var aliasType = string.IsNullOrWhiteSpace(type) ? defaultType : type.Trim().ToUpperInvariant();
-        if (aliasType.Contains("PK", StringComparison.OrdinalIgnoreCase)) aliasType = "PK";
-        else if (aliasType.Contains("GB", StringComparison.OrdinalIgnoreCase)) aliasType = "GB";
-
-        return new EFaturaMukellefRow
-        {
-            TaxNr = identifier,
-            Alias = alias,
-            Title = title,
-            AliasType = aliasType,
-            UnitType = "e-Fatura",
-            FirstCreateDate = first,
-            IsActive = true,
-        };
+        return rows;
     }
 
     private static void EnsureSyncObjects(IDbConnection db)
