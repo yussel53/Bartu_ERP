@@ -26,6 +26,7 @@ public sealed class RecordsController : ControllerBase
     private readonly CustomerKindRepository _customerKind;
     private readonly BarcodeRepository _barcodes;
     private readonly DataScopeService _scope;
+    private readonly NumberTemplateRepository _numbers;
 
     public RecordsController(
         RecordsRepository repo,
@@ -33,9 +34,11 @@ public sealed class RecordsController : ControllerBase
         ProcessRepository process,
         CustomerKindRepository customerKind,
         BarcodeRepository barcodes,
-        DataScopeService scope)
+        DataScopeService scope,
+        NumberTemplateRepository numbers)
     {
         _scope = scope;
+        _numbers = numbers;
         _repo = repo;
         _postSave = postSave;
         _process = process;
@@ -170,6 +173,22 @@ public sealed class RecordsController : ControllerBase
                     return StatusCode(403, new { success = false, message = "Kayıt yetki kodu / firma / işyeri / ambar kapsamınızın dışında." });
             }
 
+            // Y-05: yeni fişte numara kayıtta verilir (açılıp vazgeçilen fiş sayaç tüketmez); elle yazılmışsa dokunulmaz
+            string? autoNumber = null;
+            if (body.RecordId == 0 && body.AutoNumber is { Field.Length: > 0 } an && body.StandardFields != null)
+            {
+                var cur = body.StandardFields.FirstOrDefault(kv => kv.Key.Equals(an.Field, StringComparison.OrdinalIgnoreCase));
+                if (string.IsNullOrWhiteSpace(Convert.ToString(cur.Value)))
+                {
+                    an.Request.Peek = false;
+                    var alloc = await _numbers.AllocateAsync(an.Request, ct);
+                    if (!alloc.Success || string.IsNullOrEmpty(alloc.Number))
+                        return BadRequest(new { success = false, message = "Fiş numarası alınamadı: " + alloc.Message });
+                    body.StandardFields[cur.Key ?? an.Field] = alloc.Number;
+                    autoNumber = alloc.Number;
+                }
+            }
+
             var (ok, id, message) = await _repo.SaveAsync(tableName, pk, body, ct);
             // Veritabanı tetikleyicisi (TR_ProductBarcode_Unique, hata 51077) — eşzamanlı kayıtta son güvence
             if (!ok && message != null && message.Contains("TR_ProductBarcode_Unique", StringComparison.OrdinalIgnoreCase))
@@ -232,8 +251,9 @@ public sealed class RecordsController : ControllerBase
             return Ok(new
             {
                 success = true,
-                message,
+                message = autoNumber != null ? $"{message} · Fiş no: {autoNumber}" : message,
                 recordId = id,
+                autoNumber,
                 postSave = postResults,
                 postSaveOk = true,
                 processStarted,

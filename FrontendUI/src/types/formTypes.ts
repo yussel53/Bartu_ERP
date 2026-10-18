@@ -182,6 +182,8 @@ export interface DynamicFormDataDto {
   auxilCodes?: Record<string, unknown>[];
   /** Özel kod tanımı değerleri → AuxilCodeValue */
   auxilValues?: Record<string, unknown>[];
+  /** Yeni fişte numara kayıtta verilir (Y-05): boş numara alanı + şablon isteği */
+  autoNumber?: { field: string; request: Record<string, unknown> };
 }
 
 export interface ListColumn {

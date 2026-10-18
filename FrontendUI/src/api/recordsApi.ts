@@ -98,6 +98,7 @@ export async function saveRecord(
       distributions: data.distributions,
       auxilCodes: data.auxilCodes,
       auxilValues: data.auxilValues,
+      autoNumber: data.autoNumber,
       formCode: opts?.formCode,
       postSave: opts?.postSave,
     }),

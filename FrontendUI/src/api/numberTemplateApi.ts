@@ -13,6 +13,8 @@ export interface NumberAllocateRequest {
   userName?: string;
   /** Fiş tarihi (geçerlilik aralığı) */
   documentDate?: string;
+  /** Yalnız önizleme — sayaç artırılmaz (numara kayıtta verilir) */
+  peek?: boolean;
 }
 
 export interface NumberAllocateResult {

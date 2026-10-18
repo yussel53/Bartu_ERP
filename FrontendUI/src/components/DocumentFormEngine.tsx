@@ -1080,12 +1080,13 @@ export const DocumentFormEngine: React.FC<DocumentFormEngineProps> = ({
       setNumberBusy(true);
       setNumberHint(null);
       try {
-        const res = await allocateDocumentNumber(buildAllocateBody());
+        // Y-05: yalnız önizleme — sayaç kayıtta artar (açılıp vazgeçilen fiş numara tüketmez)
+        const res = await allocateDocumentNumber({ ...buildAllocateBody(), peek: true });
         if (res.success && res.number) {
-          setValue(`standardFields.${docNumberField}`, res.number, { shouldDirty: true });
+          if (force) setValue(`standardFields.${docNumberField}`, '', { shouldDirty: true });
           numberAllocated.current = true;
           numberManual.current = false;
-          setNumberHint(null);
+          setNumberHint(`Otomatik: ${res.number} — numara kayıtta verilir`);
         } else {
           setNumberHint(res.message || 'Şablon bulunamadı');
         }
@@ -1227,6 +1228,11 @@ export const DocumentFormEngine: React.FC<DocumentFormEngineProps> = ({
       paymentPlans: showPaymentPlan ? paymentPlans : undefined,
       distributions,
       auxilCodes,
+      // Y-05: numara alanı boşsa sunucu kaydetmeden hemen önce şablondan numara verir
+      autoNumber:
+        isNewRecord && docNumberField && !String((data.standardFields as Record<string, unknown>)?.[docNumberField] ?? '').trim()
+          ? { field: docNumberField, request: buildAllocateBody() }
+          : undefined,
     };
     onSubmit(payload);
   };
@@ -1368,7 +1374,7 @@ export const DocumentFormEngine: React.FC<DocumentFormEngineProps> = ({
     !readOnly && docNumberField ? (
       <button
         type="button"
-        title="Şablondan yeni fiş no al"
+        title="Sıradaki fiş no (önizleme — numara kayıtta verilir)"
         disabled={numberBusy}
         onClick={() => {
           numberManual.current = false;

@@ -65,6 +65,8 @@ public sealed class RecordSaveRequest
     public string? FormCode { get; set; }
     /** Şemadan gelen kaydet-sonrası komutlar */
     public List<PostSaveActionDto>? PostSave { get; set; }
+    /** Yeni fişte numara kayıtta verilir (Y-05) — RecordsController */
+    public AutoNumberRequest? AutoNumber { get; set; }
 }
 
 internal sealed class NestedChildSpec

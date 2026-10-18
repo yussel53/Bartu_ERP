@@ -19,6 +19,15 @@ public sealed class NumberAllocateRequest
     public string? UserName { get; set; }
     /** Fiş tarihi — geçerlilik aralığı kontrolü (yyyy-MM-dd) */
     public string? DocumentDate { get; set; }
+    /** Yalnız önizleme: sayaç artırılmaz (yeni fiş açılınca gösterilen «Otomatik: …») — Y-05 */
+    public bool Peek { get; set; }
+}
+
+/// <summary>Kayıtta numara ver (Y-05): alan boşsa kaydetmeden hemen önce şablondan numara alınır</summary>
+public sealed class AutoNumberRequest
+{
+    public string Field { get; set; } = "";
+    public NumberAllocateRequest Request { get; set; } = new();
 }
 
 public sealed class NumberAllocateResult
@@ -147,7 +156,24 @@ ORDER BY Priority DESC, ScopeType DESC, Code";
 
             var scopeKey = ResolveScopeKey(tpl.ScopeType, req);
             var periodKey = ResolvePeriodKey(tpl.Pattern, tpl.PeriodKind, docDate);
-            var next = await NextSeqAsync(tx, tpl.TemplateId, scopeKey, periodKey, tpl.StartNumber, ct);
+            var next = req.Peek
+                ? await PeekSeqAsync(tx, tpl.TemplateId, scopeKey, periodKey, tpl.StartNumber, ct)
+                : await NextSeqAsync(tx, tpl.TemplateId, scopeKey, periodKey, tpl.StartNumber, ct);
+            if (req.Peek)
+            {
+                // Önizleme: sayaç değişmez
+                await tx.RollbackAsync(ct);
+                var padP = tpl.SeqPad > 0 ? tpl.SeqPad : 6;
+                return new NumberAllocateResult
+                {
+                    Success = true,
+                    Number = RenderPattern(tpl.Pattern, padP, next, req, docDate),
+                    TemplateId = tpl.TemplateId,
+                    TemplateCode = tpl.Code,
+                    Pattern = tpl.Pattern,
+                    Message = "Önizleme — numara kayıtta verilir",
+                };
+            }
 
             if (tpl.EndNumber is > 0 && next > tpl.EndNumber.Value)
             {
@@ -350,6 +376,25 @@ ORDER BY ScopeType DESC, Priority DESC, TemplateId DESC";
         if (hasY && hasM) return docDate.ToString("yyyyMM");
         if (hasY) return docDate.ToString("yyyy");
         return "";
+    }
+
+    /// <summary>Sıradaki numara (sayaç artırılmadan)</summary>
+    private async Task<long> PeekSeqAsync(
+        SqlTransaction tx,
+        int templateId,
+        string scopeKey,
+        string periodKey,
+        long startNumber,
+        CancellationToken ct)
+    {
+        await using var cmd = Conn.CreateCommand();
+        cmd.Transaction = tx;
+        cmd.CommandText = "SELECT LastValue FROM dbo.SYS_NumberCounter WHERE TemplateId = @tid AND ScopeKey = @sk AND PeriodKey = @pk";
+        cmd.Parameters.AddWithValue("@tid", templateId);
+        cmd.Parameters.AddWithValue("@sk", scopeKey ?? "");
+        cmd.Parameters.AddWithValue("@pk", periodKey ?? "");
+        var o = await cmd.ExecuteScalarAsync(ct);
+        return o != null && o != DBNull.Value ? Convert.ToInt64(o) + 1 : (startNumber > 0 ? startNumber : 1);
     }
 
     private async Task<long> NextSeqAsync(
