@@ -104,6 +104,7 @@ builder.Services.AddScoped<EGovIncomingRepository>();
 builder.Services.AddScoped<EGovAutoFetchService>();
 builder.Services.AddHostedService<EGovAutoFetchJob>();
 builder.Services.AddScoped<EGovDespatchRepository>();
+builder.Services.AddScoped<EGovConsoleRepository>();
 builder.Services.AddScoped<ApprovalGroupRepository>();
 builder.Services.AddSingleton<AddressSeedService>();
 builder.Services.AddHttpClient("PostSave", client =>

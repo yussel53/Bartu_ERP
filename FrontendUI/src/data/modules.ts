@@ -1341,6 +1341,13 @@ export const APP_MODULES: AppModule[] = [
         title: 'İşlemler',
         screens: [
           {
+            id: 'ebelge-konsolu',
+            path: 'edevlet/islemler/ebelge-konsolu',
+            title: 'e-Belge Konsolu',
+            subtitle: 'Gelen / giden / bekleyen e-Fatura · e-Arşiv · e-İrsaliye özeti ve grafikleri',
+            isEGovConsole: true,
+          },
+          {
             id: 'elogo-belge-cek',
             path: 'edevlet/islemler/elogo-belge-cek',
             title: 'e-Logo Belge Çekme',
