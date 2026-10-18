@@ -40,6 +40,22 @@ Aynı sağ tık menüsü malzeme, banka, kasa, muhasebe ve çek/senet kartların
   ile etiketler GİB listesinden ya da entegratörden doldurulur.
 - **Yetkililer, Muhasebe hesapları, Özel kodlar**: satır satır eklenir.
 
+## Kasa fişleri
+
+*Finans → Hareketler → Kasa Fişleri*. Fiş tipleri:
+
+| Tip | Kasa | Karşı taraf |
+|---|---|---|
+| Tahsilat (cariden) | Giriş | Cari **alacak** |
+| Tediye (cariye) | Çıkış | Cari **borç** |
+| Kasadan bankaya | Çıkış | Banka hesabı giriş |
+| Bankadan kasaya | Giriş | Banka hesabı çıkış |
+| Masraf | Çıkış | — |
+| Kasa → Kasa virman | Çıkış | Hedef kasa giriş |
+
+Bir fişte birden çok satır olabilir (ör. aynı gün birkaç cariden tahsilat). Tahsilat ve tediye cari ekstresinde ve bakiyesinde,
+kasa ↔ banka transferleri banka ekstresinde görünür. Kasa kartında sağ tık → **Ekstre**.
+
 ## e-Faturadan cari
 
 Gelen e-faturadan cari açmak için bkz. [e-Devlet](e-devlet#e-faturadan-cari-karti).

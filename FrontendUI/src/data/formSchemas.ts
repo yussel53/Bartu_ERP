@@ -1,6 +1,6 @@
 import { FormSchemaDto } from '../types/formTypes';
 import { ProductCardType } from './productCardTypes';
-import { OrderType, DispatchType, InvoiceType, BankVoucherType, PaymentType, PriceType, CUSTOMER_VOUCHER_TYPE_OPTIONS, BANK_VOUCHER_TYPE_OPTIONS, BOUND_TRANS_TYPE_OPTIONS, MATERIAL_VOUCHER_TYPE_OPTIONS } from './documentTypes';
+import { OrderType, DispatchType, InvoiceType, BankVoucherType, PaymentType, PriceType, CUSTOMER_VOUCHER_TYPE_OPTIONS, BANK_VOUCHER_TYPE_OPTIONS, BOUND_TRANS_TYPE_OPTIONS, MATERIAL_VOUCHER_TYPE_OPTIONS, SAFE_VOUCHER_TYPE_OPTIONS } from './documentTypes';
 import { CUSTOMER_ADDRESS_TYPE_OPTIONS } from './customerAddressTypes';
 import {
   MODULE_KEY_OPTIONS,
@@ -3346,6 +3346,57 @@ Object.assign(FORM_SCHEMAS, {
           { label: 'USD-01 — Garanti USD', value: '2' },
         ]),
       },
+    ],
+  },
+  /** Kasa fişi (Y-08) — SafeVoucher + SafeTrans: tahsilat / tediye / kasa↔banka / masraf / virman */
+  SafeVoucherForm: {
+    formId: 776,
+    formCode: 'SafeVoucherForm',
+    title: 'Kasa Fişi',
+    tableName: 'SafeVoucher',
+    primaryKeyColumn: 'SafeVoucherID',
+    documentLayout: 'trade',
+    fields: [
+      { fieldId: 7401, fieldName: 'DocumentNumber', label: 'Belge No', fieldType: 'text', isRequired: false, colSpan: 3, orderIndex: 1 },
+      { fieldId: 7402, fieldName: 'VoucherDate', label: 'Tarih', fieldType: 'date', isRequired: true, colSpan: 3, orderIndex: 2 },
+      {
+        fieldId: 7403,
+        fieldName: 'Type_',
+        label: 'Fiş Tipi',
+        fieldType: 'select',
+        isRequired: true,
+        colSpan: 3,
+        orderIndex: 3,
+        optionsJson: select(SAFE_VOUCHER_TYPE_OPTIONS),
+        defaultValue: '1',
+      },
+      { fieldId: 7404, fieldName: 'SafeCardID', label: 'Kasa', fieldType: 'select', isRequired: true, colSpan: 3, orderIndex: 4, optionsJson: select([]) },
+      {
+        fieldId: 7405,
+        fieldName: 'Status_',
+        label: 'Durum',
+        fieldType: 'select',
+        isRequired: true,
+        colSpan: 3,
+        orderIndex: 5,
+        optionsJson: select([
+          { label: 'Açık', value: '0' },
+          { label: 'Kapalı', value: '1' },
+          { label: 'İptal', value: '2' },
+        ]),
+        defaultValue: '0',
+      },
+      { fieldId: 7406, fieldName: 'AuthCode', label: 'Yetki Kodu', fieldType: 'text', isRequired: false, colSpan: 3, orderIndex: 6 },
+      { fieldId: 7407, fieldName: 'Description', label: 'Açıklama', fieldType: 'textarea', isRequired: false, colSpan: 12, orderIndex: 7 },
+    ],
+    /** SafeTrans satırları: tahsilat / tediyede cari; kasa↔bankada banka hesabı; virmanda hedef kasa */
+    lineFields: [
+      { fieldId: 7450, fieldName: 'CustomerID', label: 'Cari', fieldType: 'select', isRequired: false, colSpan: 4, orderIndex: 1, optionsJson: select([]) },
+      { fieldId: 7451, fieldName: 'BankAccountCardID', label: 'Banka Hesabı', fieldType: 'select', isRequired: false, colSpan: 3, orderIndex: 2, optionsJson: select([]) },
+      { fieldId: 7452, fieldName: 'AimSafeCardID', label: 'Hedef Kasa', fieldType: 'select', isRequired: false, colSpan: 3, orderIndex: 3, optionsJson: select([]) },
+      { fieldId: 7453, fieldName: 'Description', label: 'Açıklama', fieldType: 'text', isRequired: false, colSpan: 3, orderIndex: 4 },
+      { fieldId: 7454, fieldName: 'DueDate', label: 'Vade', fieldType: 'date', isRequired: false, colSpan: 2, orderIndex: 5 },
+      { fieldId: 7455, fieldName: 'Amount', label: 'Tutar', fieldType: 'number', isRequired: true, colSpan: 2, orderIndex: 6 },
     ],
   },
   PaymentTransForm: {

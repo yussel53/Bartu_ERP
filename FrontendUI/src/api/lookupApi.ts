@@ -191,9 +191,16 @@ const FIELD_LOOKUP: Record<string, LookupSource> = {
     table: 'SafeCard',
     pk: 'SafeCardID',
     codeCols: ['Code'],
-    titleCols: ['Title'],
+    titleCols: ['Defintion', 'Title'],
     createFormCode: 'SafeCardForm',
     createTitle: 'Yeni Kasa',
+  },
+  /** Kasa → Kasa virmanında hedef kasa */
+  AimSafeCardID: {
+    table: 'SafeCard',
+    pk: 'SafeCardID',
+    codeCols: ['Code'],
+    titleCols: ['Defintion', 'Title'],
   },
   RiskGroupID: {
     table: 'RiskGroup',

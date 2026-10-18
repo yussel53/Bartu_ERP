@@ -414,6 +414,14 @@ export const APP_MODULES: AppModule[] = [
             ],
           }),
           screen({
+            id: 'kasa-fisleri',
+            path: 'finans/hareketler/kasa-fisleri',
+            title: 'Kasa Fişleri',
+            subtitle: 'SafeVoucher + SafeTrans · tahsilat / tediye / kasa↔banka / masraf / virman',
+            formCode: 'SafeVoucherForm',
+            listColumns: cols(['no', 'Belge No'], ['date', 'Tarih'], ['type', 'Fiş Tipi'], ['total', 'Tutar'], ['status', 'Durum']),
+          }),
+          screen({
             id: 'kredi-taksitleri',
             path: 'finans/hareketler/kredi-taksitleri',
             title: 'Kredi Taksitleri',

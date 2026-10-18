@@ -357,6 +357,16 @@ public sealed class RecordsRepository
                     FilterColumns = new Dictionary<string, object?> { ["ModuleNr"] = 10 },
                 },
             ],
+            ["SafeVoucher"] =
+            [
+                new NestedChildSpec
+                {
+                    PayloadKey = "lines",
+                    TableName = "SafeTrans",
+                    ParentFkColumn = "SafeVoucherID",
+                    PrimaryKeyColumn = "SafeTransID",
+                },
+            ],
             ["BankVoucher"] =
             [
                 new NestedChildSpec

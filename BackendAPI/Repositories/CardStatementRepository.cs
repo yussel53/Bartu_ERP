@@ -164,6 +164,13 @@ public sealed class CardStatementRepository
         ["BoundTrans"] = "Çek / Senet Bordrosu",
         ["AccountVoucher"] = "Muhasebe Fişi",
         ["PaymentTrans"] = "Ödeme / Tahsilat Planı",
+        ["SafeVoucher"] = "Kasa Fişi",
+    };
+
+    /// <summary>Kasa fişi tipleri (SqlUpdates/82)</summary>
+    private static readonly Dictionary<int, string> SafeVoucherTypes = new()
+    {
+        [1] = "Tahsilat", [2] = "Tediye", [3] = "Kasadan Bankaya", [4] = "Bankadan Kasaya", [5] = "Masraf", [6] = "Kasa Virman",
     };
 
     private static string? TypeLabel(string source, int? code)
@@ -180,6 +187,7 @@ public sealed class CardStatementRepository
             "BoundCard" => BoundCardTypes,
             "AccountVoucher" => AccountVoucherTypes,
             "PaymentTrans" => PaymentTypes,
+            "SafeVoucher" => SafeVoucherTypes,
             _ => null,
         };
         return dict != null && dict.TryGetValue(code.Value, out var l) ? l : $"Tip {code}";
@@ -327,17 +335,8 @@ public sealed class CardStatementRepository
                 await LoadHeaderAsync(res, "SafeCard", "SafeCardID", "Code", "Defintion", ct);
                 res.DebitLabel = "Giriş";
                 res.CreditLabel = "Çıkış";
-                raw = new List<RawRow>();
-                res.StatementNote =
-                    "Veritabanında kasa hareket tablosu yok (SafeCard'a bağlı hareket kaydı tutulmuyor). " +
-                    "Kasa fişleri eklendiğinde ekstre burada görünecek.";
-                res.Sections.Add(new CardSection
-                {
-                    Key = "hareketler",
-                    Title = "Hareketler",
-                    Columns = new() { Col("Dt", "Tarih", "date"), Col("DocNo", "Belge No"), Col("Amount", "Tutar", "money") },
-                    Note = res.StatementNote,
-                });
+                raw = await SafeStatementAsync(id, ct);
+                res.StatementNote = "Kasa fişleri: tahsilat, bankadan kasaya ve gelen virman giriş; tediye, kasadan bankaya, masraf ve giden virman çıkış.";
                 break;
 
             case "account":
@@ -614,7 +613,68 @@ LEFT JOIN dbo.BankAccountCard ba ON ba.BankAccountCardID = bt.BankAccountCardID
 {Where("bt.CustomerID")}");
         }
 
+        // 4) Kasa fişleri (Y-08): tahsilat → alacak, tediye → borç
+        if (await HasAsync("SafeTrans", ct) && await HasAsync("SafeVoucher", ct))
+            parts.Add($@"
+SELECT
+  sv.VoucherDate AS Dt,
+  sv.DocumentNumber AS DocNo,
+  'SafeVoucher' AS Source,
+  CAST(sv.Type_ AS int) AS TypeCode,
+  CAST(COALESCE(st.Description, sv.Description) AS nvarchar(max)) AS Description,
+  CAST(sc.Defintion AS nvarchar(200)) AS Party,
+  CASE WHEN sv.Type_ = 2 THEN ABS(ISNULL(st.Amount, 0)) ELSE 0 END AS Debit,
+  CASE WHEN sv.Type_ = 1 THEN ABS(ISNULL(st.Amount, 0)) ELSE 0 END AS Credit,
+  st.Amount AS Amount,
+  st.DueDate AS DueDate,
+  sv.SafeVoucherID AS SourceId,
+  st.CustomerID AS CustId
+FROM dbo.SafeTrans st
+JOIN dbo.SafeVoucher sv ON sv.SafeVoucherID = st.SafeVoucherID
+LEFT JOIN dbo.SafeCard sc ON sc.SafeCardID = sv.SafeCardID
+{Where("st.CustomerID")} AND sv.Type_ IN (1, 2) AND ISNULL(sv.Status_, 0) <> 2");
+
         return parts;
+    }
+
+    /// <summary>Kasa ekstresi (Y-08): giriş = tahsilat, bankadan kasaya, gelen virman · çıkış = tediye, kasadan bankaya, masraf, giden virman</summary>
+    private async Task<List<RawRow>> SafeStatementAsync(int id, CancellationToken ct)
+    {
+        if (!await HasAsync("SafeTrans", ct) || !await HasAsync("SafeVoucher", ct)) return new();
+        return await RawAsync(@"
+SELECT
+  sv.VoucherDate AS Dt, sv.DocumentNumber AS DocNo, 'SafeVoucher' AS Source, CAST(sv.Type_ AS int) AS TypeCode,
+  CAST(COALESCE(st.Description, sv.Description) AS nvarchar(max)) AS Description,
+  CAST(COALESCE(cc.Title, ba.Title, ac.Defintion) AS nvarchar(300)) AS Party,
+  CASE WHEN (sv.SafeCardID = @id AND sv.Type_ IN (1, 4)) OR (sv.Type_ = 6 AND st.AimSafeCardID = @id) THEN ABS(ISNULL(st.Amount, 0)) ELSE 0 END AS Debit,
+  CASE WHEN sv.SafeCardID = @id AND sv.Type_ IN (2, 3, 5, 6) THEN ABS(ISNULL(st.Amount, 0)) ELSE 0 END AS Credit,
+  st.Amount AS Amount, st.DueDate AS DueDate, sv.SafeVoucherID AS SourceId
+FROM dbo.SafeTrans st
+JOIN dbo.SafeVoucher sv ON sv.SafeVoucherID = st.SafeVoucherID
+LEFT JOIN dbo.CustomerCard cc ON cc.CustomerCardID = st.CustomerID
+LEFT JOIN dbo.BankAccountCard ba ON ba.BankAccountCardID = st.BankAccountCardID
+LEFT JOIN dbo.SafeCard ac ON ac.SafeCardID = CASE WHEN sv.SafeCardID = @id THEN st.AimSafeCardID ELSE sv.SafeCardID END
+WHERE ISNULL(sv.Status_, 0) <> 2 AND (sv.SafeCardID = @id OR (sv.Type_ = 6 AND st.AimSafeCardID = @id))", new { id }, ct);
+    }
+
+    /// <summary>Banka ekstresine kasa ↔ banka transferleri (Y-08): kasadan bankaya giriş, bankadan kasaya çıkış</summary>
+    private async Task<List<RawRow>> SafeBankTransfersAsync(string kind, int id, CancellationToken ct)
+    {
+        if (!await HasAsync("SafeTrans", ct) || !await HasAsync("SafeVoucher", ct)) return new();
+        var cond = kind == "bank" ? "ba.BankCardID = @id" : "st.BankAccountCardID = @id";
+        return await RawAsync($@"
+SELECT
+  sv.VoucherDate AS Dt, sv.DocumentNumber AS DocNo, 'SafeVoucher' AS Source, CAST(sv.Type_ AS int) AS TypeCode,
+  CAST(COALESCE(st.Description, sv.Description) AS nvarchar(max)) AS Description,
+  CAST(sc.Defintion AS nvarchar(300)) AS Party,
+  CASE WHEN sv.Type_ = 3 THEN ABS(ISNULL(st.Amount, 0)) ELSE 0 END AS Debit,
+  CASE WHEN sv.Type_ = 4 THEN ABS(ISNULL(st.Amount, 0)) ELSE 0 END AS Credit,
+  st.Amount AS Amount, sv.SafeVoucherID AS SourceId
+FROM dbo.SafeTrans st
+JOIN dbo.SafeVoucher sv ON sv.SafeVoucherID = st.SafeVoucherID
+LEFT JOIN dbo.BankAccountCard ba ON ba.BankAccountCardID = st.BankAccountCardID
+LEFT JOIN dbo.SafeCard sc ON sc.SafeCardID = sv.SafeCardID
+WHERE sv.Type_ IN (3, 4) AND ISNULL(sv.Status_, 0) <> 2 AND {cond}", new { id }, ct);
     }
 
     /// <summary>Tek carinin borç / alacak toplamı (ekstre ile aynı kaynaklar) — e-Belge kuralları «Cari.Bakiye»</summary>
@@ -1335,7 +1395,9 @@ LEFT JOIN dbo.BankAccountCard ba ON ba.BankAccountCardID = bt.BankAccountCardID
 WHERE {where}";
         if (expense.Length > 0)
             res.StatementNote = "Banka masrafları çıkış tutarına eklenmiştir.";
-        return await RawAsync(sql, new { id }, ct);
+        var rows = await RawAsync(sql, new { id }, ct);
+        rows.AddRange(await SafeBankTransfersAsync(kind, id, ct));
+        return rows;
     }
 
     private async Task<CardSection?> BankVouchersAsync(string kind, int id, CancellationToken ct)

@@ -131,6 +131,27 @@ export const BankVoucherTypeLabels: Record<string, string> = {
   [BankVoucherType.MustahsilMakbuzu]: 'Bankadan Müstahsil Makbuzu',
 };
 
+/** Kasa fişi — SafeVoucher.Type_ (SqlUpdates/82) */
+export const SafeVoucherType = {
+  Tahsilat: '1',
+  Tediye: '2',
+  KasadanBankaya: '3',
+  BankadanKasaya: '4',
+  Masraf: '5',
+  Virman: '6',
+} as const;
+
+export const SafeVoucherTypeLabels: Record<string, string> = {
+  [SafeVoucherType.Tahsilat]: 'Tahsilat (cariden)',
+  [SafeVoucherType.Tediye]: 'Tediye (cariye)',
+  [SafeVoucherType.KasadanBankaya]: 'Kasadan Bankaya',
+  [SafeVoucherType.BankadanKasaya]: 'Bankadan Kasaya',
+  [SafeVoucherType.Masraf]: 'Masraf',
+  [SafeVoucherType.Virman]: 'Kasa → Kasa Virman',
+};
+
+export const SAFE_VOUCHER_TYPE_OPTIONS = Object.entries(SafeVoucherTypeLabels).map(([value, label]) => ({ label, value }));
+
 export const BANK_VOUCHER_TYPE_OPTIONS = Object.entries(BankVoucherTypeLabels).map(
   ([value, label]) => ({ label, value }),
 );
