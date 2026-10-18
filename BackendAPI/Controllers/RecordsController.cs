@@ -25,14 +25,17 @@ public sealed class RecordsController : ControllerBase
     private readonly ProcessRepository _process;
     private readonly CustomerKindRepository _customerKind;
     private readonly BarcodeRepository _barcodes;
+    private readonly DataScopeService _scope;
 
     public RecordsController(
         RecordsRepository repo,
         PostSaveRepository postSave,
         ProcessRepository process,
         CustomerKindRepository customerKind,
-        BarcodeRepository barcodes)
+        BarcodeRepository barcodes,
+        DataScopeService scope)
     {
+        _scope = scope;
         _repo = repo;
         _postSave = postSave;
         _process = process;
@@ -53,6 +56,14 @@ public sealed class RecordsController : ControllerBase
         try
         {
             var result = await _repo.ListAsync(tableName, pk, filterColumn, filterValue, take, ct, includeTemplates);
+            // Y-02: yetki kodu + firma / işyeri / ambar süzmesi sunucuda
+            var scope = await _scope.GetAsync(ct);
+            if (!scope.Unrestricted)
+            {
+                var before = result.Rows.Count;
+                result.Rows = result.Rows.Where(r => _scope.CanSee(scope, tableName, r)).ToList();
+                result.Total = Math.Max(0, result.Total - (before - result.Rows.Count));
+            }
             if (!string.IsNullOrEmpty(result.Warning) && result.Rows.Count == 0 && result.Total == 0
                 && result.Warning.StartsWith("Tablo", StringComparison.OrdinalIgnoreCase))
             {
@@ -81,6 +92,8 @@ public sealed class RecordsController : ControllerBase
         {
             var row = await _repo.GetAsync(tableName, pk, id, ct);
             if (row == null) return NotFound(new { message = "Kayıt bulunamadı" });
+            if (!_scope.CanSee(await _scope.GetAsync(ct), tableName, row.StandardFields))
+                return StatusCode(403, new { message = "Bu kayda yetkiniz yok." });
             return Ok(row);
         }
         catch (ArgumentException ex)
@@ -144,6 +157,17 @@ public sealed class RecordsController : ControllerBase
                 var conflicts = await _barcodes.ValidateAsync(productId, barcodeRows);
                 if (conflicts.Count > 0)
                     return BadRequest(new { success = false, message = BarcodeRepository.Describe(conflicts), barcodeConflicts = conflicts });
+            }
+
+            // Y-02: yetkisiz kaydı değiştiremez; yeni / değişen kayıt da kullanıcının kapsamında olmalı
+            var dataScope = await _scope.GetAsync(ct);
+            if (!dataScope.Unrestricted)
+            {
+                if (body.RecordId > 0 && await _repo.GetAsync(tableName, pk, body.RecordId, ct) is { } existing
+                    && !_scope.CanSee(dataScope, tableName, existing.StandardFields))
+                    return StatusCode(403, new { success = false, message = "Bu kayda yetkiniz yok." });
+                if (body.StandardFields != null && !_scope.CanSee(dataScope, tableName, body.StandardFields))
+                    return StatusCode(403, new { success = false, message = "Kayıt yetki kodu / firma / işyeri / ambar kapsamınızın dışında." });
             }
 
             var (ok, id, message) = await _repo.SaveAsync(tableName, pk, body, ct);
@@ -321,6 +345,9 @@ public sealed class RecordsController : ControllerBase
         {
             if (AdminOnlyTables.Contains(tableName) && !User.IsAdmin())
                 return StatusCode(403, new { success = false, message = "Bu kartı yalnızca yönetici silebilir." });
+            if (await _repo.GetAsync(tableName, pk, id, ct) is { } toDelete
+                && !_scope.CanSee(await _scope.GetAsync(ct), tableName, toDelete.StandardFields))
+                return StatusCode(403, new { success = false, message = "Bu kayda yetkiniz yok." });
             var (ok, message) = await _repo.DeleteAsync(tableName, pk, id, ct);
             if (!ok) return BadRequest(new { success = false, message });
             return Ok(new { success = true, message });
