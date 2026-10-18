@@ -199,3 +199,83 @@ public sealed class AppUpdateService
         finally { Stop-Transcript | Out-Null }
         """;
 }
+
+/// <summary>
+/// Otomatik güncelleme: Data/update/auto-apply dosyası varsa (ya da Update:AutoApply = true) staging'deki
+/// yeni sürüm, yayım bittikten (dosyalar 90 sn değişmeden) sonra kendiliğinden yüklenir. Aynı sürüm bir kez
+/// denenir (başarısız olup geri dönerse tekrar denenmez). İşaret dosyası korunur (Data kopyalanmaz).
+/// </summary>
+public sealed class AppAutoUpdateJob : BackgroundService
+{
+    private static readonly TimeSpan Interval = TimeSpan.FromMinutes(2);
+    private static readonly TimeSpan Settle = TimeSpan.FromSeconds(90);
+
+    private readonly AppUpdateService _update;
+    private readonly IWebHostEnvironment _env;
+    private readonly IConfiguration _cfg;
+    private readonly ILogger<AppAutoUpdateJob> _log;
+
+    public AppAutoUpdateJob(AppUpdateService update, IWebHostEnvironment env, IConfiguration cfg, ILogger<AppAutoUpdateJob> log)
+    {
+        _update = update;
+        _env = env;
+        _cfg = cfg;
+        _log = log;
+    }
+
+    private string WorkDir => Path.Combine(_env.ContentRootPath, "Data", "update");
+
+    private bool Enabled => _cfg.GetValue("Update:AutoApply", false) || File.Exists(Path.Combine(WorkDir, "auto-apply"));
+
+    protected override async Task ExecuteAsync(CancellationToken stoppingToken)
+    {
+        try
+        {
+            await Task.Delay(TimeSpan.FromMinutes(1), stoppingToken);
+        }
+        catch (TaskCanceledException)
+        {
+            return;
+        }
+        while (!stoppingToken.IsCancellationRequested)
+        {
+            try
+            {
+                TryApply();
+            }
+            catch (Exception ex)
+            {
+                _log.LogWarning(ex, "Otomatik güncelleme kontrolü başarısız");
+            }
+            try
+            {
+                await Task.Delay(Interval, stoppingToken);
+            }
+            catch (TaskCanceledException)
+            {
+                return;
+            }
+        }
+    }
+
+    private void TryApply()
+    {
+        if (!Enabled) return;
+        var st = _update.Status();
+        if (!st.UpdateAvailable || !st.CanApply || st.Staging?.BuildTime is not DateTime build) return;
+
+        // Yayım sürüyorsa bekle: staging'deki en yeni dosya Settle süresinden eski olmalı
+        var newest = new DirectoryInfo(st.StagingPath).EnumerateFiles("*", SearchOption.AllDirectories)
+            .Select(f => f.LastWriteTime).DefaultIfEmpty(DateTime.MinValue).Max();
+        if (DateTime.Now - newest < Settle) return;
+
+        Directory.CreateDirectory(WorkDir);
+        var marker = Path.Combine(WorkDir, "last-auto-attempt.txt");
+        var stamp = build.ToString("O");
+        if (File.Exists(marker) && File.ReadAllText(marker).Trim() == stamp) return; // bu sürüm zaten denendi
+        File.WriteAllText(marker, stamp);
+
+        var (ok, message) = _update.Apply("otomatik");
+        _log.LogWarning("Otomatik güncelleme: {Ok} {Message}", ok, message);
+    }
+}

@@ -23,6 +23,7 @@ builder.Services.AddScoped<AuthService>();
 builder.Services.AddSingleton<AppUpdateService>();
 builder.Services.AddScoped<DbBackupService>();
 builder.Services.AddHostedService<DbBackupJob>();
+builder.Services.AddHostedService<AppAutoUpdateJob>();
 builder.Services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
     .AddJwtBearer(o =>
     {
