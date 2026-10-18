@@ -18,6 +18,8 @@ public sealed class ELogoSyncRequest
     /// <summary>Gelen belgeler için süreç örneği başlat</summary>
     public bool StartProcess { get; set; } = true;
     public int? StartedBy { get; set; }
+    /// <summary>true: XML / PDF'i zaten kayıtlı belgelerde yeniden indirme (otomatik çekme — E-02)</summary>
+    public bool SkipExistingContent { get; set; }
 }
 
 public sealed class ELogoSyncItemResult
@@ -196,7 +198,11 @@ public sealed class ELogoDocumentSyncService
                     if (action == "inserted") result.Inserted++;
                     else if (action == "updated") result.Updated++;
 
-                    if (req.DownloadXml && !string.IsNullOrWhiteSpace(d.Uuid))
+                    var (hasXml, hasPdf) = (false, false);
+                    if (req.SkipExistingContent && action != "inserted")
+                        (hasXml, hasPdf) = await HasContentAsync(egovId, ct);
+
+                    if (req.DownloadXml && !hasXml && !string.IsNullOrWhiteSpace(d.Uuid))
                     {
                         try
                         {
@@ -212,7 +218,7 @@ public sealed class ELogoDocumentSyncService
                         }
                     }
 
-                    if (req.DownloadPdf && !string.IsNullOrWhiteSpace(d.Uuid)
+                    if (req.DownloadPdf && !hasPdf && !string.IsNullOrWhiteSpace(d.Uuid)
                         && await ColumnExistsAsync("EGovDocument", "PdfContent", ct))
                     {
                         try
@@ -295,6 +301,24 @@ public sealed class ELogoDocumentSyncService
             result.Message = "e-Logo senkron hatası: " + ex.Message;
             return result;
         }
+    }
+
+    /// <summary>Belgede UBL / PDF içeriği kayıtlı mı (PdfContent kolonu yoksa PDF yok sayılır)</summary>
+    private async Task<(bool Xml, bool Pdf)> HasContentAsync(int egovId, CancellationToken ct)
+    {
+        var pdfExpr = await ColumnExistsAsync("EGovDocument", "PdfContent", ct)
+            ? "CASE WHEN PdfContent IS NULL THEN 0 ELSE 1 END" : "0";
+        var row = await _db.QueryFirstOrDefaultAsync<ContentFlags>(new CommandDefinition($"""
+            SELECT CASE WHEN XmlContent IS NULL OR DATALENGTH(XmlContent) = 0 THEN 0 ELSE 1 END AS Xml, {pdfExpr} AS Pdf
+            FROM dbo.EGovDocument WHERE EGovDocumentID = @id
+            """, new { id = egovId }, cancellationToken: ct));
+        return (row?.Xml == 1, row?.Pdf == 1);
+    }
+
+    private sealed class ContentFlags
+    {
+        public int Xml { get; set; }
+        public int Pdf { get; set; }
     }
 
     private async Task<ELogoCompanyCredentials?> ResolveCredentialsAsync(int? companyId, CancellationToken ct)

@@ -1327,6 +1327,13 @@ export const APP_MODULES: AppModule[] = [
             subtitle: 'SYS_ApprovalGroup · Yönetici / Alt Yönetici / Müdür … onaya gönderirken seçilir',
             isApprovalGroups: true,
           },
+          {
+            id: 'otomatik-belge-cekme',
+            path: 'edevlet/tanimlar/otomatik-belge-cekme',
+            title: 'Otomatik Belge Çekme',
+            subtitle: 'EGovAutoFetchSetting · gelen e-belgeler e-Logo’dan zamanlanmış çekilir, yeni faturalar onaya gider',
+            isEGovAutoFetch: true,
+          },
         ],
       },
       {
