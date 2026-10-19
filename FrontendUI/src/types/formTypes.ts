@@ -225,6 +225,8 @@ export interface MenuScreen {
   isBoundPortfolio?: boolean;
   /** Rapor Üretici → Zamanlanmış Raporlar (Excel e-postası) */
   isReportSchedules?: boolean;
+  /** Genel Muhasebe → Bütçe / Gerçekleşen */
+  isBudgetReport?: boolean;
   /** Onay grupları (SYS_ApprovalGroup) */
   isApprovalGroups?: boolean;
   /** E-Devlet → Tanımlar → Otomatik Belge Çekme (E-02) */

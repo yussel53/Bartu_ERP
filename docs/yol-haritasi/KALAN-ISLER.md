@@ -6,16 +6,15 @@ Son güncelleme: 18.10.2026.
 
 ## Yusuf (Claude oturumu)
 
-Bitenler: Y-01 … Y-15 (Y-09: fatura / kasa fişi → muhasebe fişi, *Genel Muhasebe → İşlemler → Muhasebeleştirme* —
+Bitenler: Y-01 … Y-15, Y-17 (Y-09: fatura / kasa fişi → muhasebe fişi, *Genel Muhasebe → İşlemler → Muhasebeleştirme* —
 kullanmadan önce hesap kartları ve muhasebe bağlantıları girilmeli; Y-10: *Finans → Raporlar → Cari Yaşlandırma*, FIFO kapama;
 Y-11: *Finans → Hareketler → Çek / Senet Portföyü* — bordrolar, konum, vade takvimi;
 Y-12: risk grubu / cari limiti, satış belgesinde uyar / yönetici onayı / engelle;
 Y-13: Mizan, Muavin, Stok Yaşlandırma, Satış Analizi standart raporları + zamanlanmış Excel e-postası;
 Y-14: Genel Durum yönetim paneli — vadeler, satış, çek / senet, kritik stok, onaylar, döviz;
-Y-15: SYS_AuditLog + sağ tık «Değişiklik Geçmişi», listelerde sunucu sayfalama / arama).
+Y-15: SYS_AuditLog + sağ tık «Değişiklik Geçmişi», listelerde sunucu sayfalama / arama;
+Y-17: bütçe tanımları, faturada bütçe çubuğu (uyar / engelle), Bütçe / Gerçekleşen raporu).
 
-- [ ] **Y-17 Bütçe (sıradaki iş)** — muhasebe hesabı / masraf merkezi / cari grubu bazında aylık bütçe; bütçe-gerçekleşen raporu;
-  fatura ve sipariş girerken ilgili bütçenin kullanım çubuğu (kalan / aşım uyarısı); yönetim panelinde sapma.
 - [ ] **Y-16 Logo / Mikro aktarımı + dönem kapanış / açılış** — servis `wip/y16-logo-mikro-aktarim` dalında (test edilmedi);
   kalan: önizleme testi, ekran, dönem kilidi (bu tarihe kadar fiş değişmez), gelir tablosu kapanış fişi.
 
@@ -45,4 +44,4 @@ e-Belge Konsolu, E-08 (KDV özeti ve Ba / Bs), gelen e-faturada otomatik muhaseb
 ## Bekleyen küçük işler
 
 - [ ] Tanıtım sitesi (`website/index.html`): iletişim e-posta / telefonu gerçek bilgilerle değiştirilmeli.
-- [ ] Canlıda «Şimdi uygula» ile bekleyen SQL scriptleri (81–91) kayda geçirilmeli (81–82 veritabanında var, 83–91 yeni).
+- [ ] Canlıda «Şimdi uygula» ile bekleyen SQL scriptleri (81–92) kayda geçirilmeli (81–82 veritabanında var, 83–92 yeni).

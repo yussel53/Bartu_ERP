@@ -31,6 +31,7 @@ public sealed class RecordsController : ControllerBase
     private readonly AccountingPostService _accounting;
     private readonly RiskService _risk;
     private readonly AuditService _audit;
+    private readonly BudgetService _budget;
 
     public RecordsController(
         RecordsRepository repo,
@@ -43,9 +44,11 @@ public sealed class RecordsController : ControllerBase
         StockService stock,
         AccountingPostService accounting,
         RiskService risk,
-        AuditService audit)
+        AuditService audit,
+        BudgetService budget)
     {
         _audit = audit;
+        _budget = budget;
         _stock = stock;
         _accounting = accounting;
         _risk = risk;
@@ -222,6 +225,29 @@ public sealed class RecordsController : ControllerBase
                 if (risk.Action is 1 or 2) riskWarning = risk.Message + (risk.Action == 2 ? " (yönetici onayıyla)" : "");
             }
 
+            // Y-17: bütçe — aylık bütçeyi aşan faturada OverAction 1 uyar · 2 engelle
+            string? budgetWarning = null;
+            if (tableName.Equals("Invoice", StringComparison.OrdinalIgnoreCase) && body.StandardFields != null && body.Lines is { Count: > 0 })
+            {
+                static string? F(IDictionary<string, object?> d, string k) => Convert.ToString(d.FirstOrDefault(kv => kv.Key.Equals(k, StringComparison.OrdinalIgnoreCase)).Value);
+                static decimal Dec(string? v) => decimal.TryParse(v, System.Globalization.NumberStyles.Any, System.Globalization.CultureInfo.InvariantCulture, out var d) ? d : 0;
+                var bars = await _budget.CheckInvoiceAsync(new BudgetCheckRequest
+                {
+                    InvoiceType = int.TryParse(F(body.StandardFields, "InvoiceType"), out var it) ? it : 0,
+                    Date = DateTime.TryParse(F(body.StandardFields, "InvoiceDate"), System.Globalization.CultureInfo.InvariantCulture, System.Globalization.DateTimeStyles.None, out var dt) ? dt : null,
+                    InvoiceId = body.RecordId,
+                    Lines = body.Lines.Select(l => new BudgetLineInput
+                    {
+                        ProductCardID = int.TryParse(F(l, "ProductCardID") ?? F(l, "ItemsID"), out var p) ? p : null,
+                        Amount = Dec(F(l, "TotalPrice")),
+                    }).ToList(),
+                }, ct);
+                var over = bars.Where(b => b.Over && b.OverAction > 0 && b.DocAmount > b.PrevDocAmount).ToList();
+                if (over.Any(b => b.OverAction == 2))
+                    return BadRequest(new { success = false, message = "Bütçe aşımı — kayıt engellendi: " + string.Join(" · ", over.Where(b => b.OverAction == 2).Select(BudgetService.Message)) });
+                if (over.Count > 0) budgetWarning = "Bütçe uyarısı: " + string.Join(" · ", over.Select(BudgetService.Message));
+            }
+
             // Y-05: yeni fişte numara kayıtta verilir (açılıp vazgeçilen fiş sayaç tüketmez); elle yazılmışsa dokunulmaz
             string? autoNumber = null;
             if (body.RecordId == 0 && body.AutoNumber is { Field.Length: > 0 } an && body.StandardFields != null)
@@ -321,7 +347,7 @@ public sealed class RecordsController : ControllerBase
             return Ok(new
             {
                 success = true,
-                message = string.Join(" · ", new[] { message, autoNumber != null ? $"Fiş no: {autoNumber}" : null, stockWarning, riskWarning, accountingWarning }
+                message = string.Join(" · ", new[] { message, autoNumber != null ? $"Fiş no: {autoNumber}" : null, stockWarning, riskWarning, budgetWarning, accountingWarning }
                     .Where(x => !string.IsNullOrEmpty(x))),
                 recordId = id,
                 autoNumber,

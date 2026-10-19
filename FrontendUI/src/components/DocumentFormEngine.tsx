@@ -1,4 +1,5 @@
 import React from 'react';
+import { BudgetBar } from './BudgetBar';
 import {
   useForm,
   useFieldArray,
@@ -2001,6 +2002,15 @@ export const DocumentFormEngine: React.FC<DocumentFormEngineProps> = ({
               </InlineColsContext.Provider>
               </FieldLayoutContext.Provider>
 
+              {/* Y-17: faturada satırların düştüğü bütçelerin kullanım çubuğu */}
+              {(schema.tableName || '').toLowerCase() === 'invoice' && (
+                <BudgetBar
+                  invoiceType={watchedInvoiceType}
+                  date={watch('standardFields.InvoiceDate')}
+                  lines={watchedLines}
+                  invoiceId={initialData?.recordId}
+                />
+              )}
               {/* 2) Satırlar — ortadaki boşluğu doldurur */}
               {renderLinesTable({ fill: true })}
               {renderBalanceBar()}

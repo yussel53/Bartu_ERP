@@ -42,6 +42,19 @@ masraf → satırda seçilen muhasebe hesabı. Tahsilat *Tahsil*, tediye *Tediye
 Belge değişip yeniden kaydedilince (ya da yeniden muhasebeleştirilince) eski fiş silinip yenisi oluşur; belge silinince fişi de silinir.
 **Yevmiye numarası almış** fiş korunur: belge değiştirilse de fiş değişmez, belge silinemez — önce yevmiye numarasını geri alın.
 
+## Bütçe
+
+*Genel Muhasebe → Ana Kayıtlar → Bütçeler*: yıl, ad, tür (**Gider** / **Gelir**), hedef ve Ocak – Aralık tutarları.
+
+- **Hedef**: bir **muhasebe hesabı** (alt hesaplarıyla; gerçekleşen muhasebe fişlerinden) ya da bir **malzeme / hizmet kartı**
+  (gerçekleşen faturalardan, KDV hariç; giderde alış − alış iade, gelirde satış − satış iade).
+- **Faturada bütçe çubuğu**: fatura satırlarının düştüğü bütçeler satırların üstünde çubuk olarak görünür — gri bu ay gerçekleşen,
+  mavi bu fatura (aşımda kırmızı), dikey çizgi aylık bütçe; sağda kalan ya da aşım. Malzemenin hesap bütçesine düşmesi için
+  malzemenin muhasebe bağlantısı (alış / satış hesabı) tanımlı olmalı.
+- **Aylık bütçe aşılınca**: yalnız göster · uyar (kayıt yapılır, mesajda yazar) · faturayı engelle. Tutarı artmayan düzenleme engellenmez.
+- *Genel Muhasebe → Raporlar → Bütçe / Gerçekleşen*: her bütçe için aylık gerçekleşen / bütçe, seçilen aya kadar kümülatif ve yüzde;
+  giderde aşım, gelirde bütçenin altı kırmızı.
+
 ## Yevmiye numaralandırma
 
 *Genel Muhasebe → İşlemler → Yevmiye Madde Numaralandırma*: fişler tarih + saat sırasıyla numaralanır.

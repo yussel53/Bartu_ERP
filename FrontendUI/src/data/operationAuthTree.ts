@@ -303,6 +303,7 @@ export function buildOperationAuthTree(): OpTreeNode[] {
             !s.isCustomerAging &&
             !s.isBoundPortfolio &&
             !s.isReportSchedules &&
+            !s.isBudgetReport &&
             !s.isApprovalGroups &&
             !s.isCrmWorkspace &&
             !s.isCrmSettings &&

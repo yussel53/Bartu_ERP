@@ -10,6 +10,7 @@ import { AccountingPostPage } from '../pages/AccountingPostPage';
 import { CustomerAgingPage } from '../pages/CustomerAgingPage';
 import { BoundPortfolioPage } from '../pages/BoundPortfolioPage';
 import { ReportSchedulesPage } from '../pages/ReportSchedulesPage';
+import { BudgetReportPage } from '../pages/BudgetReportPage';
 import { ApprovalGroupsPage } from '../pages/ApprovalGroupsPage';
 import { EGovAutoFetchPage } from '../pages/EGovAutoFetchPage';
 import { EGovMukellefCheckPage } from '../pages/EGovMukellefCheckPage';
@@ -154,6 +155,9 @@ export const ModuleWorkspace: React.FC<ModuleWorkspaceProps> = ({
     }
     if (activeScreen.isReportSchedules) {
       return <ReportSchedulesPage onBack={() => onNavigate(module.path)} />;
+    }
+    if (activeScreen.isBudgetReport) {
+      return <BudgetReportPage onBack={() => onNavigate(module.path)} />;
     }
     if (activeScreen.isEGovRules) {
       return <EGovRulesPage onBack={() => onNavigate(module.path)} />;

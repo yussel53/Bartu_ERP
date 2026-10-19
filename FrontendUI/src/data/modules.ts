@@ -944,6 +944,15 @@ export const APP_MODULES: AppModule[] = [
             listColumns: codeTitleStatus,
           }),
           screen({
+            id: 'butceler',
+            path: 'muhasebe/ana-kayitlar/butceler',
+            title: 'Bütçeler',
+            subtitle: 'Budget · yıllık, aylık tutar · hesap ya da malzeme / hizmet',
+            formCode: 'BudgetForm',
+            listColumns: cols(['budgetYear', 'Yıl'], ['code', 'Kod'], ['title', 'Bütçe'], ['status', 'Durum']),
+            sampleRows: [{ id: 1, budgetYear: 2026, code: 'B-770', title: 'Genel yönetim giderleri', status: 'Aktif' }],
+          }),
+          screen({
             id: 'projeler',
             path: 'muhasebe/ana-kayitlar/projeler',
             title: 'Projeler',
@@ -997,7 +1006,19 @@ export const APP_MODULES: AppModule[] = [
           },
         ],
       },
-      { key: 'raporlar', title: 'Raporlar', screens: [] },
+      {
+        key: 'raporlar',
+        title: 'Raporlar',
+        screens: [
+          {
+            id: 'butce-gerceklesen',
+            path: 'muhasebe/raporlar/butce-gerceklesen',
+            title: 'Bütçe / Gerçekleşen',
+            subtitle: 'Aylık bütçe ve gerçekleşen, kümülatif sapma',
+            isBudgetReport: true,
+          },
+        ],
+      },
     ],
   },
   {
