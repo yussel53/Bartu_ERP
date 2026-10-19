@@ -14,7 +14,21 @@ Y-13: Mizan, Muavin, Stok Yaşlandırma, Satış Analizi standart raporları + z
 Y-14: Genel Durum yönetim paneli — vadeler, satış, çek / senet, kritik stok, onaylar, döviz;
 Y-15: SYS_AuditLog + sağ tık «Değişiklik Geçmişi», listelerde sunucu sayfalama / arama).
 
-- [ ] **Y-16 Logo / Mikro aktarımı + dönem kapanış / açılış**.
+- [ ] **Y-17 Bütçe (sıradaki iş)** — muhasebe hesabı / masraf merkezi / cari grubu bazında aylık bütçe; bütçe-gerçekleşen raporu;
+  fatura ve sipariş girerken ilgili bütçenin kullanım çubuğu (kalan / aşım uyarısı); yönetim panelinde sapma.
+- [ ] **Y-16 Logo / Mikro aktarımı + dönem kapanış / açılış** — servis `wip/y16-logo-mikro-aktarim` dalında (test edilmedi);
+  kalan: önizleme testi, ekran, dönem kilidi (bu tarihe kadar fiş değişmez), gelir tablosu kapanış fişi.
+
+## Planlanan (sonra yapılacak — şimdilik yapılmıyor)
+
+- [ ] **P-01 E-posta altyapısı** — ortak gönderim kuyruğu ve şablonlar; cari mutabakat e-postası (bakiye onayı bağlantıyla döner),
+  vadesi geçen tahsilat hatırlatması (`{Cari.GecikenVade}`), gönderim günlüğü. Zamanlanmış rapor SMTP altyapısı kullanılır.
+- [ ] **P-02 Kampanya modülü** — tarih aralığı, cari / cari grubu, malzeme / grup koşulu; iskonto, X al Y öde, hediye ürün;
+  sipariş ve faturada otomatik uygulama, kampanya raporu.
+- [ ] **P-03 Kur farkı faturası** — dövizli carilerde ödeme günü kuru ile fatura kuru farkı; kur farkı / vade farkı faturası önerisi.
+- [ ] **P-04 Doküman ekleri** — her kart ve fişe PDF / resim / dosya ekleme (sözleşme, fatura görüntüsü), önizleme, yetki.
+- [ ] **P-05 Farklı veritabanı desteği (PostgreSQL vb.)** — veri erişimini SQL Server'a özgü sözdiziminden ayırma
+  (TOP / OFFSET, ISNULL, IDENTITY, sys.* sorguları), SqlUpdates için veritabanı türüne göre betik, bağlantı ayarında sağlayıcı seçimi.
 
 ## @WebRoot12 (E-Devlet)
 
