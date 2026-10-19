@@ -2002,15 +2002,6 @@ export const DocumentFormEngine: React.FC<DocumentFormEngineProps> = ({
               </InlineColsContext.Provider>
               </FieldLayoutContext.Provider>
 
-              {/* Y-17: faturada satırların düştüğü bütçelerin kullanım çubuğu */}
-              {(schema.tableName || '').toLowerCase() === 'invoice' && (
-                <BudgetBar
-                  invoiceType={watchedInvoiceType}
-                  date={watch('standardFields.InvoiceDate')}
-                  lines={watchedLines}
-                  invoiceId={initialData?.recordId}
-                />
-              )}
               {/* 2) Satırlar — ortadaki boşluğu doldurur */}
               {renderLinesTable({ fill: true })}
               {renderBalanceBar()}
@@ -2421,6 +2412,16 @@ export const DocumentFormEngine: React.FC<DocumentFormEngineProps> = ({
                     <input key={f.fieldId} type="hidden" {...register('standardFields.Currency')} />
                   ))}
               </section>
+
+              {/* Y-17: faturada satırların düştüğü bütçelerin kullanım çubuğu — ekranın altında */}
+              {(schema.tableName || '').toLowerCase() === 'invoice' && (
+                <BudgetBar
+                  invoiceType={watchedInvoiceType}
+                  date={watch('standardFields.InvoiceDate')}
+                  lines={watchedLines}
+                  invoiceId={initialData?.recordId}
+                />
+              )}
 
               {saveBar}
             </>

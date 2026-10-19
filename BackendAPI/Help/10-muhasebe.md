@@ -48,7 +48,7 @@ Belge değişip yeniden kaydedilince (ya da yeniden muhasebeleştirilince) eski 
 
 - **Hedef**: bir **muhasebe hesabı** (alt hesaplarıyla; gerçekleşen muhasebe fişlerinden) ya da bir **malzeme / hizmet kartı**
   (gerçekleşen faturalardan, KDV hariç; giderde alış − alış iade, gelirde satış − satış iade).
-- **Faturada bütçe çubuğu**: fatura satırlarının düştüğü bütçeler satırların üstünde çubuk olarak görünür — gri bu ay gerçekleşen,
+- **Faturada bütçe çubuğu**: fatura satırlarının düştüğü bütçeler ekranın altında, Kaydet düğmesinin üstünde çubuk olarak görünür — gri bu ay gerçekleşen,
   mavi bu fatura (aşımda kırmızı), dikey çizgi aylık bütçe; sağda kalan ya da aşım. Malzemenin hesap bütçesine düşmesi için
   malzemenin muhasebe bağlantısı (alış / satış hesabı) tanımlı olmalı.
 - **Aylık bütçe aşılınca**: yalnız göster · uyar (kayıt yapılır, mesajda yazar) · faturayı engelle. Tutarı artmayan düzenleme engellenmez.
