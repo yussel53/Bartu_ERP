@@ -9,7 +9,7 @@ namespace BartuERP.Backend.Services;
 
 /// <summary>
 /// e-Logo PostBoxService SOAP istemcisi — eftaura_elogo_kontrol/ELogoSoapClient örnek alınarak.
-/// Login · GetDocumentList · GetDocumentData · Logout
+/// Login · GetDocumentList · GetDocumentData · SendDocument · GetDocumentStatus · Logout
 /// </summary>
 public sealed class ELogoPostBoxClient : IAsyncDisposable
 {
@@ -197,6 +197,89 @@ public sealed class ELogoPostBoxClient : IAsyncDisposable
 
         var zipBytes = Convert.FromBase64String(base64);
         return ExtractFirstFileFromZip(zipBytes, dataFormat, fileName);
+    }
+
+    /// <summary>
+    /// E-03: imzasız UBL'i zip + base64 olarak gönderir (SIGNED=0 → imzayı e-Logo atar).
+    /// Test hesabıyla doğrulanmadı; çağıran taraf canlı adres kilidini (EGovOutgoingService) kontrol eder.
+    /// </summary>
+    /// <param name="documentType">EINVOICE / EARCHIVE / EDESPATCH</param>
+    public async Task<(bool Ok, string? Code, string? Message)> SendDocumentAsync(
+        string xml,
+        string fileBaseName,
+        string documentType,
+        string? receiverAlias,
+        CancellationToken ct = default)
+    {
+        EnsureLoggedIn();
+        byte[] zip;
+        using (var ms = new MemoryStream())
+        {
+            using (var archive = new ZipArchive(ms, ZipArchiveMode.Create, leaveOpen: true))
+            {
+                var entry = archive.CreateEntry(fileBaseName + ".xml", CompressionLevel.Optimal);
+                using var es = entry.Open();
+                var bytes = new UTF8Encoding(false).GetBytes(xml);
+                es.Write(bytes, 0, bytes.Length);
+            }
+            zip = ms.ToArray();
+        }
+        var hash = Convert.ToHexString(System.Security.Cryptography.MD5.HashData(zip)).ToLowerInvariant();
+
+        var paramList = new List<string> { $"DOCUMENTTYPE={documentType}", "SIGNED=0" };
+        if (!string.IsNullOrWhiteSpace(receiverAlias)) paramList.Add($"ALIAS={receiverAlias.Trim()}");
+
+        var envelope =
+            new XElement(SoapEnv + "Envelope",
+                new XAttribute(XNamespace.Xmlns + "soapenv", SoapEnv.NamespaceName),
+                new XAttribute(XNamespace.Xmlns + "tem", Tem.NamespaceName),
+                new XAttribute(XNamespace.Xmlns + "arr", Arr.NamespaceName),
+                new XAttribute(XNamespace.Xmlns + "efat", Efat.NamespaceName),
+                new XElement(SoapEnv + "Header"),
+                new XElement(SoapEnv + "Body",
+                    new XElement(Tem + "SendDocument",
+                        new XElement(Tem + "sessionID", _sessionId),
+                        new XElement(Tem + "paramList", paramList.Select(p => new XElement(Arr + "string", p))),
+                        new XElement(Tem + "document",
+                            new XElement(Efat + "binaryData", new XElement(Efat + "Value", Convert.ToBase64String(zip))),
+                            new XElement(Efat + "fileName", fileBaseName + ".zip"),
+                            new XElement(Efat + "hash", hash)))));
+
+        var (doc, _) = await PostSoapAsync(envelope, "http://tempuri.org/IPostBoxService/SendDocument", ct);
+        var code = doc.Descendants().FirstOrDefault(e => e.Name.LocalName == "resultCode")?.Value;
+        var msg = doc.Descendants().FirstOrDefault(e => e.Name.LocalName == "resultMsg")?.Value
+                  ?? doc.Descendants().FirstOrDefault(e => e.Name.LocalName == "faultstring")?.Value;
+        return (code == "1", code, msg);
+    }
+
+    /// <summary>Belgenin entegratör / GİB durumunu sorgular (yalnız okuma)</summary>
+    /// <param name="documentType">EINVOICE / EARCHIVE / EDESPATCH</param>
+    public async Task<Dictionary<string, string>> GetDocumentStatusAsync(string uuid, string documentType, CancellationToken ct = default)
+    {
+        EnsureLoggedIn();
+        var envelope =
+            new XElement(SoapEnv + "Envelope",
+                new XAttribute(XNamespace.Xmlns + "soapenv", SoapEnv.NamespaceName),
+                new XAttribute(XNamespace.Xmlns + "tem", Tem.NamespaceName),
+                new XAttribute(XNamespace.Xmlns + "arr", Arr.NamespaceName),
+                new XElement(SoapEnv + "Header"),
+                new XElement(SoapEnv + "Body",
+                    new XElement(Tem + "GetDocumentStatus",
+                        new XElement(Tem + "sessionID", _sessionId),
+                        new XElement(Tem + "uuid", uuid),
+                        new XElement(Tem + "paramList", new XElement(Arr + "string", $"DOCUMENTTYPE={documentType}")))));
+
+        var (doc, _) = await PostSoapAsync(envelope, "http://tempuri.org/IPostBoxService/GetDocumentStatus", ct);
+        // Yanıt alanları sürüme göre değişebiliyor: yaprak elemanlar ad → değer
+        var result = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+        var body = doc.Descendants().FirstOrDefault(e => e.Name.LocalName == "Body");
+        foreach (var e in (body ?? doc.Root!).Descendants().Where(e => !e.HasElements))
+        {
+            var key = e.Name.LocalName;
+            if (result.ContainsKey(key)) key = e.Parent?.Name.LocalName + "." + key;
+            result[key] = e.Value;
+        }
+        return result;
     }
 
     private static (byte[] Bytes, string Name) ExtractFirstFileFromZip(byte[] zipBytes, string preferredFormat, string fallbackName)

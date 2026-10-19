@@ -231,6 +231,8 @@ export interface MenuScreen {
   isApprovalGroups?: boolean;
   /** E-Devlet → Tanımlar → Otomatik Belge Çekme (E-02) */
   isEGovAutoFetch?: boolean;
+  /** E-Devlet → Tanımlar → Gönderim Ayarları (E-03) */
+  isEGovSendSettings?: boolean;
   /** E-Devlet → İşlemler → Cari Mükellef Kontrolü (E-06) */
   isEGovMukellefCheck?: boolean;
   /** E-Devlet → İşlemler → e-Belge Konsolu */
