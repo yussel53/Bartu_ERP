@@ -506,7 +506,8 @@ public sealed class CardStatementRepository
 
     // ── CARİ ────────────────────────────────────────────────────────────
 
-    private const string CustDebitTypes = "(1,3,8,11,13)";
+    // 8 Açılış: tutarın işaretine göre (artı borç, eksi alacak) — Y-16 devir aktarımı
+    private const string CustDebitTypes = "(1,3,11,13)";
     private const string CustCreditTypes = "(2,4,12,14)";
     private const string BankInTypes = "(3,5,8)";
     private const string BankOutTypes = "(4,7,9,10,11,12)";
