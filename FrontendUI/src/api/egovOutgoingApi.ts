@@ -35,6 +35,28 @@ export interface OutgoingTotals {
   payable: number;
 }
 
+/** E-04: faturanın e-Arşiv bilgileri */
+export interface EArchiveInfo {
+  invoiceID: number;
+  /** ELEKTRONIK · KAGIT */
+  sendType: string;
+  email?: string | null;
+  isInternetSale: boolean;
+  webAddress?: string | null;
+  /** KREDIKARTI/BANKAKARTI · EFT/HAVALE · KAPIDAODEME · ODEMEARACISI · DIGER */
+  paymentMethod?: string | null;
+  paymentNote?: string | null;
+  paymentAgent?: string | null;
+  /** yyyy-MM-dd */
+  paymentDate?: string | null;
+  despatchDate?: string | null;
+  carrierTaxNr?: string | null;
+  carrierName?: string | null;
+  saved: boolean;
+}
+
+export const PAYMENT_METHODS = ['KREDIKARTI/BANKAKARTI', 'EFT/HAVALE', 'KAPIDAODEME', 'ODEMEARACISI', 'DIGER'];
+
 export interface OutgoingPreview {
   invoiceId: number;
   documentNumber?: string | null;
@@ -64,6 +86,11 @@ export interface OutgoingPreview {
   eGovDocumentId?: number | null;
   sendStatus?: string | null;
   sentAt?: string | null;
+  eArchive?: EArchiveInfo | null;
+  cancelAllowed: boolean;
+  cancelBlockReason?: string | null;
+  cancelledAt?: string | null;
+  cancelReason?: string | null;
 }
 
 export interface SendSetting {
@@ -73,6 +100,9 @@ export interface SendSetting {
   eDespatchPrefix?: string | null;
   defaultProfile: string;
   allowLiveSend: boolean;
+  eArchiveWebAddress?: string | null;
+  /** ELEKTRONIK · KAGIT */
+  eArchiveSendType: string;
   updatedAt?: string | null;
 }
 
@@ -90,6 +120,12 @@ export const previewOutgoing = (invoiceId: number, o: OutgoingOptions) =>
 
 export const sendOutgoing = (invoiceId: number, o: OutgoingOptions) =>
   apiJson<OutgoingPreview>(`/api/egov/outgoing/invoice/${invoiceId}/send`, post(o));
+
+export const saveEArchiveInfo = (invoiceId: number, info: EArchiveInfo) =>
+  apiJson<{ message: string }>(`/api/egov/outgoing/invoice/${invoiceId}/earchive`, { method: 'PUT', body: JSON.stringify(info) });
+
+export const cancelOutgoing = (invoiceId: number, reason: string) =>
+  apiJson<OutgoingPreview>(`/api/egov/outgoing/invoice/${invoiceId}/cancel`, post({ reason }));
 
 export const outgoingStatus = (egovDocumentId: number) =>
   apiJson<Record<string, string>>(`/api/egov/outgoing/document/${egovDocumentId}/status`);

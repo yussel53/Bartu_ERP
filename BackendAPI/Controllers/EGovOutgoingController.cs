@@ -32,6 +32,8 @@ public sealed class EGovOutgoingController : ControllerBase
         public string? EArchivePrefix { get; set; }
         public string? EDespatchPrefix { get; set; }
         public string? DefaultProfile { get; set; }
+        public string? EArchiveWebAddress { get; set; }
+        public string? EArchiveSendType { get; set; }
     }
 
     public sealed class CounterDto
@@ -71,9 +73,12 @@ public sealed class EGovOutgoingController : ControllerBase
             EArchivePrefix = CleanPrefix(dto.EArchivePrefix, "e-Arşiv", out var e2),
             EDespatchPrefix = CleanPrefix(dto.EDespatchPrefix, "e-İrsaliye", out var e3),
             DefaultProfile = (dto.DefaultProfile ?? "TICARIFATURA").Trim().ToUpperInvariant(),
+            EArchiveWebAddress = string.IsNullOrWhiteSpace(dto.EArchiveWebAddress) ? null : dto.EArchiveWebAddress.Trim(),
+            EArchiveSendType = (dto.EArchiveSendType ?? "ELEKTRONIK").Trim().ToUpperInvariant(),
         };
         if ((e1 ?? e2 ?? e3) is { } err) return BadRequest(new { message = err });
         if (s.DefaultProfile is not ("TEMELFATURA" or "TICARIFATURA")) return BadRequest(new { message = "Senaryo TEMELFATURA ya da TICARIFATURA olmalı." });
+        if (s.EArchiveSendType is not ("ELEKTRONIK" or "KAGIT")) return BadRequest(new { message = "Gönderim şekli ELEKTRONIK ya da KAGIT olmalı." });
         if (s.EInvoicePrefix != null && s.EInvoicePrefix == s.EArchivePrefix) return BadRequest(new { message = "e-Fatura ve e-Arşiv önekleri farklı olmalı." });
         await _repo.SaveSettingAsync(s, User.UserId() > 0 ? User.UserId() : null, ct);
         return Ok(new { message = "Kaydedildi." });
@@ -135,6 +140,55 @@ public sealed class EGovOutgoingController : ControllerBase
         try
         {
             var r = await _svc.SendAsync(id, o ?? new OutgoingPrepareOptions(), User.UserId() > 0 ? User.UserId() : null, ct);
+            r.Xml = "";
+            return Ok(r);
+        }
+        catch (OutgoingSendBlockedException ex) { return Conflict(new { message = ex.Message }); }
+        catch (KeyNotFoundException ex) { return NotFound(new { message = ex.Message }); }
+        catch (Exception ex) { return StatusCode(500, new { message = ex.Message }); }
+    }
+
+    /// <summary>E-04: faturanın e-Arşiv bilgilerini kaydeder (gönderim şekli, e-posta, internet satışı)</summary>
+    [HttpPut("invoice/{id:int}/earchive")]
+    public async Task<IActionResult> SaveEArchive(int id, [FromBody] EGovInvoiceEArchiveRow dto, CancellationToken ct)
+    {
+        if (await DenyAsync(id, ct) is { } deny) return deny;
+        static string? T(string? v, int max) => string.IsNullOrWhiteSpace(v) ? null : v.Trim().Length > max ? v.Trim()[..max] : v.Trim();
+        dto.InvoiceID = id;
+        dto.SendType = (dto.SendType ?? "ELEKTRONIK").Trim().ToUpperInvariant();
+        if (dto.SendType is not ("ELEKTRONIK" or "KAGIT")) return BadRequest(new { message = "Gönderim şekli ELEKTRONIK ya da KAGIT olmalı." });
+        dto.PaymentMethod = T(dto.PaymentMethod, 30)?.ToUpperInvariant();
+        if (dto.PaymentMethod != null && !UblEArchiveInfo.PaymentMethods.Contains(dto.PaymentMethod))
+            return BadRequest(new { message = "Ödeme şekli: " + string.Join(", ", UblEArchiveInfo.PaymentMethods) });
+        dto.Email = T(dto.Email, 200);
+        dto.WebAddress = T(dto.WebAddress, 250);
+        dto.PaymentNote = T(dto.PaymentNote, 200);
+        dto.PaymentAgent = T(dto.PaymentAgent, 150);
+        dto.CarrierTaxNr = T(dto.CarrierTaxNr, 11);
+        dto.CarrierName = T(dto.CarrierName, 150);
+        if (!dto.IsInternetSale)
+        {
+            // İnternet satışı kapatılınca bu alanlar UBL'e yazılmaz; kayıtta da tutulmaz
+            dto.PaymentMethod = dto.PaymentNote = dto.PaymentAgent = dto.CarrierTaxNr = dto.CarrierName = null;
+            dto.PaymentDate = dto.DespatchDate = null;
+        }
+        await _repo.SaveEArchiveAsync(dto, User.UserId() > 0 ? User.UserId() : null, ct);
+        return Ok(new { message = "e-Arşiv bilgileri kaydedildi." });
+    }
+
+    public sealed class CancelDto
+    {
+        public string? Reason { get; set; }
+    }
+
+    /// <summary>E-04: gönderilmiş e-Arşiv faturanın iptali (canlı adreste kilitli)</summary>
+    [HttpPost("invoice/{id:int}/cancel")]
+    public async Task<IActionResult> Cancel(int id, [FromBody] CancelDto dto, CancellationToken ct)
+    {
+        if (await DenyAsync(id, ct) is { } deny) return deny;
+        try
+        {
+            var r = await _svc.CancelAsync(id, dto.Reason ?? "", User.UserId() > 0 ? User.UserId() : null, ct);
             r.Xml = "";
             return Ok(r);
         }
