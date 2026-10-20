@@ -66,6 +66,12 @@ export interface FormSchemaDto {
   productSubFields?: FormFieldDto[];
   /** Cariye özel malzeme kodu/adı (ProductCustomerAlias) — malzeme kartı içinde sekme */
   customerAliasFields?: FormFieldDto[];
+  /** Seri grubu satırları (ProductSerialGroup) */
+  serialGroupFields?: FormFieldDto[];
+  /** Seri satırları (ProductSerial) */
+  serialFields?: FormFieldDto[];
+  /** Lot satırları (ProductLot) */
+  lotFields?: FormFieldDto[];
   /** Varyant satırları (VariantCard) — malzeme kartı içinde sekme */
   variantFields?: FormFieldDto[];
   /** Malzeme kartı varyant sekmesinde şablon seçimi (VariantTemplate) */
@@ -105,6 +111,8 @@ export interface FormSchemaDto {
   enableCustomerAliasesTab?: boolean;
   /** true ise Varyantlar sekmesi açılır (VariantCard) */
   enableVariantsTab?: boolean;
+  /** true ise Seri / Lot sekmesi (ProductSerialGroup, ProductSerial, ProductLot) */
+  enableTrackingTab?: boolean;
   /** true ise Muhasebe Hesapları sekmesi açılır (AccountLinkDetail) */
   enableAccountLinksTab?: boolean;
   /** true ise Özel Kodlar sekmesi (AuxilCodeTrans) */
@@ -168,6 +176,12 @@ export interface DynamicFormDataDto {
   customerAliases?: Record<string, unknown>[];
   /** Varyantlar → VariantCard (ProductCardID = kart) */
   variants?: Record<string, unknown>[];
+  /** Seri grupları → ProductSerialGroup */
+  serialGroups?: Record<string, unknown>[];
+  /** Seriler → ProductSerial */
+  serials?: Record<string, unknown>[];
+  /** Lotlar → ProductLot */
+  lots?: Record<string, unknown>[];
   /** Kart muhasebe bağlantıları → AccountLinkDetail */
   accountLinks?: Record<string, unknown>[];
   /** Firma → işyerleri (SYS_Workplace) */

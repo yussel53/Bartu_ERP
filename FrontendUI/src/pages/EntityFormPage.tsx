@@ -23,15 +23,12 @@ import {
 import { FormSchemaDto, DynamicFormDataDto } from '../types/formTypes';
 import { auxilModuleNrForTable } from '../data/auxilCodes';
 import { getRecord, saveRecord } from '../api/recordsApi';
+import { resetUnitCatalog } from '../data/productLineUnits';
 import { clearLookupCache, enrichSchemaLookups } from '../api/lookupApi';
 import { getCurrentProfile } from '../data/permissions';
 import { resolveOrgDefaults } from '../data/orgUnits';
 import { useOpenDocumentsOptional } from '../contexts/OpenDocumentsContext';
-import {
-  CARD_DEFAULT_TABLES,
-  CARD_DEFAULT_TEMPLATE_ID,
-  stripTemplateMeta,
-} from '../data/cardDefaults';
+import { findDefaultTemplate, stripTemplateMeta } from '../data/cardDefaults';
 import { appConfirm } from '../utils/appConfirm';
 
 interface EntityFormPageProps {
@@ -46,6 +43,11 @@ interface EntityFormPageProps {
   /** Lookup «Yeni ekle» modalında: geri linki gizle, kayıttan sonra onSaved */
   embedded?: boolean;
   onSaved?: (info: { recordId: number; label?: string }) => void;
+  /**
+   * Öndeğer şablonu düzenleniyor (ID < 0): zorunlu alan yok; fişte yalnız başlık
+   * (satır / ödeme planı / özel kod sekmesi gizli, kayda gitmez).
+   */
+  templateMode?: boolean;
 }
 
 function draftLabel(
@@ -190,6 +192,7 @@ export const EntityFormPage: React.FC<EntityFormPageProps> = ({
   screenTitle,
   embedded = false,
   onSaved,
+  templateMode = false,
 }) => {
   const openDocs = useOpenDocumentsOptional();
   const openDocsRef = useRef(openDocs);
@@ -290,7 +293,22 @@ export const EntityFormPage: React.FC<EntityFormPageProps> = ({
         }
         await loadExtraFields();
         const withCustom = withCustomFields(mock);
-        const enriched = await enrichSchemaLookups(withCustom);
+        const enrichedRaw = await enrichSchemaLookups(withCustom);
+        const enriched: FormSchemaDto = templateMode
+          ? {
+              ...enrichedRaw,
+              fields: enrichedRaw.fields.map((f) => ({ ...f, isRequired: false })),
+              customFields: enrichedRaw.customFields?.map((f) => ({ ...f, isRequired: false })),
+              ...(enrichedRaw.documentLayout === 'trade' || enrichedRaw.lineFields?.length
+                ? {
+                    lineFields: [],
+                    lineDistributionFields: undefined,
+                    hidePaymentPlan: true,
+                    enableAuxilCodesTab: false,
+                  }
+                : {}),
+            }
+          : enrichedRaw;
         setSchema(enriched);
 
         const parked =
@@ -337,6 +355,9 @@ export const EntityFormPage: React.FC<EntityFormPageProps> = ({
               productSubs: rec.productSubs,
               customerAliases: rec.customerAliases,
               variants: rec.variants,
+              serialGroups: rec.serialGroups,
+              serials: rec.serials,
+              lots: rec.lots,
               accountLinks: rec.accountLinks,
               lines: rec.lines,
               workplaces: rec.workplaces,
@@ -358,24 +379,29 @@ export const EntityFormPage: React.FC<EntityFormPageProps> = ({
           let standardFields: Record<string, unknown> = { ...dates, ...org };
           let additionalFields: Record<string, unknown> = {};
 
-          // Kart öndeğeri: ID=-1 şablondan alanları kopyala
-          if (CARD_DEFAULT_TABLES.has(enriched.tableName)) {
+          // Öndeğer: kartta ID=-1, fişte türüne göre -1 / -2 … şablondan alanları kopyala
+          const tplKind = findDefaultTemplate(enriched.formCode || formCode, enriched.tableName);
+          if (tplKind) {
             try {
               const tpl = await getRecord(
                 enriched.tableName,
-                CARD_DEFAULT_TEMPLATE_ID,
+                tplKind.templateId,
                 enriched.primaryKeyColumn,
               );
               const fromTpl = stripTemplateMeta(
                 normalizeDateFieldsForForm(enriched, { ...tpl.standardFields }),
                 enriched.primaryKeyColumn,
+                tplKind.group,
               );
               standardFields = { ...fromTpl, ...standardFields };
               const add: Record<string, unknown> = { ...tpl.additionalFields };
               for (const [k, v] of Object.entries(tpl.standardFields)) {
                 if (k.startsWith('U_')) add[k] = v;
               }
-              additionalFields = add;
+              additionalFields =
+                tplKind.group === 'voucher'
+                  ? stripTemplateMeta(add, undefined, 'voucher')
+                  : add;
             } catch {
               /* şablon yoksa boş form */
             }
@@ -398,7 +424,7 @@ export const EntityFormPage: React.FC<EntityFormPageProps> = ({
     };
 
     void load();
-  }, [formCode, recordId, mode, draftId, trackDraft, titleForTray]);
+  }, [formCode, recordId, mode, draftId, trackDraft, titleForTray, templateMode]);
 
   const handleLiveChange = useCallback(
     (data: DynamicFormDataDto) => {
@@ -469,6 +495,10 @@ export const EntityFormPage: React.FC<EntityFormPageProps> = ({
         }
       }
       const standard = normalizeDateFieldsForSave(schema, standardRaw);
+      if (schema.tableName === 'UnitCard') {
+        const g = String(standard.GlobalCode ?? '').trim().toUpperCase();
+        if (g) standard.GlobalCode = g;
+      }
 
       // Formüllü ek alanlar kaydetmeden önce hesaplanır
       Object.assign(additional, computeFormulaValues(schema.tableName, { ...standard, ...additional }));
@@ -487,6 +517,7 @@ export const EntityFormPage: React.FC<EntityFormPageProps> = ({
         },
       );
       clearLookupCache();
+      if (schema.tableName === 'UnitCard') resetUnitCatalog();
 
       const code = String(standard.Code ?? standard.WhouseCode ?? standard.CompanyCode ?? standard.DocumentNumber ?? standard.VoucherNo ?? '').trim();
       const title = String(standard.Title ?? standard.Name ?? '').trim();

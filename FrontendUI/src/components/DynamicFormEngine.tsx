@@ -36,7 +36,9 @@ import { buildUnitConvFormRows, flattenUnitConvPayload } from '../data/productUn
 import {
   emptyProductUnits,
   fetchProductUnitOptions,
+  loadUnitCatalog,
   resolveLineUnitId,
+  unitSelectOptionsJson,
   unitsFromFormConvs,
   type ProductUnitsInfo,
   type UnitModuleFilter,
@@ -107,6 +109,9 @@ export const DynamicFormEngine: React.FC<DynamicFormEngineProps> = ({
     schema.enableCustomerAliasesTab && schema.customerAliasFields?.length,
   );
   const hasVariants = Boolean(schema.enableVariantsTab && schema.variantFields?.length);
+  const hasTracking = Boolean(
+    schema.enableTrackingTab && schema.serialGroupFields?.length && schema.serialFields?.length && schema.lotFields?.length,
+  );
   const hasAccountLinks = Boolean(schema.enableAccountLinksTab && schema.accountLinkFields?.length);
   const hasAuxilCodes = Boolean(schema.enableAuxilCodesTab && schema.auxilCodeFields?.length);
   const hasAuxilValues = Boolean(schema.enableAuxilValuesTab && schema.auxilValueFields?.length);
@@ -166,6 +171,9 @@ export const DynamicFormEngine: React.FC<DynamicFormEngineProps> = ({
       productSubs: initialData?.productSubs?.length ? initialData.productSubs : [],
       customerAliases: initialData?.customerAliases?.length ? initialData.customerAliases : [],
       variants: initialData?.variants?.length ? initialData.variants : [],
+      serialGroups: initialData?.serialGroups?.length ? initialData.serialGroups : [],
+      serials: initialData?.serials?.length ? initialData.serials : [],
+      lots: initialData?.lots?.length ? initialData.lots : [],
       accountLinks: initialData?.accountLinks?.length
         ? initialData.accountLinks
         : hasAccountLinks
@@ -332,12 +340,21 @@ export const DynamicFormEngine: React.FC<DynamicFormEngineProps> = ({
     name: 'barcodes',
   });
 
+  const [unitCatalogJson, setUnitCatalogJson] = React.useState<string | null>(null);
+  React.useEffect(() => {
+    let live = true;
+    void loadUnitCatalog().then(() => {
+      if (live) setUnitCatalogJson(unitSelectOptionsJson());
+    });
+    return () => {
+      live = false;
+    };
+  }, []);
+
   const watchedDefaultUnitId = watch('standardFields.DefaultUnitID');
   const watchedProductCardId = watch('standardFields.ProductCardID');
   const watchedPriceType = watch('standardFields.Type_');
   const unitConvRowsWatch = watch('unitConvs') as { barcodes?: unknown[] }[] | undefined;
-  const watchedProductSubs = watch('productSubs') as Record<string, unknown>[] | undefined;
-
   /** Kart formu: malzeme seçince Birim sadece o kartın birimleri */
   const linkUnitToProduct =
     schema.tableName !== 'ProductUnit' &&
@@ -394,10 +411,23 @@ export const DynamicFormEngine: React.FC<DynamicFormEngineProps> = ({
     watchedProductCardId,
   ]);
 
+  const {
+    fields: productSubRows,
+    append: appendProductSub,
+    remove: removeProductSub,
+  } = useFieldArray({
+    control: control as Control<FieldValues>,
+    name: 'productSubs',
+  });
+
+  const subProductKey = productSubRows
+    .map((_, i) => `${i}:${watch(`productSubs.${i}.SubProductCardID`) ?? ''}`)
+    .join('|');
+
   /** Reçete satırı: alt malzeme birimleri */
   React.useEffect(() => {
     if (!hasProductSubs) return;
-    const rows = watchedProductSubs || [];
+    const rows = (getValues('productSubs') as Record<string, unknown>[]) || [];
     let cancelled = false;
     void (async () => {
       let loaded = false;
@@ -411,13 +441,15 @@ export const DynamicFormEngine: React.FC<DynamicFormEngineProps> = ({
           continue;
         }
         let info = subUnitInfoRef.current[pid];
-        if (!info) {
+        if (!info?.options.length) {
           info = await fetchProductUnitOptions(pid, 'material');
           if (cancelled) return;
-          subUnitInfoRef.current[pid] = info;
-          loaded = true;
+          if (info.options.length) {
+            subUnitInfoRef.current[pid] = info;
+            loaded = true;
+          }
         }
-        if (!readOnly) {
+        if (!readOnly && info.options.length) {
           const next = resolveLineUnitId(rows[i]?.UnitID, info);
           if ((next ?? '') !== String(rows[i]?.UnitID ?? '').trim()) {
             setValue(`productSubs.${i}.UnitID`, next ?? '', { shouldDirty: true });
@@ -429,16 +461,7 @@ export const DynamicFormEngine: React.FC<DynamicFormEngineProps> = ({
     return () => {
       cancelled = true;
     };
-  }, [hasProductSubs, readOnly, setValue, watchedProductSubs]);
-
-  const {
-    fields: productSubRows,
-    append: appendProductSub,
-    remove: removeProductSub,
-  } = useFieldArray({
-    control: control as Control<FieldValues>,
-    name: 'productSubs',
-  });
+  }, [getValues, hasProductSubs, readOnly, setValue, subProductKey]);
 
   const {
     fields: customerAliasRows,
@@ -457,6 +480,33 @@ export const DynamicFormEngine: React.FC<DynamicFormEngineProps> = ({
   } = useFieldArray({
     control: control as Control<FieldValues>,
     name: 'variants',
+  });
+
+  const {
+    fields: serialGroupRows,
+    append: appendSerialGroup,
+    remove: removeSerialGroup,
+  } = useFieldArray({
+    control: control as Control<FieldValues>,
+    name: 'serialGroups',
+  });
+
+  const {
+    fields: serialRows,
+    append: appendSerial,
+    remove: removeSerial,
+  } = useFieldArray({
+    control: control as Control<FieldValues>,
+    name: 'serials',
+  });
+
+  const {
+    fields: lotRows,
+    append: appendLot,
+    remove: removeLot,
+  } = useFieldArray({
+    control: control as Control<FieldValues>,
+    name: 'lots',
   });
 
   const {
@@ -568,7 +618,40 @@ export const DynamicFormEngine: React.FC<DynamicFormEngineProps> = ({
     return '';
   }, [watchedWorkplaces]);
 
-  const handleFormSubmit = (data: FieldValues) => {
+  const handleFormSubmit = (data: FieldValues, event?: React.BaseSyntheticEvent) => {
+    // Ekrandaki metin, form durumundaki eski kopyayı ezer (Kod alanı kayda gitmiyordu)
+    const rawTarget = event?.target;
+    const formEl =
+      rawTarget instanceof HTMLFormElement
+        ? rawTarget
+        : rawTarget instanceof HTMLElement
+          ? rawTarget.closest('form')
+          : null;
+    if (formEl) {
+      const sf = ((data.standardFields as Record<string, unknown> | undefined) ??
+        (data.standardFields = {})) as Record<string, unknown>;
+      const requiredText = new Set(
+        schema.fields
+          .filter((f) => f.isRequired && (f.fieldType === 'text' || f.fieldType === 'textarea'))
+          .map((f) => f.fieldName),
+      );
+      formEl
+        .querySelectorAll<HTMLInputElement | HTMLTextAreaElement>(
+          'input[type="text"][name^="standardFields."], textarea[name^="standardFields."]',
+        )
+        .forEach((el) => {
+          if (el.disabled) return;
+          const key = el.name.slice('standardFields.'.length);
+          if (!key || key.includes('.')) return;
+          const typed = el.value;
+          if (requiredText.has(key) && !typed.trim()) return;
+          sf[key] = typed;
+          for (const k of Object.keys(sf)) {
+            if (k !== key && k.toLowerCase() === key.toLowerCase()) delete sf[k];
+          }
+        });
+    }
+
     if (hasAddresses) {
       const addresses = (data.addresses as Record<string, unknown>[]) || [];
       if (!addresses.length) {
@@ -607,6 +690,21 @@ export const DynamicFormEngine: React.FC<DynamicFormEngineProps> = ({
         ? ((data.customerAliases as Record<string, unknown>[]) || [])
         : undefined,
       variants: hasVariants ? ((data.variants as Record<string, unknown>[]) || []) : undefined,
+      serialGroups: hasTracking
+        ? ((data.serialGroups as Record<string, unknown>[]) || []).filter(
+            (row) => String(row.Code || '').trim() !== '',
+          )
+        : undefined,
+      serials: hasTracking
+        ? ((data.serials as Record<string, unknown>[]) || []).filter(
+            (row) => String(row.SerialNo || '').trim() !== '',
+          )
+        : undefined,
+      lots: hasTracking
+        ? ((data.lots as Record<string, unknown>[]) || []).filter(
+            (row) => String(row.LotNo || '').trim() !== '',
+          )
+        : undefined,
       accountLinks: hasAccountLinks
         ? ((data.accountLinks as Record<string, unknown>[]) || []).map((row) => ({
             ...row,
@@ -670,6 +768,9 @@ export const DynamicFormEngine: React.FC<DynamicFormEngineProps> = ({
           ? ((data.customerAliases as Record<string, unknown>[]) || [])
           : undefined,
         variants: hasVariants ? ((data.variants as Record<string, unknown>[]) || []) : undefined,
+        serialGroups: hasTracking ? ((data.serialGroups as Record<string, unknown>[]) || []) : undefined,
+        serials: hasTracking ? ((data.serials as Record<string, unknown>[]) || []) : undefined,
+        lots: hasTracking ? ((data.lots as Record<string, unknown>[]) || []) : undefined,
         accountLinks: hasAccountLinks
           ? ((data.accountLinks as Record<string, unknown>[]) || []).map((row) => ({
               ...row,
@@ -709,6 +810,7 @@ export const DynamicFormEngine: React.FC<DynamicFormEngineProps> = ({
     hasProductSubs,
     hasCustomerAliases,
     hasVariants,
+    hasTracking,
     hasAccountLinks,
     hasAuxilCodes,
     hasAuxilValues,
@@ -730,6 +832,12 @@ export const DynamicFormEngine: React.FC<DynamicFormEngineProps> = ({
 
     const renderField = (field: FormFieldDto) => {
       let patched = patchField(field);
+      if (
+        unitCatalogJson &&
+        (field.fieldName === 'DefaultUnitID' || field.fieldName === 'UnitID')
+      ) {
+        patched = { ...patched, optionsJson: unitCatalogJson };
+      }
       if (linkUnitToProduct && field.fieldName === 'UnitID') {
         const pid = Number(watchedProductCardId);
         const info =
@@ -856,6 +964,13 @@ export const DynamicFormEngine: React.FC<DynamicFormEngineProps> = ({
       : []),
     ...(hasVariants
       ? [{ id: 'varyantlar', label: 'Varyantlar', count: variantRows.length }]
+      : []),
+    ...(hasTracking
+      ? [{
+          id: 'seri-lot',
+          label: 'Seri / Lot',
+          count: serialGroupRows.length + serialRows.length + lotRows.length,
+        }]
       : []),
     ...(hasCustomerAliases
       ? [{ id: 'cari-malzeme', label: 'Cari Malzeme', count: customerAliasRows.length }]
@@ -1444,10 +1559,7 @@ export const DynamicFormEngine: React.FC<DynamicFormEngineProps> = ({
                     <div className="col-span-12 grid grid-cols-12 gap-1.5">
                       {schema.productSubFields!.map((field) => {
                         void subUnitTick;
-                        const subPid = Number(
-                          (watchedProductSubs?.[index] as Record<string, unknown> | undefined)
-                            ?.SubProductCardID,
-                        );
+                        const subPid = Number(watch(`productSubs.${index}.SubProductCardID`));
                         const isSubUnit = field.fieldName === 'UnitID';
                         const subInfo =
                           isSubUnit && Number.isFinite(subPid) && subPid > 0
@@ -1639,6 +1751,92 @@ export const DynamicFormEngine: React.FC<DynamicFormEngineProps> = ({
                 ))
               )}
             </div>
+          </div>
+        )}
+
+        {tab === 'seri-lot' && hasTracking && schema.serialGroupFields && schema.serialFields && schema.lotFields && (
+          <div className="space-y-4">
+            <section className="space-y-2">
+              <div className="flex items-center justify-between gap-2">
+                <div>
+                  <h3 className="text-[12px] font-semibold text-slate-700">Seri grupları</h3>
+                  <p className="text-[11px] text-slate-500">Aynı malzemeye ait seri numaralarını gruplar (ProductSerialGroup)</p>
+                </div>
+                {!readOnly && (
+                  <button
+                    type="button"
+                    onClick={() => appendSerialGroup({ Code: '', Title: '', IsActive: true })}
+                    className="inline-flex items-center gap-1 px-2 h-6 text-[11px] font-semibold text-slate-700 bg-white border border-slate-300 hover:bg-slate-50 rounded-sm"
+                  >
+                    <Plus className="w-3.5 h-3.5" /> Grup ekle
+                  </button>
+                )}
+              </div>
+              <SubListGrid
+                rows={serialGroupRows}
+                fields={schema.serialGroupFields}
+                prefix="serialGroups"
+                register={register as UseFormRegister<FieldValues>}
+                errors={errors}
+                readOnly={readOnly}
+                emptyText="Seri grubu yok."
+                onRemove={removeSerialGroup}
+              />
+            </section>
+            <section className="space-y-2">
+              <div className="flex items-center justify-between gap-2">
+                <div>
+                  <h3 className="text-[12px] font-semibold text-slate-700">Seriler</h3>
+                  <p className="text-[11px] text-slate-500">Seri no ve bağlı grup kodu (ProductSerial)</p>
+                </div>
+                {!readOnly && (
+                  <button
+                    type="button"
+                    onClick={() => appendSerial({ SerialNo: '', SerialGroupCode: '', Status_: '1', Note: '' })}
+                    className="inline-flex items-center gap-1 px-2 h-6 text-[11px] font-semibold text-slate-700 bg-white border border-slate-300 hover:bg-slate-50 rounded-sm"
+                  >
+                    <Plus className="w-3.5 h-3.5" /> Seri ekle
+                  </button>
+                )}
+              </div>
+              <SubListGrid
+                rows={serialRows}
+                fields={schema.serialFields}
+                prefix="serials"
+                register={register as UseFormRegister<FieldValues>}
+                errors={errors}
+                readOnly={readOnly}
+                emptyText="Seri yok."
+                onRemove={removeSerial}
+              />
+            </section>
+            <section className="space-y-2">
+              <div className="flex items-center justify-between gap-2">
+                <div>
+                  <h3 className="text-[12px] font-semibold text-slate-700">Lotlar</h3>
+                  <p className="text-[11px] text-slate-500">Lot / parti no ve son kullanma (ProductLot)</p>
+                </div>
+                {!readOnly && (
+                  <button
+                    type="button"
+                    onClick={() => appendLot({ LotNo: '', ExpireDate: '', Note: '', IsActive: true })}
+                    className="inline-flex items-center gap-1 px-2 h-6 text-[11px] font-semibold text-slate-700 bg-white border border-slate-300 hover:bg-slate-50 rounded-sm"
+                  >
+                    <Plus className="w-3.5 h-3.5" /> Lot ekle
+                  </button>
+                )}
+              </div>
+              <SubListGrid
+                rows={lotRows}
+                fields={schema.lotFields}
+                prefix="lots"
+                register={register as UseFormRegister<FieldValues>}
+                errors={errors}
+                readOnly={readOnly}
+                emptyText="Lot yok."
+                onRemove={removeLot}
+              />
+            </section>
           </div>
         )}
 
@@ -2083,45 +2281,63 @@ export const DynamicFormEngine: React.FC<DynamicFormEngineProps> = ({
             </div>
 
             {accountLinkFixed ? (
-              <div className="rounded-md border border-slate-200 dark:border-slate-700 overflow-hidden divide-y divide-slate-100 dark:divide-slate-800">
-                {accountLinkRows.map((row, index) => {
-                  const typeVal = watchedAccountLinks?.[index]?.Type;
-                  const accountField = schema.accountLinkFields!.find(
-                    (f) => f.fieldName === 'AccountID',
-                  );
-                  if (!accountField) return null;
-                  return (
-                    <div
-                      key={row.id}
-                      className="flex items-center gap-2 px-2.5 py-1.5 bg-white dark:bg-slate-900/40 hover:bg-slate-50/80 dark:hover:bg-slate-800/40"
-                    >
-                      <span className="w-5 h-5 shrink-0 rounded bg-slate-700 text-white text-[10px] font-bold flex items-center justify-center">
-                        {index + 1}
-                      </span>
-                      <span className="w-36 shrink-0 text-[12px] font-medium text-slate-700 dark:text-slate-200 truncate" title={accountLinkTypeLabel(typeVal as string | number | undefined, linkModule)}>
-                        {accountLinkTypeLabel(
-                          typeVal as string | number | undefined,
-                          linkModule,
-                        )}
-                      </span>
-                      <div className="flex-1 min-w-0">
-                        <FieldRenderer
-                          field={{ ...accountField, colSpan: 12, label: 'Hesap' }}
-                          register={register as UseFormRegister<FieldValues>}
-                          registerNameOverride={`accountLinks.${index}.AccountID`}
-                          hideLabel
-                          compact
-                          disabled={readOnly}
-                          error={
-                            get(errors, `accountLinks.${index}.AccountID`) as
-                              | FieldError
-                              | undefined
-                          }
-                        />
-                      </div>
-                    </div>
-                  );
-                })}
+              <div className="overflow-x-auto border border-slate-300 dark:border-slate-600 rounded-sm">
+                <table className="w-full text-[12px] border-collapse">
+                  <thead>
+                    <tr className="bg-slate-100 dark:bg-slate-800">
+                      <th className="w-8 px-1.5 py-1 text-center font-medium text-slate-500 border-b border-r border-slate-300 dark:border-slate-600">
+                        #
+                      </th>
+                      <th className="px-1.5 py-1 text-left font-medium text-slate-600 border-b border-r border-slate-300 dark:border-slate-600 w-[180px]">
+                        Fiş Türü
+                      </th>
+                      <th className="px-1.5 py-1 text-left font-medium text-slate-600 border-b border-slate-300 dark:border-slate-600">
+                        Muhasebe Kodu
+                      </th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {accountLinkRows.map((row, index) => {
+                      const typeVal = watchedAccountLinks?.[index]?.Type;
+                      const accountField = schema.accountLinkFields!.find(
+                        (f) => f.fieldName === 'AccountID',
+                      );
+                      if (!accountField) return null;
+                      const label = accountLinkTypeLabel(
+                        typeVal as string | number | undefined,
+                        linkModule,
+                      );
+                      return (
+                        <tr key={row.id} className="hover:bg-blue-50/40 dark:hover:bg-slate-800/40">
+                          <td className="px-1.5 py-0.5 text-center text-[11px] text-slate-500 bg-slate-50 dark:bg-slate-800/60 border-b border-r border-slate-200 dark:border-slate-700">
+                            {index + 1}
+                          </td>
+                          <td
+                            className="px-1.5 py-0.5 text-[12px] text-slate-700 dark:text-slate-200 border-b border-r border-slate-200 dark:border-slate-700 truncate"
+                            title={label}
+                          >
+                            {label}
+                          </td>
+                          <td className="px-1 py-0.5 border-b border-slate-200 dark:border-slate-700">
+                            <FieldRenderer
+                              field={{ ...accountField, colSpan: 12, label: 'Hesap' }}
+                              register={register as UseFormRegister<FieldValues>}
+                              registerNameOverride={`accountLinks.${index}.AccountID`}
+                              hideLabel
+                              compact
+                              disabled={readOnly}
+                              error={
+                                get(errors, `accountLinks.${index}.AccountID`) as
+                                  | FieldError
+                                  | undefined
+                              }
+                            />
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
               </div>
             ) : (
               <SubListGrid

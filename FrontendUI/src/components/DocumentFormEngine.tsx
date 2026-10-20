@@ -37,6 +37,7 @@ import { getSystemDatePlaceholder } from '../utils/dateFormat';
 import { AuxilCodeAssignmentEditor } from './AuxilCodeAssignmentEditor';
 import { UnitPricePicker } from './UnitPricePicker';
 import { LineDistributionPanel } from './LineDistributionPanel';
+import { SerialLotLineCell, invoiceSerialDirection, serialLotDirection } from './SerialLotLineCell';
 import { fetchPriceSuggestions } from '../api/productPricesApi';
 import { DispatchType, InvoiceType, OrderType } from '../data/documentTypes';
 import { computeFormulaValues, formulaExtraFields, lineTableFor } from '../data/extraFields';
@@ -292,6 +293,20 @@ function parseLineNum(v: unknown): number {
   return Number.isFinite(n) ? n : 0;
 }
 
+/** Seri/lot satırlarındaki miktar toplamı. Fiş satırı bu toplama yazılır. */
+function serialLotIssuedQty(raw: unknown): number | null {
+  const text = String(raw ?? '').trim();
+  if (!text.startsWith('[')) return null;
+  try {
+    const arr = JSON.parse(text) as { q?: unknown }[];
+    if (!Array.isArray(arr) || arr.length === 0) return null;
+    const sum = arr.reduce((acc, row) => acc + parseLineNum(row?.q), 0);
+    return sum > 0 ? sum : null;
+  } catch {
+    return null;
+  }
+}
+
 function roundMoney(n: number): number {
   return Math.round(n * 100) / 100;
 }
@@ -506,12 +521,14 @@ export const DocumentFormEngine: React.FC<DocumentFormEngineProps> = ({
   const autoPriceProductRef = React.useRef<Record<number, number>>({});
   /** Satır index → son birim senkronu yapılan ürün */
   const autoUnitProductRef = React.useRef<Record<number, number>>({});
-  /** productCardId → birim seçenekleri (ref + tick ile render) */
+  /** productCardId → malzeme kartının birim seti */
   const unitInfoRef = React.useRef<Record<number, ProductUnitsInfo>>({});
+  const [unitByProduct, setUnitByProduct] = React.useState<Record<number, ProductUnitsInfo>>({});
   const [unitOptionsTick, setUnitOptionsTick] = React.useState(0);
   React.useEffect(() => {
     unitInfoRef.current = {};
     autoUnitProductRef.current = {};
+    setUnitByProduct({});
     setUnitOptionsTick((t) => t + 1);
   }, [unitModule]);
   const isNewRecord = !initialData?.recordId;
@@ -798,21 +815,49 @@ export const DocumentFormEngine: React.FC<DocumentFormEngineProps> = ({
     lineTotals[0]?.value ??
     0;
 
+  const [lineMoney, setLineMoney] = React.useState<{
+    discount: number;
+    tax: number;
+    total: number;
+    net: number;
+    qty: number;
+  } | null>(null);
+  const productTaxCache = React.useRef<Record<number, string>>({});
+  const appliedProductTax = React.useRef<Record<number, number>>({});
+  const payableTotal = lineMoney?.net ?? grandTotal;
+
   React.useEffect(() => {
     if (!hasLines || readOnly) return;
     if (schema.fields.some((f) => f.fieldName === 'Amount')) {
-      setValue('standardFields.Amount', grandTotal, { shouldDirty: false });
+      setValue('standardFields.Amount', payableTotal, { shouldDirty: false });
     }
-  }, [grandTotal, hasLines, readOnly, schema.fields, setValue]);
+  }, [payableTotal, hasLines, readOnly, schema.fields, setValue]);
 
-  /** Malzeme → satır Birim seçenekleri (yalnızca kartın ProductUnit listesi) */
-  const lineProductKey = React.useMemo(
-    () =>
-      (watchedLines || [])
-        .map((r, i) => `${i}:${lineProductId(r) ?? ''}`)
-        .join('|'),
-    [watchedLines],
+  /**
+   * Satır malzeme kimliği. watch('lines') iç içe alanı kaçırabiliyor;
+   * lookup `lines.n.ProductCardID` yazdığı için alanın kendisi izlenir.
+   */
+  const watchedLineProducts = fields.map((_, index) =>
+    lineProductId({
+      ProductCardID: watch(`lines.${index}.ProductCardID`),
+      ItemsID: watch(`lines.${index}.ItemsID`),
+    }),
   );
+  const lineProductKey = watchedLineProducts.map((id, i) => `${i}:${id ?? ''}`).join('|');
+  /** watch('lines') iç içe yazmayı kaçırır; miktar / fiyat / vergi ayrı izlenir */
+  const lineCalcKey = fields
+    .map((_, index) =>
+      [
+        watch(`lines.${index}.Quantity`),
+        watch(`lines.${index}.Price`),
+        watch(`lines.${index}.TotalDiscount`),
+        watch(`lines.${index}.TaxCardID`),
+        watch(`lines.${index}.TaxRate`),
+        watch(`lines.${index}.ProductCardID`),
+        watch(`lines.${index}.ItemsID`),
+      ].join('\u001f'),
+    )
+    .join('|');
 
   React.useEffect(() => {
     if (!hasLines || !hasLineUnit) return;
@@ -828,12 +873,17 @@ export const DocumentFormEngine: React.FC<DocumentFormEngineProps> = ({
 
       let loadedNew = false;
       for (const pid of needed) {
-        if (unitInfoRef.current[pid]) continue;
+        if (unitInfoRef.current[pid]?.options.length) continue;
         const info = await fetchProductUnitOptions(pid, unitModule);
-        unitInfoRef.current[pid] = info; // iptal olsa bile önbelleğe yaz
-        loadedNew = true;
+        if (info.options.length) {
+          unitInfoRef.current[pid] = info;
+          loadedNew = true;
+        }
       }
-      if (loadedNew) setUnitOptionsTick((t) => t + 1);
+      if (loadedNew) {
+        setUnitByProduct({ ...unitInfoRef.current });
+        setUnitOptionsTick((t) => t + 1);
+      }
       if (!alive || readOnly) return;
 
       // Güncel satırları tekrar oku (fetch sırasında form değişmiş olabilir)
@@ -849,10 +899,13 @@ export const DocumentFormEngine: React.FC<DocumentFormEngineProps> = ({
           continue;
         }
         let info = unitInfoRef.current[pid];
-        if (!info) {
+        if (!info?.options.length) {
           info = await fetchProductUnitOptions(pid, unitModule);
-          unitInfoRef.current[pid] = info;
-          setUnitOptionsTick((t) => t + 1);
+          if (info.options.length) {
+            unitInfoRef.current[pid] = info;
+            setUnitByProduct({ ...unitInfoRef.current });
+            setUnitOptionsTick((t) => t + 1);
+          }
         }
         if (!alive) return;
         const productChanged = autoUnitProductRef.current[i] !== pid;
@@ -932,93 +985,118 @@ export const DocumentFormEngine: React.FC<DocumentFormEngineProps> = ({
     watchedLines,
   ]);
 
-  /** Miktar × Birim Fiyat (− iskonto) → Tutar */
+  /**
+   * Miktar × fiyat − iskonto = tutar.
+   * Malzemenin vergi kartı satıra yazılır; oran karttan, KDV ve net aynı turda.
+   */
+  const taxRateCache = React.useRef<Record<string, number>>({});
   React.useEffect(() => {
     if (readOnly || !hasLines || !schema.lineFields?.length) return;
     const lf = schema.lineFields;
     const hasQty = lf.some((f) => f.fieldName === 'Quantity');
     const hasPrice = lf.some((f) => f.fieldName === 'Price');
     const hasTotal = lf.some((f) => f.fieldName === 'TotalPrice');
-    if (!hasQty || !hasPrice || !hasTotal) return;
     const hasDiscount = lf.some((f) => f.fieldName === 'TotalDiscount');
-
-    const rows = watchedLines || [];
-    for (let i = 0; i < rows.length; i++) {
-      const row = rows[i] || {};
-      const qty = parseLineNum(row.Quantity);
-      const price = parseLineNum(row.Price);
-      const discount = hasDiscount ? parseLineNum(row.TotalDiscount) : 0;
-      const next = roundMoney(qty * price - discount);
-      const cur = parseLineNum(row.TotalPrice);
-      const curEmpty = row.TotalPrice == null || row.TotalPrice === '';
-      if (curEmpty || Math.abs(cur - next) > 0.0005) {
-        setValue(`lines.${i}.TotalPrice`, next, { shouldDirty: true, shouldValidate: false });
-      }
-    }
-  }, [hasLines, readOnly, schema.lineFields, setValue, watchedLines]);
-
-  /** Vergi kodu → oran; Tutar × % → KDV; Net = Tutar + KDV */
-  const taxRateCache = React.useRef<Record<string, number>>({});
-  React.useEffect(() => {
-    if (readOnly || !hasLines || !schema.lineFields?.length) return;
-    const lf = schema.lineFields;
     const hasTaxCard = lf.some((f) => f.fieldName === 'TaxCardID');
     const hasTaxRate = lf.some((f) => f.fieldName === 'TaxRate');
     const hasTotalTax = lf.some((f) => f.fieldName === 'TotalTax');
-    const hasTotal = lf.some((f) => f.fieldName === 'TotalPrice');
     const hasNet = lf.some((f) => f.fieldName === 'NetTotal');
-    if (!hasTaxRate && !hasTotalTax && !hasNet) return;
+    if (!hasQty || !hasPrice || !hasTotal) return;
 
-    const rows = watchedLines || [];
     let cancelled = false;
+    const write = (path: string, value: number) =>
+      setValue(path, value, { shouldDirty: true, shouldValidate: false });
 
     const run = async () => {
-      for (let i = 0; i < rows.length; i++) {
+      const rows = (getValues('lines') as Record<string, unknown>[]) || [];
+      if (hasTaxCard) {
+        for (let i = 0; i < rows.length; i++) {
+          if (cancelled) return;
+          const row = rows[i] || {};
+          const pid = lineProductId(row);
+          if (!pid) {
+            delete appliedProductTax.current[i];
+            continue;
+          }
+          if (appliedProductTax.current[i] === pid) continue;
+          if (productTaxCache.current[pid] == null) {
+            try {
+              const rec = await getRecord('ProductCard', pid, 'ProductCardID');
+              const raw = rec.standardFields?.TaxCardID ?? rec.standardFields?.taxCardID;
+              productTaxCache.current[pid] = raw == null || raw === '' ? '' : String(raw);
+            } catch {
+              productTaxCache.current[pid] = '';
+            }
+          }
+          if (cancelled) return;
+          appliedProductTax.current[i] = pid;
+          const fromProduct = productTaxCache.current[pid];
+          if (fromProduct && String(row.TaxCardID ?? '') !== fromProduct) {
+            setValue(`lines.${i}.TaxCardID`, fromProduct, { shouldDirty: true, shouldValidate: false });
+            row.TaxCardID = fromProduct;
+          }
+        }
+      }
+
+      const fresh = (getValues('lines') as Record<string, unknown>[]) || [];
+      let discountSum = 0;
+      let taxSum = 0;
+      let totalSum = 0;
+      let netSum = 0;
+      let qtySum = 0;
+      for (let i = 0; i < fresh.length; i++) {
         if (cancelled) return;
-        const row = rows[i] || {};
+        const row = fresh[i] || {};
+        const qty = parseLineNum(row.Quantity);
+        const price = parseLineNum(row.Price);
+        const discount = hasDiscount ? parseLineNum(row.TotalDiscount) : 0;
+        const base = roundMoney(qty * price - discount);
+        qtySum += qty;
+        discountSum += discount;
+        totalSum += base;
+        if (row.TotalPrice == null || row.TotalPrice === '' || Math.abs(parseLineNum(row.TotalPrice) - base) > 0.0005) {
+          write(`lines.${i}.TotalPrice`, base);
+        }
+
         const taxId = String(row.TaxCardID ?? '').trim();
         let rate = parseLineNum(row.TaxRate);
-
         if (hasTaxCard && taxId) {
           if (taxRateCache.current[taxId] == null) {
             try {
               const rec = await getRecord('TaxCard', Number(taxId), 'TaxCardID');
-              const r = parseLineNum(rec.standardFields?.Rate);
+              const r = parseLineNum(rec.standardFields?.Rate ?? rec.standardFields?.rate);
               taxRateCache.current[taxId] = Number.isFinite(r) ? r : 0;
             } catch {
               taxRateCache.current[taxId] = rate;
             }
           }
+          if (cancelled) return;
           const fromCard = taxRateCache.current[taxId];
           if (fromCard != null && Math.abs(rate - fromCard) > 0.0005) {
             rate = fromCard;
-            if (hasTaxRate) {
-              setValue(`lines.${i}.TaxRate`, rate, { shouldDirty: true, shouldValidate: false });
-            }
+            if (hasTaxRate) write(`lines.${i}.TaxRate`, rate);
           }
         }
 
-        const base = hasTotal ? parseLineNum(row.TotalPrice) : 0;
-        if (hasTotalTax) {
-          const tax = roundMoney((base * rate) / 100);
-          const curTax = parseLineNum(row.TotalTax);
-          if (row.TotalTax == null || row.TotalTax === '' || Math.abs(curTax - tax) > 0.0005) {
-            setValue(`lines.${i}.TotalTax`, tax, { shouldDirty: true, shouldValidate: false });
-          }
-          if (hasNet) {
-            const net = roundMoney(base + tax);
-            const curNet = parseLineNum(row.NetTotal);
-            if (row.NetTotal == null || row.NetTotal === '' || Math.abs(curNet - net) > 0.0005) {
-              setValue(`lines.${i}.NetTotal`, net, { shouldDirty: true, shouldValidate: false });
-            }
-          }
-        } else if (hasNet && hasTotal) {
-          const net = roundMoney(base);
-          const curNet = parseLineNum(row.NetTotal);
-          if (row.NetTotal == null || row.NetTotal === '' || Math.abs(curNet - net) > 0.0005) {
-            setValue(`lines.${i}.NetTotal`, net, { shouldDirty: true, shouldValidate: false });
-          }
+        const tax = hasTotalTax ? roundMoney((base * rate) / 100) : 0;
+        const net = roundMoney(base + tax);
+        taxSum += tax;
+        netSum += net;
+        if (hasTotalTax && (row.TotalTax == null || row.TotalTax === '' || Math.abs(parseLineNum(row.TotalTax) - tax) > 0.0005)) {
+          write(`lines.${i}.TotalTax`, tax);
         }
+        if (hasNet && (row.NetTotal == null || row.NetTotal === '' || Math.abs(parseLineNum(row.NetTotal) - net) > 0.0005)) {
+          write(`lines.${i}.NetTotal`, net);
+        }
+      }
+      if (!cancelled) {
+        setLineMoney({
+          discount: roundMoney(discountSum),
+          tax: roundMoney(taxSum),
+          total: roundMoney(totalSum),
+          net: roundMoney(netSum),
+          qty: qtySum,
+        });
       }
     };
 
@@ -1026,7 +1104,7 @@ export const DocumentFormEngine: React.FC<DocumentFormEngineProps> = ({
     return () => {
       cancelled = true;
     };
-  }, [hasLines, readOnly, schema.lineFields, setValue, watchedLines]);
+  }, [hasLines, readOnly, schema.lineFields, setValue, getValues, lineCalcKey]);
 
   const docNumberField = React.useMemo(
     () => DOC_NUMBER_FIELDS.find((n) => schema.fields.some((f) => f.fieldName === n)) || null,
@@ -1119,16 +1197,39 @@ export const DocumentFormEngine: React.FC<DocumentFormEngineProps> = ({
     watchedWhouseId,
   ]);
 
+  const applySerialLotQty = (index: number, q: number) => {
+    setValue(`lines.${index}.Quantity`, q, { shouldDirty: true, shouldValidate: true });
+    const input = document.querySelector<HTMLInputElement>(`input[name="lines.${index}.Quantity"]`);
+    if (input && !input.disabled) input.value = String(q);
+    if (schema.lineFields?.some((f) => f.fieldName === 'MainUnitQuantity')) {
+      setValue(`lines.${index}.MainUnitQuantity`, q, { shouldDirty: true });
+    }
+  };
+
   const handleFormSubmit = (data: FieldValues) => {
     if (readOnly) return;
     const rawLines = hasLines ? ((data.lines as Record<string, unknown>[]) || []) : undefined;
     const lines = rawLines
-      ?.map(
-        (row, i): Record<string, unknown> => ({
+      ?.map((row, i): Record<string, unknown> => {
+        const next: Record<string, unknown> = {
           ...row,
           LineNo: hasDistribution ? i + 1 : Number(row.LineNo) || i + 1,
-        }),
-      )
+        };
+        const lotSum = serialLotIssuedQty(next.SerialLotNo);
+        if (lotSum != null) {
+          const prevQty = parseLineNum(next.Quantity);
+          const prevMain = parseLineNum(next.MainUnitQuantity);
+          next.Quantity = lotSum;
+          if (
+            next.MainUnitQuantity == null ||
+            next.MainUnitQuantity === '' ||
+            Math.abs(prevMain - prevQty) < 0.0001
+          ) {
+            next.MainUnitQuantity = lotSum;
+          }
+        }
+        return next;
+      })
       .filter((row) => {
         // Boş satırları kaydetme
         const keys = Object.keys(row).filter(
@@ -1215,15 +1316,25 @@ export const DocumentFormEngine: React.FC<DocumentFormEngineProps> = ({
         sumLineField(lines, 'LocalAmount') ||
         sumLineField(lines, 'Total')
       : undefined;
+    const standardFields: Record<string, unknown> = {
+      ...((data.standardFields as Record<string, unknown>) || {}),
+      ...(schema.fixedStandardFields || {}),
+      ...(amountTotal != null && schema.fields.some((f) => f.fieldName === 'Amount')
+        ? { Amount: amountTotal }
+        : {}),
+    };
+    // Tür tanımındaki harf kodu (AF, TSF…) tinyint kolona yazılmaz
+    const letterType: Record<string, string> = {
+      AF: '2', AIF: '4', TSF: '1', PSF: '1', SIF: '3',
+      SS: '1', ST: '6', AS: '2', AT: '5', SI: '3', AI: '2',
+    };
+    for (const key of ['InvoiceType', 'VoucherType', 'Type_']) {
+      const raw = String(standardFields[key] ?? '').trim();
+      if (raw && !/^\d+$/.test(raw) && letterType[raw]) standardFields[key] = letterType[raw];
+    }
     const payload: DynamicFormDataDto = {
       recordId: initialData?.recordId ?? 0,
-      standardFields: {
-        ...((data.standardFields as Record<string, unknown>) || {}),
-        ...(schema.fixedStandardFields || {}),
-        ...(amountTotal != null && schema.fields.some((f) => f.fieldName === 'Amount')
-          ? { Amount: amountTotal }
-          : {}),
-      },
+      standardFields,
       additionalFields: (data.additionalFields as Record<string, unknown>) || {},
       lines: savedLines,
       paymentPlans: showPaymentPlan ? paymentPlans : undefined,
@@ -1579,9 +1690,11 @@ export const DocumentFormEngine: React.FC<DocumentFormEngineProps> = ({
                   {schema.lineFields!.map((field, colIdx) => {
                     const isPrice = field.fieldName === 'Price';
                     const isUnit = field.fieldName === 'UnitID';
-                    const productId = lineProductId(
-                      (watchedLines?.[index] as Record<string, unknown>) || undefined,
-                    );
+                    const productId =
+                      watchedLineProducts[index] ??
+                      lineProductId(
+                        (watchedLines?.[index] as Record<string, unknown>) || undefined,
+                      );
                     // unitOptionsTick: yeni malzeme birimleri yüklenince select yenilensin
                     void unitOptionsTick;
                     const unitField =
@@ -1589,7 +1702,8 @@ export const DocumentFormEngine: React.FC<DocumentFormEngineProps> = ({
                         ? {
                             ...field,
                             optionsJson: productId
-                              ? (unitInfoRef.current[productId]?.optionsJson ??
+                              ? (unitByProduct[productId]?.optionsJson ??
+                                unitInfoRef.current[productId]?.optionsJson ??
                                 emptyProductUnits(productId).optionsJson)
                               : emptyProductUnits(0).optionsJson,
                           }
@@ -1636,6 +1750,59 @@ export const DocumentFormEngine: React.FC<DocumentFormEngineProps> = ({
                             />
                           ) : null}
                         </div>
+                      ) : field.fieldName === 'Quantity' &&
+                        schema.lineFields?.some((f) => f.fieldName === 'SerialLotNo') ? (
+                        <div className="flex items-center gap-0.5">
+                          <div className="flex-1 min-w-0">
+                            <FieldRenderer
+                              field={unitField}
+                              register={register as UseFormRegister<FieldValues>}
+                              registerNameOverride={`lines.${index}.${field.fieldName}`}
+                              hideLabel
+                              compact
+                              disabled={readOnly || Boolean(field.isReadOnly)}
+                              error={
+                                get(errors, `lines.${index}.${field.fieldName}`) as
+                                  | FieldError
+                                  | undefined
+                              }
+                            />
+                          </div>
+                          <SerialLotLineCell
+                            trigger="icon"
+                            productId={productId}
+                            voucherType={Number(watchedVoucherType || schema.fixedStandardFields?.VoucherType || 0)}
+                            direction={
+                              schema.tableName === 'Invoice'
+                                ? invoiceSerialDirection(Number(watchedInvoiceType || schema.fixedStandardFields?.InvoiceType || 0))
+                                : serialLotDirection(Number(watchedVoucherType || schema.fixedStandardFields?.VoucherType || 0))
+                            }
+                            whouseId={Number(watch('standardFields.WhouseID')) || null}
+                            quantity={Number(((watchedLines?.[index] as Record<string, unknown> | undefined)?.Quantity) ?? 0)}
+                            value={String(((watchedLines?.[index] as Record<string, unknown> | undefined)?.SerialLotNo) ?? '')}
+                            readOnly={readOnly}
+                            onChange={(v) => setValue(`lines.${index}.SerialLotNo`, v, { shouldDirty: true })}
+                            onQuantity={(q) => applySerialLotQty(index, q)}
+                          />
+                        </div>
+                      ) : field.fieldName === 'SerialLotNo' ? (
+                        <SerialLotLineCell
+                          trigger="text"
+                          autoOpen
+                          productId={productId}
+                          voucherType={Number(watchedVoucherType || schema.fixedStandardFields?.VoucherType || 0)}
+                          direction={
+                            schema.tableName === 'Invoice'
+                              ? invoiceSerialDirection(Number(watchedInvoiceType || schema.fixedStandardFields?.InvoiceType || 0))
+                              : serialLotDirection(Number(watchedVoucherType || schema.fixedStandardFields?.VoucherType || 0))
+                          }
+                          whouseId={Number(watch('standardFields.WhouseID')) || null}
+                          quantity={Number(((watchedLines?.[index] as Record<string, unknown> | undefined)?.Quantity) ?? 0)}
+                          value={String(((watchedLines?.[index] as Record<string, unknown> | undefined)?.SerialLotNo) ?? '')}
+                          readOnly={readOnly}
+                          onChange={(v) => setValue(`lines.${index}.SerialLotNo`, v, { shouldDirty: true })}
+                          onQuantity={(q) => applySerialLotQty(index, q)}
+                        />
                       ) : (
                         <FieldRenderer
                           field={unitField}
@@ -1786,11 +1953,11 @@ export const DocumentFormEngine: React.FC<DocumentFormEngineProps> = ({
     );
   };
 
-  const sumDiscount = sumLineField(watchedLines || [], 'TotalDiscount');
-  const sumTax = sumLineField(watchedLines || [], 'TotalTax');
-  const sumLineTotal = sumLineField(watchedLines || [], 'TotalPrice');
-  const sumQty = sumLineField(watchedLines || [], 'Quantity');
-  const footerNet = roundMoney(sumLineTotal);
+  const sumDiscount = lineMoney?.discount ?? sumLineField(watchedLines || [], 'TotalDiscount');
+  const sumTax = lineMoney?.tax ?? sumLineField(watchedLines || [], 'TotalTax');
+  const sumLineTotal = lineMoney?.total ?? sumLineField(watchedLines || [], 'TotalPrice');
+  const sumQty = lineMoney?.qty ?? sumLineField(watchedLines || [], 'Quantity');
+  const footerNet = lineMoney?.net ?? roundMoney(sumLineTotal + sumTax);
 
   const currencyChoices = React.useMemo(() => {
     const local = CURRENCIES.find((c) => c.isLocal);

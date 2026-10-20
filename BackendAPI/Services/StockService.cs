@@ -26,8 +26,8 @@ public sealed class CostRecalcResult
 }
 
 /// <summary>
-/// Stok işlemleri (Y-06 / Y-07): ağırlıklı ortalama maliyet (kronolojik; ProductTransCostCalc Type = 1'e yazılır),
-/// stok değeri / brüt kâr raporu ve eksi stok kontrolü (Setting STK_NEG_CTRL: 0 izin · 1 uyar · 2 engelle).
+/// Stok işlemleri: maliyet, karttaki CostMethod ile (0 hareketli ortalama · 1 dönemsel · 2 FIFO · 3 LIFO · 4 son alış · 5 standart).
+/// Satır maliyetleri ProductTransCostCalc Type = 1'e yazılır. Eksi stok: Setting STK_NEG_CTRL 0 izin · 1 uyar · 2 engelle.
 /// Stok yönü ekstre ile aynı: 1 devir, 2 alış, 5 satış iade, 9 üretimden giriş (+) · 3 satış, 4 alış iade, 8 sarf, 10 fire (−) ·
 /// 6 transfer (ambar bazında çıkış / hedef ambara giriş) · 7 sayım, 11 maliyet dağıtım stoğu değiştirmez.
 /// </summary>
@@ -100,11 +100,179 @@ ORDER BY t.ProductCardID, COALESCE(t.TransDate, p.VoucherDate), CASE WHEN COALES
             new { ids })).ToList();
     }
 
-    // ── Y-07: Ağırlıklı ortalama maliyet ────────────────────────────────
+    private sealed class CostBucket
+    {
+        public double Qty;
+        public double Val;
+        public double LastAvg;
+        public double LastBuy;
+        public readonly List<(double Qty, double Unit)> Layers = new();
+    }
+
+    private async Task<Dictionary<int, (int Method, double Standard)>> LoadCostMethodsAsync(IEnumerable<int>? productIds)
+    {
+        var map = new Dictionary<int, (int Method, double Standard)>();
+        if (!await HasColAsync("ProductCard", "CostMethod")) return map;
+        var hasStd = await HasColAsync("ProductCard", "StandardCost");
+        var ids = productIds?.ToList();
+        var rows = await _db.QueryAsync<(int ProductCardID, int Method, double StandardCost)>($@"
+SELECT ProductCardID,
+       CAST(ISNULL(CostMethod, 0) AS int) AS Method,
+       {(hasStd ? "CAST(ISNULL(StandardCost, 0) AS float)" : "CAST(0 AS float)")} AS StandardCost
+FROM dbo.ProductCard
+{(ids is { Count: > 0 } ? "WHERE ProductCardID IN @ids" : "")}", new { ids });
+        foreach (var r in rows)
+            map[r.ProductCardID] = (r.Method, r.StandardCost);
+        return map;
+    }
+
+    /// <summary>Bir malzemenin hareketlerini kart yöntemine göre değerler.</summary>
+    private static void ValueMoves(
+        IReadOnlyList<Move> moves, int method, double standard, bool perWhouse, List<(int TransId, double Amount)> costs)
+    {
+        var buckets = new Dictionary<int, CostBucket>();
+        CostBucket Bucket(int? wh)
+        {
+            var k = perWhouse ? wh ?? 0 : 0;
+            if (!buckets.TryGetValue(k, out var b))
+                buckets[k] = b = new CostBucket();
+            return b;
+        }
+
+        double period = 0;
+        if (method == 1)
+        {
+            double q = 0, v = 0;
+            foreach (var m in moves)
+            {
+                if (m.Qty <= 0.000001) continue;
+                if (m.VoucherType is 1 or 2 or 9)
+                {
+                    q += m.Qty;
+                    v += m.LineTotal;
+                }
+            }
+            period = q > 0.000001 ? v / q : 0;
+        }
+
+        static double LineUnit(Move m) => m.Qty > 0.000001 ? m.LineTotal / m.Qty : 0;
+        static double Avg(CostBucket b) => b.Qty > 0.000001 ? b.Val / b.Qty : b.LastAvg;
+        static void Remember(CostBucket b)
+        {
+            if (b.Qty > 0.000001) b.LastAvg = b.Val / b.Qty;
+        }
+
+        static double Consume(CostBucket b, double qty, bool lifo)
+        {
+            var left = qty;
+            double cost = 0;
+            while (left > 0.000001 && b.Layers.Count > 0)
+            {
+                var i = lifo ? b.Layers.Count - 1 : 0;
+                var layer = b.Layers[i];
+                var use = Math.Min(layer.Qty, left);
+                cost += use * layer.Unit;
+                left -= use;
+                var rest = layer.Qty - use;
+                if (rest <= 0.000001) b.Layers.RemoveAt(i);
+                else b.Layers[i] = (rest, layer.Unit);
+            }
+            if (left > 0.000001)
+                cost += left * (b.LastAvg > 0 ? b.LastAvg : b.LastBuy);
+            return cost;
+        }
+
+        foreach (var m in moves)
+        {
+            if (m.Qty <= 0.000001) continue;
+            var b = Bucket(m.WhouseID);
+            var lineUnit = LineUnit(m);
+            if (method == 4 && m.VoucherType is 1 or 2 or 9 && lineUnit > 0)
+                b.LastBuy = lineUnit;
+
+            if (InTypes.Contains(m.VoucherType))
+            {
+                double cost;
+                if (method == 0)
+                    cost = m.VoucherType == 5 ? Avg(b) * m.Qty : m.LineTotal;
+                else if (method == 1)
+                    cost = period * m.Qty;
+                else if (method is 2 or 3)
+                {
+                    var stacked = b.Layers.Sum(l => l.Qty);
+                    var unit = m.VoucherType == 5
+                        ? (stacked > 0.000001 ? b.Layers.Sum(l => l.Qty * l.Unit) / stacked : (b.LastAvg > 0 ? b.LastAvg : b.LastBuy))
+                        : lineUnit;
+                    b.Layers.Add((m.Qty, unit));
+                    b.LastAvg = unit;
+                    cost = unit * m.Qty;
+                }
+                else if (method == 4)
+                    cost = m.VoucherType == 5 ? (b.LastBuy > 0 ? b.LastBuy : lineUnit) * m.Qty : m.LineTotal;
+                else
+                    cost = (standard > 0 ? standard : lineUnit) * m.Qty;
+
+                b.Qty += m.Qty;
+                b.Val += cost;
+                Remember(b);
+                costs.Add((m.ProductTransID, Math.Round(cost, 4)));
+            }
+            else if (OutTypes.Contains(m.VoucherType))
+            {
+                var cost = method switch
+                {
+                    1 => period * m.Qty,
+                    2 => Consume(b, m.Qty, false),
+                    3 => Consume(b, m.Qty, true),
+                    4 => (b.LastBuy > 0 ? b.LastBuy : Avg(b)) * m.Qty,
+                    5 => (standard > 0 ? standard : Avg(b)) * m.Qty,
+                    _ => Avg(b) * m.Qty,
+                };
+                b.Qty -= m.Qty;
+                b.Val -= cost;
+                costs.Add((m.ProductTransID, Math.Round(cost, 4)));
+            }
+            else if (m.VoucherType == 6 && perWhouse && m.AimWhouseID is int aim)
+            {
+                var cost = method switch
+                {
+                    1 => period * m.Qty,
+                    2 => Consume(b, m.Qty, false),
+                    3 => Consume(b, m.Qty, true),
+                    4 => (b.LastBuy > 0 ? b.LastBuy : Avg(b)) * m.Qty,
+                    5 => (standard > 0 ? standard : Avg(b)) * m.Qty,
+                    _ => Avg(b) * m.Qty,
+                };
+                b.Qty -= m.Qty;
+                b.Val -= cost;
+                var dest = Bucket(aim);
+                if (method is 2 or 3)
+                {
+                    var unit = m.Qty > 0.000001 ? cost / m.Qty : 0;
+                    dest.Layers.Add((m.Qty, unit));
+                    dest.LastAvg = unit;
+                }
+                if (method == 4 && b.LastBuy > 0) dest.LastBuy = b.LastBuy;
+                dest.Qty += m.Qty;
+                dest.Val += cost;
+                Remember(dest);
+                costs.Add((m.ProductTransID, Math.Round(cost, 4)));
+            }
+
+            if (Math.Abs(b.Qty) <= 0.000001)
+            {
+                b.Qty = 0;
+                b.Val = 0;
+                if (method is 2 or 3) b.Layers.Clear();
+            }
+        }
+    }
+
+    // ── Maliyet ────────────────────────────────
 
     /// <summary>
-    /// Tüm (ya da verilen) malzemeler için kronolojik ağırlıklı ortalama: giriş maliyeti satır tutarından (satış iadesi o anki
-    /// ortalama ile), çıkışlar o anki ortalama ile değerlenir. Satır maliyetleri ProductTransCostCalc (Type 1) olarak yeniden yazılır.
+    /// Malzemeler kronolojik değerlenir. Yöntem karttaki CostMethod alanındadır.
+    /// Satır maliyetleri ProductTransCostCalc (Type 1) olarak yeniden yazılır.
     /// </summary>
     public async Task<CostRecalcResult> RecalculateAsync(IEnumerable<int>? productIds = null, CancellationToken ct = default)
     {
@@ -112,59 +280,13 @@ ORDER BY t.ProductCardID, COALESCE(t.TransDate, p.VoucherDate), CASE WHEN COALES
         Open();
         var perWhouse = await SettingAsync("STK_COST_SCOPE", "0") == "1";
         var moves = await MovesAsync(productIds);
+        var methods = await LoadCostMethodsAsync(productIds);
         var costs = new List<(int TransId, double Amount)>();
 
         foreach (var g in moves.GroupBy(m => m.ProductCardID))
         {
-            var qty = new Dictionary<int, double>();
-            var val = new Dictionary<int, double>();
-            var lastAvg = new Dictionary<int, double>();
-            int Key(int? wh) => perWhouse ? wh ?? 0 : 0;
-            // Stok yoksa (ya da eksideyse) son bilinen ortalama kullanılır
-            double Avg(int k) => qty.TryGetValue(k, out var q) && q > 0.000001 ? val[k] / q : lastAvg.TryGetValue(k, out var la) ? la : 0;
-            void Remember(int k)
-            {
-                if (qty[k] > 0.000001) lastAvg[k] = val[k] / qty[k];
-            }
-
-            foreach (var m in g)
-            {
-                var k = Key(m.WhouseID);
-                qty.TryAdd(k, 0);
-                val.TryAdd(k, 0);
-                if (InTypes.Contains(m.VoucherType))
-                {
-                    // Satış iadesi stoğa o anki ortalama maliyetle döner; diğer girişler satır tutarıyla
-                    var cost = m.VoucherType == 5 ? Avg(k) * m.Qty : m.LineTotal;
-                    qty[k] += m.Qty;
-                    val[k] += cost;
-                    Remember(k);
-                    costs.Add((m.ProductTransID, Math.Round(cost, 4)));
-                }
-                else if (OutTypes.Contains(m.VoucherType))
-                {
-                    var cost = Avg(k) * m.Qty;
-                    qty[k] -= m.Qty;
-                    val[k] -= cost;
-                    costs.Add((m.ProductTransID, Math.Round(cost, 4)));
-                }
-                else if (m.VoucherType == 6 && perWhouse && m.AimWhouseID is int aim)
-                {
-                    // Ambar bazında: transfer kaynak ortalamasıyla hedefe taşınır
-                    var cost = Avg(k) * m.Qty;
-                    qty[k] -= m.Qty;
-                    val[k] -= cost;
-                    var ak = Key(aim);
-                    qty.TryAdd(ak, 0);
-                    val.TryAdd(ak, 0);
-                    qty[ak] += m.Qty;
-                    val[ak] += cost;
-                    Remember(ak);
-                    costs.Add((m.ProductTransID, Math.Round(cost, 4)));
-                }
-                // Stok sıfırlanınca yuvarlama kalıntısı birikmesin
-                if (Math.Abs(qty[k]) <= 0.000001) val[k] = 0;
-            }
+            methods.TryGetValue(g.Key, out var spec);
+            ValueMoves(g.ToList(), spec.Method, spec.Standard, perWhouse, costs);
         }
 
         // Yaz: ilgili satırların ortalama maliyet kayıtlarını yenile
@@ -196,7 +318,7 @@ ORDER BY t.ProductCardID, COALESCE(t.TransDate, p.VoucherDate), CASE WHEN COALES
             Products = products,
             Lines = costs.Count,
             Seconds = Math.Round((DateTime.UtcNow - started).TotalSeconds, 2),
-            Message = $"{products} malzemede {costs.Count} hareket satırının maliyeti hesaplandı ({(perWhouse ? "ambar bazında" : "firma geneli")} ağırlıklı ortalama).",
+            Message = $"{products} malzemede {costs.Count} hareket satırının maliyeti, karttaki yönteme göre hesaplandı ({(perWhouse ? "ambar bazında" : "firma geneli")}).",
         };
     }
 

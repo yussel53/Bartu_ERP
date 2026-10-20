@@ -36,14 +36,14 @@ const whouseOptionsJson = select(whouseOptions());
 const orgUnitOptionsJson = select(orgUnitOptions());
 const currencyOptionsSelectJson = currencyOptionsJson();
 const unitOptions = select([
-  { label: 'Adet', value: '1' },
-  { label: 'Koli', value: '2' },
-  { label: 'Paket', value: '3' },
-  { label: 'Kg', value: '4' },
-  { label: 'Litre', value: '5' },
-  { label: 'Metre', value: '6' },
-  { label: 'Saat', value: '7' },
-  { label: 'Gün', value: '8' },
+  { label: 'Adet (EA)', value: '1' },
+  { label: 'Koli (BX)', value: '2' },
+  { label: 'Paket (PA)', value: '3' },
+  { label: 'Kg (KGM)', value: '4' },
+  { label: 'Litre (LTR)', value: '5' },
+  { label: 'Metre (MTR)', value: '6' },
+  { label: 'Saat (HUR)', value: '7' },
+  { label: 'Gün (DAY)', value: '8' },
 ]);
 
 /** Ortak ProductCard alanları — tip ekrana göre fixedStandardFields ile set edilir */
@@ -54,20 +54,106 @@ function buildProductCardFields(codeLabel: string, titleLabel: string, includeMa
   ];
 
   if (includeMaterialKind) {
-    fields.push({
-      fieldId: 3,
-      fieldName: 'U_MaterialKind',
-      label: 'Malzeme Sınıfı',
-      fieldType: 'select',
-      isRequired: false,
-      colSpan: 4,
-      orderIndex: 3,
-      optionsJson: select([
-        { label: 'Ticari Mal', value: 'ticari' },
-        { label: 'Hammadde', value: 'hammadde' },
-        { label: 'Yarı Mamul', value: 'yari' },
-      ]),
-    });
+    fields.push(
+      {
+        fieldId: 3,
+        fieldName: 'U_MaterialKind',
+        label: 'Malzeme Sınıfı',
+        fieldType: 'select',
+        isRequired: false,
+        colSpan: 4,
+        orderIndex: 3,
+        optionsJson: select([
+          { label: 'Ticari Mal', value: 'ticari' },
+          { label: 'Hammadde', value: 'hammadde' },
+          { label: 'Yarı Mamul', value: 'yari' },
+        ]),
+      },
+      {
+        fieldId: 11,
+        fieldName: 'TrackingMode',
+        label: 'İzleme',
+        fieldType: 'select',
+        isRequired: false,
+        colSpan: 4,
+        orderIndex: 30,
+        defaultValue: '0',
+        group: 'İzleme',
+        optionsJson: select([
+          { label: 'Yok', value: '0' },
+          { label: 'Lot', value: '1' },
+          { label: 'Seri', value: '2' },
+          { label: 'Seri grubu', value: '3' },
+        ]),
+      },
+      {
+        fieldId: 12,
+        fieldName: 'AllowLotSplit',
+        label: 'Lot bölme',
+        fieldType: 'checkbox',
+        isRequired: false,
+        colSpan: 4,
+        orderIndex: 31,
+        defaultValue: 'false',
+        group: 'İzleme',
+      },
+      {
+        fieldId: 13,
+        fieldName: 'TrackLocation',
+        label: 'Stok yeri takibi',
+        fieldType: 'checkbox',
+        isRequired: false,
+        colSpan: 4,
+        orderIndex: 32,
+        defaultValue: 'false',
+        group: 'İzleme',
+      },
+      {
+        fieldId: 14,
+        fieldName: 'IssuePolicy',
+        label: 'Çıkış kuralı',
+        fieldType: 'select',
+        isRequired: false,
+        colSpan: 4,
+        orderIndex: 33,
+        defaultValue: '0',
+        group: 'İzleme',
+        optionsJson: select([
+          { label: 'Serbest', value: '0' },
+          { label: 'FEFO zorla', value: '1' },
+          { label: 'FIFO zorla', value: '2' },
+        ]),
+      },
+      {
+        fieldId: 17,
+        fieldName: 'CostMethod',
+        label: 'Maliyet yöntemi',
+        fieldType: 'select',
+        isRequired: false,
+        colSpan: 4,
+        orderIndex: 40,
+        defaultValue: '0',
+        group: 'Maliyet',
+        optionsJson: select([
+          { label: 'Hareketli ağırlıklı ortalama', value: '0' },
+          { label: 'Dönemsel ağırlıklı ortalama', value: '1' },
+          { label: 'FIFO', value: '2' },
+          { label: 'LIFO', value: '3' },
+          { label: 'Son alış fiyatı', value: '4' },
+          { label: 'Standart maliyet', value: '5' },
+        ]),
+      },
+      {
+        fieldId: 18,
+        fieldName: 'StandardCost',
+        label: 'Standart birim maliyet',
+        fieldType: 'number',
+        isRequired: false,
+        colSpan: 4,
+        orderIndex: 41,
+        group: 'Maliyet',
+      },
+    );
   }
 
   fields.push(
@@ -82,6 +168,16 @@ function buildProductCardFields(codeLabel: string, titleLabel: string, includeMa
       optionsJson: unitOptions,
     },
     { fieldId: 5, fieldName: 'U_UnitPrice', label: 'Birim Fiyat', fieldType: 'number', isRequired: false, colSpan: 4, orderIndex: 5 },
+    {
+      fieldId: 16,
+      fieldName: 'TaxCardID',
+      label: 'Vergi Kartı',
+      fieldType: 'select',
+      isRequired: false,
+      colSpan: 4,
+      orderIndex: 5.5,
+      useLookup: true,
+    },
     { fieldId: 6, fieldName: 'IsActive', label: 'Aktif', fieldType: 'checkbox', isRequired: false, colSpan: 4, orderIndex: 6 },
     // Y-14 (SqlUpdates/90): eldeki miktar bu değere inince Genel Durum → Kritik stok
     { fieldId: 9953, fieldName: 'MinStock', label: 'Kritik Stok (min.)', fieldType: 'number', isRequired: false, colSpan: 4, orderIndex: 6 },
@@ -382,6 +478,120 @@ function productCardSchema(
               orderIndex: 6,
             },
           ],
+          enableTrackingTab: false as const,
+          serialGroupFields: [
+            {
+              fieldId: 701,
+              fieldName: 'Code',
+              label: 'Grup Kodu',
+              fieldType: 'text' as const,
+              isRequired: true,
+              colSpan: 4,
+              orderIndex: 1,
+            },
+            {
+              fieldId: 702,
+              fieldName: 'Title',
+              label: 'Grup Adı',
+              fieldType: 'text' as const,
+              isRequired: false,
+              colSpan: 6,
+              orderIndex: 2,
+            },
+            {
+              fieldId: 703,
+              fieldName: 'IsActive',
+              label: 'Aktif',
+              fieldType: 'checkbox' as const,
+              isRequired: false,
+              colSpan: 2,
+              orderIndex: 3,
+              defaultValue: 'true',
+            },
+          ],
+          serialFields: [
+            {
+              fieldId: 711,
+              fieldName: 'SerialNo',
+              label: 'Seri No',
+              fieldType: 'text' as const,
+              isRequired: true,
+              colSpan: 4,
+              orderIndex: 1,
+            },
+            {
+              fieldId: 712,
+              fieldName: 'SerialGroupCode',
+              label: 'Seri Grubu',
+              fieldType: 'text' as const,
+              isRequired: false,
+              colSpan: 3,
+              orderIndex: 2,
+            },
+            {
+              fieldId: 713,
+              fieldName: 'Status_',
+              label: 'Durum',
+              fieldType: 'select' as const,
+              isRequired: false,
+              colSpan: 3,
+              orderIndex: 3,
+              optionsJson: select([
+                { label: 'Stokta', value: '1' },
+                { label: 'Çıkış', value: '2' },
+                { label: 'İade', value: '3' },
+              ]),
+              defaultValue: '1',
+            },
+            {
+              fieldId: 714,
+              fieldName: 'Note',
+              label: 'Not',
+              fieldType: 'text' as const,
+              isRequired: false,
+              colSpan: 4,
+              orderIndex: 4,
+            },
+          ],
+          lotFields: [
+            {
+              fieldId: 721,
+              fieldName: 'LotNo',
+              label: 'Lot No',
+              fieldType: 'text' as const,
+              isRequired: true,
+              colSpan: 4,
+              orderIndex: 1,
+            },
+            {
+              fieldId: 722,
+              fieldName: 'ExpireDate',
+              label: 'Son Kullanma',
+              fieldType: 'date' as const,
+              isRequired: false,
+              colSpan: 3,
+              orderIndex: 2,
+            },
+            {
+              fieldId: 723,
+              fieldName: 'Note',
+              label: 'Not',
+              fieldType: 'text' as const,
+              isRequired: false,
+              colSpan: 4,
+              orderIndex: 3,
+            },
+            {
+              fieldId: 724,
+              fieldName: 'IsActive',
+              label: 'Aktif',
+              fieldType: 'checkbox' as const,
+              isRequired: false,
+              colSpan: 2,
+              orderIndex: 4,
+              defaultValue: 'true',
+            },
+          ],
           enableVariantsTab: true as const,
           variantTemplateField: {
             fieldId: 639,
@@ -476,6 +686,52 @@ function productCardSchema(
       typeOptions: PRODUCT_VOUCHER_LINK_TYPE_OPTIONS,
     }),
     fields: buildProductCardFields(codeLabel, titleLabel, includeMaterialKind),
+  };
+}
+
+const TARGET_MONTHS = ['Ocak', 'Şubat', 'Mart', 'Nisan', 'Mayıs', 'Haziran', 'Temmuz', 'Ağustos', 'Eylül', 'Ekim', 'Kasım', 'Aralık'];
+
+/** Direction 1 satış · 2 alım. Aylık tutar M1–M12, miktar Q1–Q12. */
+function tradeTargetSchema(direction: 1 | 2): FormSchemaDto {
+  const sales = direction === 1;
+  const amount = TARGET_MONTHS.map((label, i) => ({
+    fieldId: 7910 + i,
+    fieldName: `M${i + 1}`,
+    label,
+    fieldType: 'number' as const,
+    isRequired: false,
+    colSpan: 2,
+    orderIndex: 20 + i,
+    group: 'Hedef Tutar',
+  }));
+  const qty = TARGET_MONTHS.map((label, i) => ({
+    fieldId: 7930 + i,
+    fieldName: `Q${i + 1}`,
+    label,
+    fieldType: 'number' as const,
+    isRequired: false,
+    colSpan: 2,
+    orderIndex: 40 + i,
+    group: 'Hedef Miktar',
+  }));
+  return {
+    formId: sales ? 795 : 796,
+    formCode: sales ? 'SalesTargetForm' : 'PurchaseTargetForm',
+    title: sales ? 'Satış Hedefi' : 'Alım Hedefi',
+    tableName: 'TradeTarget',
+    primaryKeyColumn: 'TradeTargetID',
+    fixedStandardFields: { Direction: direction },
+    fields: [
+      { fieldId: 7901, fieldName: 'TargetYear', label: 'Yıl', fieldType: 'number', isRequired: true, colSpan: 2, orderIndex: 1, defaultValue: String(new Date().getFullYear()) },
+      { fieldId: 7902, fieldName: 'Code', label: 'Kod', fieldType: 'text', isRequired: false, colSpan: 3, orderIndex: 2 },
+      { fieldId: 7903, fieldName: 'Title', label: 'Hedef Adı', fieldType: 'text', isRequired: true, colSpan: 7, orderIndex: 3 },
+      { fieldId: 7904, fieldName: 'CustomerCardID', label: sales ? 'Müşteri' : 'Tedarikçi', fieldType: 'lookup', isRequired: false, colSpan: 6, orderIndex: 4, useLookup: true },
+      { fieldId: 7905, fieldName: 'ProductCardID', label: 'Malzeme / Hizmet', fieldType: 'lookup', isRequired: false, colSpan: 4, orderIndex: 5, useLookup: true },
+      { fieldId: 7906, fieldName: 'IsActive', label: 'Aktif', fieldType: 'checkbox', isRequired: false, colSpan: 2, orderIndex: 6, defaultValue: 'true' },
+      { fieldId: 7907, fieldName: 'Description', label: 'Açıklama', fieldType: 'text', isRequired: false, colSpan: 12, orderIndex: 7 },
+      ...amount,
+      ...qty,
+    ],
   };
 }
 
@@ -863,6 +1119,7 @@ export const FORM_SCHEMAS: Record<string, FormSchemaDto> = {
       { fieldId: 74, fieldName: 'Description1', label: 'Açıklama', fieldType: 'text', isRequired: false, colSpan: 2, orderIndex: 2 },
       { fieldId: 75, fieldName: 'Description2', label: 'Açıklama2', fieldType: 'text', isRequired: false, colSpan: 2, orderIndex: 3 },
       { fieldId: 71, fieldName: 'Quantity', label: 'Miktar', fieldType: 'number', isRequired: true, colSpan: 1, orderIndex: 4 },
+      { fieldId: 794, fieldName: 'SerialLotNo', label: 'Lot / Seri', fieldType: 'text', isRequired: false, colSpan: 2, orderIndex: 4 },
       { fieldId: 76, fieldName: 'UnitID', label: 'Birim', fieldType: 'select', isRequired: false, colSpan: 1, orderIndex: 5, optionsJson: unitOptions },
       { fieldId: 72, fieldName: 'Price', label: 'Birim Fiyat', fieldType: 'number', isRequired: false, colSpan: 1, orderIndex: 6 },
       { fieldId: 77, fieldName: 'TotalDiscount', label: 'İskonto', fieldType: 'number', isRequired: false, colSpan: 1, orderIndex: 7 },
@@ -956,6 +1213,7 @@ export const FORM_SCHEMAS: Record<string, FormSchemaDto> = {
         ]),
       },
       { fieldId: 571, fieldName: 'Quantity', label: 'Miktar', fieldType: 'number', isRequired: true, colSpan: 1, orderIndex: 2 },
+      { fieldId: 576, fieldName: 'SerialLotNo', label: 'Lot / Seri', fieldType: 'text', isRequired: false, colSpan: 2, orderIndex: 2 },
       {
         fieldId: 575,
         fieldName: 'UnitID',
@@ -1090,8 +1348,9 @@ export const FORM_SCHEMAS: Record<string, FormSchemaDto> = {
           { label: 'URN-003 — Panel 18mm', value: '3' },
         ]),
       },
-      { fieldId: 598, fieldName: 'Quantity', label: 'Miktar', fieldType: 'number', isRequired: true, colSpan: 3, orderIndex: 2 },
-      { fieldId: 599, fieldName: 'Description1', label: 'Açıklama', fieldType: 'text', isRequired: false, colSpan: 4, orderIndex: 3 },
+      { fieldId: 598, fieldName: 'Quantity', label: 'Miktar', fieldType: 'number', isRequired: true, colSpan: 2, orderIndex: 2 },
+      { fieldId: 600, fieldName: 'UnitID', label: 'Birim', fieldType: 'select', isRequired: false, colSpan: 2, orderIndex: 3, optionsJson: unitOptions },
+      { fieldId: 599, fieldName: 'Description1', label: 'Açıklama', fieldType: 'text', isRequired: false, colSpan: 3, orderIndex: 4 },
     ],
   },
 
@@ -1192,6 +1451,7 @@ export const FORM_SCHEMAS: Record<string, FormSchemaDto> = {
       { fieldId: 95, fieldName: 'Description1', label: 'Açıklama', fieldType: 'text', isRequired: false, colSpan: 2, orderIndex: 2 },
       { fieldId: 96, fieldName: 'Description2', label: 'Açıklama2', fieldType: 'text', isRequired: false, colSpan: 2, orderIndex: 3 },
       { fieldId: 91, fieldName: 'Quantity', label: 'Miktar', fieldType: 'number', isRequired: true, colSpan: 1, orderIndex: 4 },
+      { fieldId: 994, fieldName: 'SerialLotNo', label: 'Lot / Seri', fieldType: 'text', isRequired: false, colSpan: 2, orderIndex: 4.5 },
       { fieldId: 97, fieldName: 'UnitID', label: 'Birim', fieldType: 'select', isRequired: false, colSpan: 1, orderIndex: 5, optionsJson: unitOptions },
       { fieldId: 92, fieldName: 'Price', label: 'Birim Fiyat', fieldType: 'number', isRequired: true, colSpan: 1, orderIndex: 6 },
       { fieldId: 98, fieldName: 'TotalDiscount', label: 'İskonto', fieldType: 'number', isRequired: false, colSpan: 1, orderIndex: 7 },
@@ -1278,6 +1538,36 @@ export const FORM_SCHEMAS: Record<string, FormSchemaDto> = {
     ],
   },
 
+  UnitCardForm: {
+    formId: 798,
+    formCode: 'UnitCardForm',
+    title: 'Birim',
+    tableName: 'UnitCard',
+    primaryKeyColumn: 'UnitID',
+    fields: [
+      { fieldId: 7981, fieldName: 'Code', label: 'Kod', fieldType: 'text', isRequired: true, colSpan: 3, orderIndex: 1 },
+      { fieldId: 7982, fieldName: 'Title', label: 'Birim Adı', fieldType: 'text', isRequired: true, colSpan: 5, orderIndex: 2 },
+      { fieldId: 7983, fieldName: 'GlobalCode', label: 'Global Kod', fieldType: 'text', isRequired: true, colSpan: 4, orderIndex: 3 },
+      { fieldId: 7984, fieldName: 'IsActive', label: 'Aktif', fieldType: 'checkbox', isRequired: false, colSpan: 3, orderIndex: 4, defaultValue: 'true' },
+      { fieldId: 7985, fieldName: 'Description', label: 'Açıklama', fieldType: 'text', isRequired: false, colSpan: 9, orderIndex: 5 },
+    ],
+  },
+
+  StockLocationForm: {
+    formId: 797,
+    formCode: 'StockLocationForm',
+    title: 'Stok Yeri',
+    tableName: 'StockLocation',
+    primaryKeyColumn: 'StockLocationID',
+    fields: [
+      { fieldId: 7971, fieldName: 'Code', label: 'Yer Kodu', fieldType: 'text', isRequired: true, colSpan: 3, orderIndex: 1 },
+      { fieldId: 7972, fieldName: 'Title', label: 'Yer Adı', fieldType: 'text', isRequired: true, colSpan: 5, orderIndex: 2 },
+      { fieldId: 7973, fieldName: 'WhouseID', label: 'Ambar', fieldType: 'lookup', isRequired: false, colSpan: 4, orderIndex: 3, useLookup: true },
+      { fieldId: 7974, fieldName: 'IsActive', label: 'Aktif', fieldType: 'checkbox', isRequired: false, colSpan: 3, orderIndex: 4, defaultValue: 'true' },
+      { fieldId: 7975, fieldName: 'Description', label: 'Açıklama', fieldType: 'text', isRequired: false, colSpan: 9, orderIndex: 5 },
+    ],
+  },
+
   // Y-17 (SqlUpdates/92): yıllık bütçe — hesap ya da malzeme / hizmet kartı, aylık tutarlar
   BudgetForm: {
     formId: 782,
@@ -1336,6 +1626,9 @@ export const FORM_SCHEMAS: Record<string, FormSchemaDto> = {
       { fieldId: 7832, fieldName: 'M12', label: 'Aralık', fieldType: 'number', isRequired: false, colSpan: 2, orderIndex: 32 },
     ],
   },
+
+  SalesTargetForm: tradeTargetSchema(1),
+  PurchaseTargetForm: tradeTargetSchema(2),
 
   ProjectCardForm: {
     formId: 25,
@@ -4458,6 +4751,19 @@ const TYPE_DEF_FIELD_BINDINGS: Record<
   ProductVoucherForm: [{ fieldName: 'VoucherType', targetTable: 'ProductVoucher', kind: 'voucher' }],
 };
 
+function parseSelectOptions(json?: string | null): { label: string; value: string }[] {
+  if (!json) return [];
+  try {
+    const arr = JSON.parse(json) as { label?: string; value?: string | number }[];
+    if (!Array.isArray(arr)) return [];
+    return arr
+      .filter((o) => o?.value != null && String(o.value) !== '')
+      .map((o) => ({ label: String(o.label ?? o.value), value: String(o.value) }));
+  } catch {
+    return [];
+  }
+}
+
 function applyTypeDefOptions(schema: FormSchemaDto, formCode: string): FormSchemaDto {
   const bindings = TYPE_DEF_FIELD_BINDINGS[formCode];
   if (!bindings?.length) return schema;
@@ -4466,12 +4772,16 @@ function applyTypeDefOptions(schema: FormSchemaDto, formCode: string): FormSchem
     fields.map((f) => {
       const bind = bindings.find((b) => b.fieldName === f.fieldName);
       if (!bind) return f;
-      const opts = getTypeOptionsForTarget({
+      const fromDef = getTypeOptionsForTarget({
         targetTable: bind.targetTable,
         moduleKey: bind.moduleKey,
         kind: bind.kind,
       });
-      if (!opts.length) return f;
+      if (!fromDef.length) return f;
+      const byValue = new Map<string, { label: string; value: string }>();
+      for (const o of parseSelectOptions(f.optionsJson)) byValue.set(o.value, o);
+      for (const o of fromDef) byValue.set(o.value, o);
+      const opts = [...byValue.values()];
       return { ...f, optionsJson: select(opts), defaultValue: f.defaultValue ?? opts[0]?.value };
     });
 

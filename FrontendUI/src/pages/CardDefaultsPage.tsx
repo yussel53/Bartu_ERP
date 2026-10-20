@@ -1,64 +1,52 @@
 import React from 'react';
 import { ArrowLeft, Copy, FileSliders, Pencil } from 'lucide-react';
 import { EntityFormPage } from './EntityFormPage';
-import {
-  CARD_DEFAULT_KINDS,
-  CARD_DEFAULT_TEMPLATE_ID,
-  type CardDefaultKind,
-} from '../data/cardDefaults';
+import { CARD_DEFAULT_KINDS, type CardDefaultKind } from '../data/cardDefaults';
 import { getRecord, saveRecord } from '../api/recordsApi';
 import { getFormSchema } from '../data/formSchemas';
 
 interface CardDefaultsPageProps {
   onBack: () => void;
-  /** Menüden gelen tek kart öndeğeri (customer | product | bank | safe) */
+  /** Menüden gelen tek öndeğer (customer | product | … | sales-invoice | purchase-order …) */
   kindId?: string;
 }
 
 async function ensureKindTemplate(kind: CardDefaultKind): Promise<void> {
   try {
-    await getRecord(kind.tableName, CARD_DEFAULT_TEMPLATE_ID, kind.primaryKeyColumn);
+    await getRecord(kind.tableName, kind.templateId, kind.primaryKeyColumn);
     return;
   } catch {
     /* yoksa seed */
   }
   const schema = getFormSchema(kind.formCode);
-  const seed: Record<string, unknown> = {
-    ...(schema?.fixedStandardFields || {}),
-    Code:
-      kind.id === 'customer'
-        ? '120.*'
-        : kind.id === 'product'
-          ? '150.*'
-          : kind.id === 'bank'
-            ? '102.*'
-            : '100.*',
-    Title: `Öndeğer ${kind.title}`,
-  };
-  if (kind.tableName === 'CustomerCard') {
-    seed.Type_ = 3;
-    seed.TaxType = 1;
-    seed.Active = true;
-    seed.AccountGroupID = 1;
+  const seed: Record<string, unknown> = { ...(schema?.fixedStandardFields || {}) };
+  if (kind.group === 'voucher') {
+    // Seçmeli alanların ön tanımı (ör. Fatura «Fiş Türü» = Satış / Alış)
+    for (const f of schema?.fields || []) {
+      if (f.defaultValue != null && f.defaultValue !== '' && seed[f.fieldName] == null) {
+        seed[f.fieldName] = f.defaultValue;
+      }
+    }
+    // Numara kolonu NOT NULL olabilir (ProductVoucher.DocumentNumber); yeni fişe kopyalanmaz
+    for (const n of ['DocumentNumber', 'OrderSlipNo']) {
+      if (schema?.fields.some((f) => f.fieldName === n)) seed[n] = 'ÖNDEĞER';
+    }
+    seed.Description = `Öndeğer ${kind.title}`;
+  } else {
+    seed.Title = `Öndeğer ${kind.title}`;
   }
-  if (kind.tableName === 'ProductCard') {
-    seed.ProductType = 1;
-    seed.IsActive = true;
-    seed.AccountGroupID = 1;
-  }
-  if (kind.tableName === 'BankCard' || kind.tableName === 'SafeCard') {
-    seed.IsActive = true;
-  }
+  Object.assign(seed, kind.seed || {});
   await saveRecord(
     kind.tableName,
-    { recordId: CARD_DEFAULT_TEMPLATE_ID, standardFields: seed, additionalFields: {} },
+    { recordId: kind.templateId, standardFields: seed, additionalFields: {} },
     { pk: kind.primaryKeyColumn, formCode: kind.formCode },
   );
 }
 
 /**
- * Öndeğerler — ID=-1 şablon kartlar.
- * Yeni cari/malzeme/banka açılırken bu kayıttan alanlar kopyalanır.
+ * Öndeğerler — negatif ID'li şablon kayıtlar.
+ * Kart: ID=-1 · Fiş: aynı tabloda türe göre -1, -2, -3 …
+ * Yeni kayıt açılırken bu şablondan alanlar kopyalanır.
  */
 export const CardDefaultsPage: React.FC<CardDefaultsPageProps> = ({ onBack, kindId }) => {
   const menuKind = CARD_DEFAULT_KINDS.find((k) => k.id === kindId) || null;
@@ -130,20 +118,22 @@ export const CardDefaultsPage: React.FC<CardDefaultsPageProps> = ({ onBack, kind
               Öndeğerlere dön
             </button>
             <span className="text-[11px] text-slate-400">
-              {editing.title} · şablon ID = {CARD_DEFAULT_TEMPLATE_ID}
+              {editing.title} · {editing.tableName} şablon ID = {editing.templateId}
             </span>
           </div>
         )}
         {menuKind && (
           <p className="text-[11px] text-slate-400 px-0.5">
-            {editing.title} öndeğeri · şablon ID = {CARD_DEFAULT_TEMPLATE_ID}
+            {editing.title} öndeğeri · {editing.tableName} şablon ID = {editing.templateId}
+            {editing.group === 'voucher' && ' · yalnız başlık alanları (numara ve tarih yeni fişte verilir)'}
           </p>
         )}
         <EntityFormPage
-          key={`${editing.formCode}-${CARD_DEFAULT_TEMPLATE_ID}`}
+          key={`${editing.formCode}-${editing.templateId}`}
           formCode={editing.formCode}
           mode="edit"
-          recordId={String(CARD_DEFAULT_TEMPLATE_ID)}
+          recordId={String(editing.templateId)}
+          templateMode
           screenTitle={`${editing.title} öndeğeri`}
           onBack={menuKind ? onBack : () => setEditing(null)}
         />
@@ -179,7 +169,7 @@ export const CardDefaultsPage: React.FC<CardDefaultsPageProps> = ({ onBack, kind
             Öndeğerler
           </h1>
           <p className="mt-0.5 text-[12px] text-slate-500">
-            ID = −1 şablon kartlar. Yeni ekle dediğinizde bu alanlar yeni karta kopyalanır.
+            Negatif ID'li şablon kayıtlar. Yeni ekle dediğinizde bu alanlar yeni kart / fişe kopyalanır.
           </p>
         </div>
         <button
@@ -203,10 +193,20 @@ export const CardDefaultsPage: React.FC<CardDefaultsPageProps> = ({ onBack, kind
           Örnek: Cari şablonda Kod = <code className="px-1 bg-white rounded border">120.*</code>, Tür =
           Alıcı/Satıcı, Vergi tipi = Tüzel → Yeni cari açınca form bu değerlerle gelir.
         </p>
+        <p className="flex items-start gap-1.5">
+          <Copy className="w-3.5 h-3.5 mt-0.5 shrink-0" />
+          Fiş örneği: Satış Faturası şablonunda Ambar, Döviz, Ödeme planı, Yetki kodu doldurulur → yeni satış
+          faturası bu değerlerle açılır. Numara, tarih, kur ve satırlar şablondan gelmez.
+        </p>
       </div>
 
+      {(['card', 'voucher'] as const).map((group) => (
+      <div key={group} className="space-y-2">
+      <h2 className="text-[12px] font-semibold text-slate-500 uppercase tracking-wide">
+        {group === 'card' ? 'Kartlar' : 'Fişler'}
+      </h2>
       <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-        {CARD_DEFAULT_KINDS.map((kind) => (
+        {CARD_DEFAULT_KINDS.filter((k) => k.group === group).map((kind) => (
           <div
             key={kind.id}
             className="rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 p-3.5 shadow-sm space-y-2"
@@ -227,6 +227,8 @@ export const CardDefaultsPage: React.FC<CardDefaultsPageProps> = ({ onBack, kind
           </div>
         ))}
       </div>
+      </div>
+      ))}
     </div>
   );
 };

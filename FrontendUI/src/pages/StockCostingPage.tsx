@@ -100,7 +100,7 @@ export const StockCostingPage: React.FC<{ onBack: () => void }> = ({ onBack }) =
             <Calculator className="w-4 h-4 text-slate-500" /> Maliyetlendirme
           </h1>
           <p className="text-[12px] text-slate-500">
-            Ağırlıklı ortalama maliyet ({meta?.scope === 'ambar' ? 'ambar bazında' : 'firma geneli'}) · eksi stok {neg} · parametreler:
+            Karttaki maliyet yöntemi ({meta?.scope === 'ambar' ? 'ambar bazında' : 'firma geneli'}) · eksi stok {neg} · parametreler:
             Sistem → Parametreler (STK_COST_SCOPE, STK_NEG_CTRL)
           </p>
         </div>

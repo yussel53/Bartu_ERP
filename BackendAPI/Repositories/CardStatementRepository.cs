@@ -600,7 +600,7 @@ SELECT
   i.CustomerID AS CustId
 FROM dbo.Invoice i
 {await InvoiceTotalsJoinAsync(ct)}
-{Where("i.CustomerID")}");
+{Where("i.CustomerID")} AND i.InvoiceID > 0");
         }
 
         // 3) Banka satırları (havale / EFT)
@@ -886,7 +886,7 @@ SELECT i.InvoiceDate, 'Invoice', CAST(i.[{invType}] AS int),
   CAST(s.Tot AS float), i.InvoiceID
 FROM dbo.Invoice i
 {await InvoiceTotalsJoinAsync(ct)}
-WHERE i.CustomerID = @id");
+WHERE i.CustomerID = @id AND i.InvoiceID > 0");
         }
 
         if (await HasColAsync("OrderVoucher", "CustomerID", ct) && await HasAsync("OrderTrans", ct))
@@ -899,7 +899,7 @@ SELECT o.OrderDate, 'OrderVoucher', CAST(o.Type_ AS int), CAST(o.OrderSlipNo AS 
   CAST((SELECT SUM(ISNULL(t.TotalPrice, 0)) FROM dbo.OrderTrans t WHERE {fk} = o.OrderVoucherID) AS float),
   o.OrderVoucherID
 FROM dbo.OrderVoucher o
-WHERE o.CustomerID = @id");
+WHERE o.CustomerID = @id AND o.OrderVoucherID > 0");
         }
 
         if (await HasColAsync("ProductVoucher", "CustomerID", ct))
@@ -909,7 +909,7 @@ SELECT p.VoucherDate, 'ProductVoucher', CAST(p.VoucherType AS int), CAST(p.Docum
   CAST((SELECT SUM(ISNULL(t.TotalPrice, 0)) FROM dbo.ProductTrans t WHERE t.ProductVoucherID = p.ProductVoucherID) AS float),
   p.ProductVoucherID
 FROM dbo.ProductVoucher p
-WHERE p.CustomerID = @id");
+WHERE p.CustomerID = @id AND p.ProductVoucherID > 0");
 
         if (await HasColAsync("BankTrans", "CustomerID", ct) && await HasColAsync("BankTrans", "BankVoucherID", ct)
             && await HasColAsync("BankVoucher", "DocumentNumber", ct))
@@ -961,7 +961,7 @@ SELECT TOP 1000
 FROM dbo.OrderVoucher o
 OUTER APPLY (SELECT COUNT(1) AS Lines, SUM(ISNULL(t.Quantity, 0)) AS Qty, SUM(ISNULL(t.TotalPrice, 0)) AS Total
              FROM dbo.OrderTrans t WHERE {fk} = o.OrderVoucherID) x
-WHERE o.CustomerID = @id
+WHERE o.CustomerID = @id AND o.OrderVoucherID > 0
 ORDER BY o.OrderDate DESC, o.OrderVoucherID DESC", new { id }, ct);
         LabelRows(rows);
         return new CardSection

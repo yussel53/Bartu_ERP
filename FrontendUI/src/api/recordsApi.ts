@@ -23,6 +23,9 @@ export interface RecordGetResult {
   productSubs?: Record<string, unknown>[];
   customerAliases?: Record<string, unknown>[];
   variants?: Record<string, unknown>[];
+  serialGroups?: Record<string, unknown>[];
+  serials?: Record<string, unknown>[];
+  lots?: Record<string, unknown>[];
   accountLinks?: Record<string, unknown>[];
   lines?: Record<string, unknown>[];
   workplaces?: Record<string, unknown>[];
@@ -97,6 +100,9 @@ export async function saveRecord(
       productSubs: data.productSubs,
       customerAliases: data.customerAliases,
       variants: data.variants,
+      serialGroups: data.serialGroups,
+      serials: data.serials,
+      lots: data.lots,
       accountLinks: data.accountLinks,
       lines: data.lines,
       workplaces: data.workplaces,

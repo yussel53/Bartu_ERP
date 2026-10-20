@@ -232,14 +232,14 @@ export const AppShell: React.FC<AppShellProps> = ({ currentPath, onNavigate, chi
   };
 
   return (
-    <div className="min-h-screen flex bg-slate-100 dark:bg-slate-900">
+    <div className="h-screen overflow-hidden flex bg-slate-100 dark:bg-slate-900">
       <aside
         className={`
-          fixed inset-y-0 left-0 z-40 w-48 p-1.5 flex flex-col
+          fixed inset-y-0 left-0 z-40 w-48 p-1.5 flex flex-col overflow-hidden
           bg-white dark:bg-slate-950 border-r border-slate-200 dark:border-slate-800
           transform transition-transform duration-200
           ${mobileOpen ? 'translate-x-0' : '-translate-x-full'}
-          lg:translate-x-0 lg:static
+          lg:translate-x-0 lg:static lg:h-full
         `}
       >
         <div className="flex items-center justify-between mb-2 px-1.5 py-1 shrink-0 border-b border-slate-100 dark:border-slate-800">
@@ -252,7 +252,7 @@ export const AppShell: React.FC<AppShellProps> = ({ currentPath, onNavigate, chi
           </button>
         </div>
 
-        <nav className="flex-1 overflow-y-auto space-y-0.5 pr-0.5">
+        <nav className="flex-1 min-h-0 overflow-y-auto overscroll-contain space-y-0.5 pr-0.5">
           <button
             type="button"
             onClick={() => go('rapor')}
@@ -375,7 +375,7 @@ export const AppShell: React.FC<AppShellProps> = ({ currentPath, onNavigate, chi
         <div className="fixed inset-0 z-30 bg-black/30 lg:hidden" onClick={() => setMobileOpen(false)} />
       )}
 
-      <div className="flex-1 min-w-0 flex flex-col">
+      <div className="flex-1 min-w-0 min-h-0 flex flex-col overflow-hidden">
         <header className="lg:hidden sticky top-0 z-20 flex items-center gap-2 px-3 h-10 bg-white dark:bg-slate-950 border-b border-slate-200">
           <button type="button" onClick={() => setMobileOpen(true)} className="p-1.5 rounded hover:bg-slate-100">
             <Menu className="w-4 h-4" />
@@ -390,7 +390,7 @@ export const AppShell: React.FC<AppShellProps> = ({ currentPath, onNavigate, chi
             <LogOut className="w-4 h-4" />
           </button>
         </header>
-        <main className="flex-1 p-2 sm:p-3 lg:p-4">
+        <main className="flex-1 min-h-0 overflow-y-auto p-2 sm:p-3 lg:p-4">
           <SystemNoticeBanner />
           {children}
         </main>

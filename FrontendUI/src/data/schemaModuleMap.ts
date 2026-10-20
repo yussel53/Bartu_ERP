@@ -13,7 +13,10 @@ export interface SchemaTableRef {
 
 export const SCHEMA_MODULE_MAP: SchemaTableRef[] = [
   // Malzeme
-  { table: 'ProductCard', module: 'malzeme', group: 'ana-kayitlar', title: 'Malzeme Kartları', notes: 'ProductType ile hizmet kartları da aynı tablo' },
+  { table: 'ProductCard', module: 'malzeme', group: 'ana-kayitlar', title: 'Malzeme Kartları', notes: 'TaxCardID vergi kartı · CostMethod 0 hareketli ortalama / 1 dönemsel ortalama / 2 FIFO / 3 LIFO / 4 son alış / 5 standart (StandardCost) · TrackingMode 0 yok / 1 Lot / 2 Seri / 3 Seri grubu · AllowLotSplit · TrackLocation · IssuePolicy 0 serbest / 1 FEFO / 2 FIFO · öndeğer ProductCardID=-1' },
+  { table: 'UnitCard', module: 'malzeme', group: 'ana-kayitlar', title: 'Birimler', notes: 'UnitID 1–8 mevcut katalog · GlobalCode e-belge (EA, KGM, LTR, MTR)' },
+  { table: 'StockLocation', module: 'malzeme', group: 'ana-kayitlar', title: 'Stok Yeri Kodları', notes: 'Raf / göz · WhouseID boşsa genel · kod depo içinde tek' },
+  { table: 'ProductSerialLot', module: 'malzeme', group: 'hareketler', title: 'Lot / Seri', notes: 'Bir satırda N lot/seri · ExpireDate · Description · StockLocationID · Kind 1 Lot · 2 Seri · 3 Seri grubu' },
   { table: 'ProductUnit', module: 'malzeme', group: 'ana-kayitlar', title: 'Birim Çevirimi', notes: 'Sol birim listesi · sağda çevrim + ölçü (Weight/Length/Width/Height) + barkod grid' },
   { table: 'ProductBarcode', module: 'malzeme', group: 'ana-kayitlar', title: 'Barkodlar', notes: 'Birim çevirimi altında · ProductCardID + UnitID · bir birime N barkod' },
   { table: 'ProductSub', module: 'malzeme', group: 'ana-kayitlar', title: 'Alt Malzeme / Reçete', notes: 'ProductCard formu içinde sekme · MainProductCardID' },
@@ -54,6 +57,7 @@ export const SCHEMA_MODULE_MAP: SchemaTableRef[] = [
 
   // Satış / Satınalma
   { table: 'ProductPrice', module: 'satis|satinalma', group: 'ana-kayitlar', title: 'Fiyatlar', notes: 'Type_ 1 Satış / 2 Alış · malzeme + hizmet aynı şablon · ProductCardID' },
+  { table: 'TradeTarget', module: 'satis|satinalma', group: 'ana-kayitlar', title: 'Alım / Satış Hedefleri', notes: 'Direction 1 Satış / 2 Alım · M1–M12 tutar · Q1–Q12 miktar · cari ve malzeme isteğe bağlı' },
   { table: 'OrderVoucher', module: 'satis|satinalma', group: 'hareketler', title: 'Sipariş / Talep', notes: 'Type_ 1 Satış / 2 Alış / 5 Alış Talep / 6 Satış Talep · SourceOrderVoucherID talep→sipariş' },
   { table: 'OrderTrans', module: 'satis|satinalma', group: 'hareketler', title: 'Sipariş Satırları' },
   { table: 'SYS_ProcessDef', module: 'surec', group: 'ana-kayitlar', title: 'Süreçler', notes: 'TriggerType 1–8 · TriggerConfigJson · Category' },

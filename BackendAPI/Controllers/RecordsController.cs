@@ -191,9 +191,13 @@ public sealed class RecordsController : ControllerBase
                     return StatusCode(403, new { success = false, message = "Kayıt yetki kodu / firma / işyeri / ambar kapsamınızın dışında." });
             }
 
+            // Öndeğer / şablon kayıt (ID < 0): yalnız alanlar yazılır — stok, risk, bütçe, kaydet sonrası,
+            // cari dönüşümü, muhasebe ve süreç tetikleri çalışmaz
+            var isTemplate = body.RecordId < 0;
+
             // Y-06: eksi stok kontrolü (Setting STK_NEG_CTRL: 0 izin · 1 uyar · 2 engelle) — malzeme fişi / irsaliye çıkışları
             string? stockWarning = null;
-            if (tableName.Equals("ProductVoucher", StringComparison.OrdinalIgnoreCase) && body.Lines is { Count: > 0 } && body.StandardFields != null)
+            if (!isTemplate && tableName.Equals("ProductVoucher", StringComparison.OrdinalIgnoreCase) && body.Lines is { Count: > 0 } && body.StandardFields != null)
             {
                 static int? IntOf(object? v) => int.TryParse(Convert.ToString(v), out var i) && i > 0 ? i : null;
                 var vtRaw = body.StandardFields.FirstOrDefault(kv => kv.Key.Equals("VoucherType", StringComparison.OrdinalIgnoreCase)).Value;
@@ -209,7 +213,7 @@ public sealed class RecordsController : ControllerBase
 
             // Y-12: risk limiti (satış siparişi / irsaliyesi / faturası) — 1 uyar · 2 yönetici onayı · 3 engelle
             string? riskWarning = null;
-            if (body.StandardFields != null)
+            if (!isTemplate && body.StandardFields != null)
             {
                 var risk = await _risk.CheckAsync(tableName, body.RecordId, body.StandardFields, body.Lines, ct);
                 if (risk.Action == 3)
@@ -227,7 +231,7 @@ public sealed class RecordsController : ControllerBase
 
             // Y-17: bütçe — aylık bütçeyi aşan faturada OverAction 1 uyar · 2 engelle
             string? budgetWarning = null;
-            if (tableName.Equals("Invoice", StringComparison.OrdinalIgnoreCase) && body.StandardFields != null && body.Lines is { Count: > 0 })
+            if (!isTemplate && tableName.Equals("Invoice", StringComparison.OrdinalIgnoreCase) && body.StandardFields != null && body.Lines is { Count: > 0 })
             {
                 static string? F(IDictionary<string, object?> d, string k) => Convert.ToString(d.FirstOrDefault(kv => kv.Key.Equals(k, StringComparison.OrdinalIgnoreCase)).Value);
                 static decimal Dec(string? v) => decimal.TryParse(v, System.Globalization.NumberStyles.Any, System.Globalization.CultureInfo.InvariantCulture, out var d) ? d : 0;
@@ -274,9 +278,9 @@ public sealed class RecordsController : ControllerBase
             await _audit.LogAsync(tableName, id, body.RecordId > 0 ? 'U' : 'I', auditBefore, await _repo.GetAsync(tableName, pk, id, ct), User.UserId(), User.Identity?.Name);
 
             var actions = new List<PostSaveActionDto>();
-            if (!string.IsNullOrWhiteSpace(body.FormCode))
+            if (!isTemplate && !string.IsNullOrWhiteSpace(body.FormCode))
                 actions.AddRange(await _postSave.LoadFromDbAsync(body.FormCode, ct));
-            if (body.PostSave != null)
+            if (!isTemplate && body.PostSave != null)
                 actions.AddRange(body.PostSave);
 
             List<PostSaveRunResult>? postResults = null;
@@ -308,7 +312,8 @@ public sealed class RecordsController : ControllerBase
             bool customerPromoted = false;
             try
             {
-                customerPromoted = await _customerKind.PromoteOnSaleAsync(tableName, id, ct);
+                if (!isTemplate)
+                    customerPromoted = await _customerKind.PromoteOnSaleAsync(tableName, id, ct);
             }
             catch
             {
@@ -317,7 +322,7 @@ public sealed class RecordsController : ControllerBase
 
             // Y-09: fatura / kasa fişi → muhasebe fişi (ACC_AUTO_POST «Otomatik Mahsup» = 1; bağlantı eksikse kayıt yapılır, uyarı döner)
             string? accountingWarning = null;
-            if (tableName.Equals("Invoice", StringComparison.OrdinalIgnoreCase) || tableName.Equals("SafeVoucher", StringComparison.OrdinalIgnoreCase))
+            if (!isTemplate && (tableName.Equals("Invoice", StringComparison.OrdinalIgnoreCase) || tableName.Equals("SafeVoucher", StringComparison.OrdinalIgnoreCase)))
             {
                 try
                 {

@@ -13,6 +13,7 @@ import { ArrowLeftRight, Barcode, MapPinned, Plus, Ruler, Trash2 } from 'lucide-
 import { FormFieldDto } from '../types/formTypes';
 import { FieldRenderer } from './FieldRenderer';
 import { parseUnitSelectOptions, unitLabel } from '../data/productUnitConvs';
+import { loadUnitCatalog, unitSelectOptionsJson } from '../data/productLineUnits';
 import { BarcodeConflict, checkBarcodes } from '../api/barcodesApi';
 
 interface UnitConvTabPanelProps {
@@ -190,11 +191,21 @@ export const UnitConvTabPanel: React.FC<UnitConvTabPanelProps> = ({
   }, [barcodeKey, productId, readOnly]);
 
   const [selected, setSelected] = React.useState(0);
+  const [catalogJson, setCatalogJson] = React.useState<string | null>(null);
+  React.useEffect(() => {
+    let live = true;
+    void loadUnitCatalog().then(() => {
+      if (live) setCatalogJson(unitSelectOptionsJson());
+    });
+    return () => {
+      live = false;
+    };
+  }, []);
   const mainId = String(defaultUnitId ?? '').trim();
   const unitOpts = React.useMemo(() => {
     const unitField = unitConvFields.find((f) => f.fieldName === 'UnitID');
-    return parseUnitSelectOptions(unitField?.optionsJson);
-  }, [unitConvFields]);
+    return parseUnitSelectOptions(catalogJson || unitField?.optionsJson);
+  }, [catalogJson, unitConvFields]);
 
   const convFields = unitConvFields.filter((f) => CONV_FIELDS.has(f.fieldName));
   const dimFields = unitConvFields.filter((f) => DIM_FIELDS.has(f.fieldName));

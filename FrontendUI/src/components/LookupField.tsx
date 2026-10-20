@@ -154,7 +154,7 @@ export const LookupField: React.FC<LookupFieldProps> = ({
           onClick={openPicker}
           title={`${label} listesinden seç`}
           aria-label={`${label} seç`}
-          className={`shrink-0 w-8 h-8 inline-flex items-center justify-center rounded border text-slate-600
+          className={`shrink-0 ${inputClassName.includes('h-7') ? 'w-7 h-7' : 'w-8 h-8'} inline-flex items-center justify-center rounded border text-slate-600
             ${
               disabled
                 ? 'bg-slate-50 border-slate-200 cursor-not-allowed opacity-60'
