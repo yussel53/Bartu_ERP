@@ -17,7 +17,7 @@ const inp = 'rounded-sm border border-slate-300 px-2 py-1 text-[12px]';
 
 /**
  * Gelen TİCARİ faturaya KABUL / RED (e-Logo uygulama yanıtı; canlı hesapta kilitli) ve
- * gelen / giden e-faturada harici itiraz / iptal kaydı (KEP · noter · telgraf · taahhütlü mektup · GİB portalı).
+ * gelen / giden e-faturada harici itiraz / iptal kaydı (KEP · noter · GİB portalı).
  */
 export const EGovResponseModal: React.FC<{ egovId: number; onClose: () => void; onChanged: () => void }> = ({
   egovId,
@@ -186,7 +186,7 @@ export const EGovResponseModal: React.FC<{ egovId: number; onClose: () => void; 
                   Harici itiraz / iptal {isIncoming ? '(faturaya bizim itirazımız)' : '(alıcının faturamıza itirazı)'}
                 </div>
                 <p className="text-slate-500">
-                  TTK 18/3: GİB yanıt süresi dışında itiraz noter, taahhütlü mektup, telgraf ya da KEP ile yapılır. Burada yalnız programa kayıt
+                  GİB yanıt süresi dışında itiraz KEP ya da noter ile yapılır. Burada yalnız programa kayıt
                   girilir; karşı tarafa bir şey gönderilmez.
                 </p>
                 {s.objections.length > 0 && (
@@ -243,7 +243,7 @@ export const EGovResponseModal: React.FC<{ egovId: number; onClose: () => void; 
                       <input type="date" className={inp} value={form.date} onChange={(e) => setForm({ ...form, date: e.target.value })} />
                     </label>
                     <label className="flex flex-col gap-0.5">
-                      <span className="text-slate-500">Belge no (KEP / yevmiye / gönderi)</span>
+                      <span className="text-slate-500">Belge no (KEP / yevmiye)</span>
                       <input className={`${inp} w-44`} value={form.docNo} maxLength={100} onChange={(e) => setForm({ ...form, docNo: e.target.value })} />
                     </label>
                     <label className="flex flex-col gap-0.5 flex-1 min-w-[220px]">

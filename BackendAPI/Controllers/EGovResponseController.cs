@@ -5,7 +5,7 @@ namespace BartuERP.Backend.Controllers;
 
 /// <summary>
 /// Gelen TİCARİ faturaya KABUL / RED (e-Logo uygulama yanıtı — canlı adreste kilitli) ve
-/// gelen / giden e-faturada harici itiraz / iptal kaydı (KEP · noter · telgraf · taahhütlü mektup · GİB portalı).
+/// gelen / giden e-faturada harici itiraz / iptal kaydı (KEP · noter · GİB portalı).
 /// </summary>
 [ApiController]
 [Route("api/egov/response")]
@@ -26,7 +26,7 @@ public sealed class EGovResponseController : ControllerBase
     {
         /// <summary>ITIRAZ · IPTAL</summary>
         public string? Kind { get; set; }
-        /// <summary>KEP · NOTER · TELGRAF · TAAHHUTLU_MEKTUP · GIB_PORTAL</summary>
+        /// <summary>KEP · NOTER · GIB_PORTAL</summary>
         public string? Method { get; set; }
         public DateTime? Date { get; set; }
         public string? DocNo { get; set; }

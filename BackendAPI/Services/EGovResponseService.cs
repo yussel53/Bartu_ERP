@@ -35,7 +35,7 @@ public sealed class EGovResponseBlockedException(string message) : Exception(mes
 /// <summary>
 /// Gelen TİCARİ faturaya KABUL / RED (e-Logo uygulama yanıtı) ve harici itiraz / iptal kaydı.
 /// GİB: yanıt yalnız TICARIFATURA'da, belgenin alınmasından itibaren 8 gün içinde verilir; sonrası TTK 18/3 yolları
-/// (KEP · noter · telgraf · taahhütlü mektup) ile yapılır ve programa kayıt olarak girilir.
+/// (KEP · noter) ile yapılır ve programa kayıt olarak girilir.
 /// </summary>
 public sealed class EGovResponseService
 {
@@ -88,7 +88,7 @@ public sealed class EGovResponseService
         else if (s.Objections.Any(o => o.IsActive)) why = "Belgede harici itiraz / iptal kaydı var.";
         else if (string.IsNullOrWhiteSpace(d.UUID)) why = "Belgenin ETTN'si yok.";
         else if (s.Deadline is DateTime dl && DateTime.Now.Date > dl)
-            why = $"8 günlük yanıt süresi {dl:dd.MM.yyyy} tarihinde doldu; itiraz KEP / noter / telgraf / taahhütlü mektupla yapılıp «İtiraz kaydet» ile girilir.";
+            why = $"8 günlük yanıt süresi {dl:dd.MM.yyyy} tarihinde doldu; itiraz KEP ya da noter ile yapılıp «İtiraz kaydet» ile girilir.";
         else if (lockWhy != null) why = lockWhy.Replace("gönderim", "kabul / red");
         s.CanRespond = why == null;
         s.RespondBlockReason = why;
@@ -140,13 +140,13 @@ public sealed class EGovResponseService
         kind = (kind ?? "ITIRAZ").Trim().ToUpperInvariant();
         method = (method ?? "").Trim().ToUpperInvariant();
         if (!EGovResponseRepository.Kinds.Contains(kind)) throw new EGovResponseBlockedException("Tür İTİRAZ ya da İPTAL olmalı.");
-        if (!EGovResponseRepository.Methods.Contains(method)) throw new EGovResponseBlockedException("Yöntem: KEP, NOTER, TELGRAF, TAAHHUTLU_MEKTUP ya da GIB_PORTAL.");
+        if (!EGovResponseRepository.Methods.Contains(method)) throw new EGovResponseBlockedException("Yöntem: KEP, NOTER ya da GIB_PORTAL.");
         if (date is not DateTime dt) throw new EGovResponseBlockedException("İtiraz / iptal belgesinin tarihi zorunlu.");
         if (dt.Date > DateTime.Today) throw new EGovResponseBlockedException("Belge tarihi ileri bir tarih olamaz.");
         if (d.DocumentDate is DateTime dd && dt.Date < dd.Date) throw new EGovResponseBlockedException("İtiraz tarihi fatura tarihinden önce olamaz.");
         if (string.IsNullOrWhiteSpace(description)) throw new EGovResponseBlockedException("Açıklama (itiraz / iptal gerekçesi) zorunlu.");
         if (method != "GIB_PORTAL" && string.IsNullOrWhiteSpace(docNo))
-            throw new EGovResponseBlockedException("KEP / noter / telgraf / mektup belgesinin numarası zorunlu.");
+            throw new EGovResponseBlockedException("KEP / noter belgesinin numarası zorunlu.");
         if (await _repo.HasActiveObjectionAsync(id, ct))
             throw new EGovResponseBlockedException("Bu belgede etkin bir itiraz / iptal kaydı var; önce onu geri alın.");
 

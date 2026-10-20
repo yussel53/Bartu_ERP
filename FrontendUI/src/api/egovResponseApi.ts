@@ -6,7 +6,7 @@ export interface EGovObjection {
   eGovDocumentObjectionID: number;
   /** ITIRAZ · IPTAL */
   kind: string;
-  /** KEP · NOTER · TELGRAF · TAAHHUTLU_MEKTUP · GIB_PORTAL */
+  /** KEP · NOTER · GIB_PORTAL */
   method: string;
   objectionDate: string;
   objectionDocNo?: string | null;
@@ -44,8 +44,6 @@ export interface EGovResponseState {
 export const OBJECTION_METHODS: { value: string; label: string }[] = [
   { value: 'KEP', label: 'KEP (kayıtlı elektronik posta)' },
   { value: 'NOTER', label: 'Noter' },
-  { value: 'TELGRAF', label: 'Telgraf' },
-  { value: 'TAAHHUTLU_MEKTUP', label: 'Taahhütlü mektup' },
   { value: 'GIB_PORTAL', label: 'GİB portalı (iptal / itiraz talebi)' },
 ];
 

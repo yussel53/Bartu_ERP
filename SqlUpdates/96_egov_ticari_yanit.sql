@@ -1,7 +1,7 @@
 -- 96: E-Devlet — gelen TİCARİ faturaya KABUL / RED yanıtı ve harici itiraz / iptal kaydı
 -- EGovDocument: uygulama yanıtı (e-Logo CREATEAPPLICATIONRESPONSE) — gönderim canlı adreste kilitli.
 -- EGovDocumentObjection: 8 günlük süre dışında ya da GİB sistemi dışında yapılan itiraz / iptaller
---   (TTK 18/3: KEP · NOTER · TELGRAF · TAAHHUTLU_MEKTUP; ayrıca GİB portalı). Gelen ve giden belgede tutulur.
+--   (KEP · NOTER; ayrıca GİB portalı). Gelen ve giden belgede tutulur.
 
 IF OBJECT_ID(N'dbo.EGovDocument', N'U') IS NOT NULL AND COL_LENGTH(N'dbo.EGovDocument', N'ResponseCode') IS NULL
   ALTER TABLE dbo.EGovDocument ADD
@@ -20,7 +20,7 @@ BEGIN
     EGovDocumentID   INT NOT NULL,
     -- ITIRAZ · IPTAL (karşılıklı iptal)
     Kind             NVARCHAR(10) NOT NULL,
-    -- KEP · NOTER · TELGRAF · TAAHHUTLU_MEKTUP · GIB_PORTAL
+    -- KEP · NOTER · GIB_PORTAL
     Method           NVARCHAR(20) NOT NULL,
     -- 1: gelen faturaya bizim itirazımız · 2: giden faturamıza alıcının itirazı (belgenin yönüyle aynı)
     ObjectionDate    DATE NOT NULL,

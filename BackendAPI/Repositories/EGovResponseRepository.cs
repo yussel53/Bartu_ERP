@@ -50,7 +50,7 @@ public sealed class EGovResponseRepository
         if (_db.State != ConnectionState.Open) _db.Open();
     }
 
-    public static readonly string[] Methods = { "KEP", "NOTER", "TELGRAF", "TAAHHUTLU_MEKTUP", "GIB_PORTAL" };
+    public static readonly string[] Methods = { "KEP", "NOTER", "GIB_PORTAL" };
     public static readonly string[] Kinds = { "ITIRAZ", "IPTAL" };
 
     public async Task<EGovResponseDoc?> GetAsync(int id, CancellationToken ct)
