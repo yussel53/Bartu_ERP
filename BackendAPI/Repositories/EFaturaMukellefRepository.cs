@@ -99,9 +99,7 @@ public sealed class EFaturaMukellefRepository
         result.Found = rows.Count > 0;
         if (!result.Found)
         {
-            result.Message = total <= 100
-                ? $"VKN {normalized} yerel listede yok (yerel: {total} kayıt). GİB listesi kontrol edilecek…"
-                : $"VKN/TCKN {normalized} yerel e-Fatura listesinde yok (yerel: {total:N0}).";
+            result.Message = $"VKN/TCKN {normalized} yerel mükellef tablosunda yok.";
             return result;
         }
 
