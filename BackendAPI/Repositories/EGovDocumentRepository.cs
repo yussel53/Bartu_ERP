@@ -44,6 +44,11 @@ public sealed class EGovDocumentListRow
     public string? ApprovalComment { get; set; }
     public int? PendingTaskID { get; set; }
     public string? PendingRoleName { get; set; }
+    /// <summary>Gelen TİCARİ faturaya verilen yanıt (KABUL / RED) ve gönderim durumu (96)</summary>
+    public string? ResponseCode { get; set; }
+    public string? ResponseStatus { get; set; }
+    /// <summary>Etkin harici itiraz / iptal kaydı var (96)</summary>
+    public bool HasObjection { get; set; }
 }
 
 public sealed class EGovStatusCount
@@ -126,6 +131,10 @@ public sealed class EGovDocumentRepository
         // Sonradan eklenen kolonlar (15 / 67) yoksa NULL / 0 döner
         string Opt(string col, string fallback) => cols.Contains(col) ? $"e.[{col}]" : $"{fallback} AS [{col}]";
         var hasPdf = cols.Contains("PdfContent") ? "CAST(CASE WHEN e.PdfContent IS NULL THEN 0 ELSE 1 END AS bit)" : "CAST(0 AS bit)";
+        var hasObjection = await _db.ExecuteScalarAsync<int>(new CommandDefinition(
+                "SELECT CASE WHEN OBJECT_ID(N'dbo.EGovDocumentObjection', N'U') IS NULL THEN 0 ELSE 1 END", cancellationToken: ct)) == 1
+            ? "CAST(CASE WHEN EXISTS (SELECT 1 FROM dbo.EGovDocumentObjection o WHERE o.EGovDocumentID = e.EGovDocumentID AND o.IsActive = 1) THEN 1 ELSE 0 END AS bit)"
+            : "CAST(0 AS bit)";
 
         var where = new List<string> { "e.DocKind = @DocKind", "e.Direction = @Direction" };
         var p = new DynamicParameters();
@@ -202,6 +211,8 @@ public sealed class EGovDocumentRepository
                  e.ProfileId, e.Amount, e.TaxAmount, e.CurrencyCode, e.Status, e.IsActive, e.InvoiceID,
                  {Opt("OrderVoucherID", "CAST(NULL AS int)")}, {Opt("ProcessInstanceID", "CAST(NULL AS int)")}, {Opt("ProductVoucherID", "CAST(NULL AS int)")},
                  {hasPdf} AS HasPdf,
+                 {Opt("ResponseCode", "CAST(NULL AS nvarchar(10))")}, {Opt("ResponseStatus", "CAST(NULL AS nvarchar(20))")},
+                 {hasObjection} AS HasObjection,
                  CAST(CASE WHEN e.XmlContent IS NULL THEN 0 ELSE 1 END AS bit) AS HasXml,
                  {approvalCols}
                FROM {from_}

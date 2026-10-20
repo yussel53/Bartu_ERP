@@ -3,6 +3,7 @@ import { ArrowLeft, Lock, RefreshCw, Save } from 'lucide-react';
 import { SendCounter, SendSetting, getSendSettings, saveSendSettings, setSendCounter } from '../api/egovOutgoingApi';
 import { LookupOption, loadLookupOptions } from '../api/lookupApi';
 import { useAuth } from '../components/AuthGate';
+import { appConfirm } from '../utils/appConfirm';
 
 type Msg = { kind: 'ok' | 'err'; text: string } | null;
 
@@ -65,7 +66,7 @@ export const EGovSendSettingsPage: React.FC<{ onBack: () => void }> = ({ onBack 
   const saveCounter = async (c: SendCounter) => {
     const v = Number(edit[c.prefix]);
     if (!Number.isInteger(v) || v < 0) return setMsg({ kind: 'err', text: 'Sıra tam sayı olmalı.' });
-    if (!window.confirm(`${c.prefix} ${c.year} sayacı ${v} yapılsın mı? Sıradaki numara ${c.prefix}${c.year}${String(v + 1).padStart(9, '0')} olur.`)) return;
+    if (!(await appConfirm(`${c.prefix} ${c.year} sayacı ${v} yapılsın mı? Sıradaki numara ${c.prefix}${c.year}${String(v + 1).padStart(9, '0')} olur.`))) return;
     setBusy(true);
     try {
       setMsg({ kind: 'ok', text: (await setSendCounter(Number(companyId), { prefix: c.prefix, year: c.year, lastValue: v })).message });

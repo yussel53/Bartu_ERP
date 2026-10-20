@@ -26,6 +26,11 @@ export interface EGovDocumentRow {
   approvalComment?: string | null;
   pendingTaskID?: number | null;
   pendingRoleName?: string | null;
+  /** Gelen TİCARİ faturaya verilen yanıt: KABUL · RED */
+  responseCode?: string | null;
+  responseStatus?: string | null;
+  /** Etkin harici itiraz / iptal kaydı var */
+  hasObjection?: boolean;
 }
 
 /** new · pending · approved · rejected · saved */

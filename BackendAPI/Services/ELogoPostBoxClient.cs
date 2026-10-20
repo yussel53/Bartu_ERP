@@ -279,6 +279,37 @@ public sealed class ELogoPostBoxClient : IAsyncDisposable
         return (code == "1", code, msg);
     }
 
+    /// <summary>
+    /// Gelen TİCARİ faturaya uygulama yanıtı: e-Logo yanıt belgesini kendisi üretir
+    /// (DOCUMENTTYPE=CREATEAPPLICATIONRESPONSE, APPLICATIONRESPONSE=KABUL|RED, DESCRIPTION).
+    /// e-Logo web servis dokümanına göre yazıldı; test hesabıyla doğrulanmadı. Kilit çağıran tarafta (EGovResponseService).
+    /// </summary>
+    public async Task<(bool Ok, string? Code, string? Message)> CreateApplicationResponseAsync(
+        string invoiceUuid, string responseCode, string description, CancellationToken ct = default)
+    {
+        EnsureLoggedIn();
+        var envelope =
+            new XElement(SoapEnv + "Envelope",
+                new XAttribute(XNamespace.Xmlns + "soapenv", SoapEnv.NamespaceName),
+                new XAttribute(XNamespace.Xmlns + "tem", Tem.NamespaceName),
+                new XAttribute(XNamespace.Xmlns + "arr", Arr.NamespaceName),
+                new XElement(SoapEnv + "Header"),
+                new XElement(SoapEnv + "Body",
+                    new XElement(Tem + "SendDocument",
+                        new XElement(Tem + "sessionID", _sessionId),
+                        new XElement(Tem + "paramList",
+                            new XElement(Arr + "string", "DOCUMENTTYPE=CREATEAPPLICATIONRESPONSE"),
+                            new XElement(Arr + "string", $"APPLICATIONRESPONSE={responseCode}"),
+                            new XElement(Arr + "string", $"DESCRIPTION={description}"),
+                            new XElement(Arr + "string", $"UUID={invoiceUuid}")))));
+
+        var (doc, _) = await PostSoapAsync(envelope, "http://tempuri.org/IPostBoxService/SendDocument", ct);
+        var code = doc.Descendants().FirstOrDefault(e => e.Name.LocalName == "resultCode")?.Value;
+        var msg = doc.Descendants().FirstOrDefault(e => e.Name.LocalName == "resultMsg")?.Value
+                  ?? doc.Descendants().FirstOrDefault(e => e.Name.LocalName == "faultstring")?.Value;
+        return (code == "1", code, msg);
+    }
+
     /// <summary>Belgenin entegratör / GİB durumunu sorgular (yalnız okuma)</summary>
     /// <param name="documentType">EINVOICE / EARCHIVE / EDESPATCH</param>
     public async Task<Dictionary<string, string>> GetDocumentStatusAsync(string uuid, string documentType, CancellationToken ct = default)

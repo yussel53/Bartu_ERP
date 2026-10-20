@@ -12,6 +12,7 @@ import {
   saveEArchiveInfo,
   sendOutgoing,
 } from '../api/egovOutgoingApi';
+import { appConfirm } from '../utils/appConfirm';
 
 const n = (v: number) => v.toLocaleString('tr-TR', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 /** E-03: e-belge olarak gönderilen fatura tipleri — 1 Satış · 3 Satış İade · 4 Alış İade */
@@ -62,6 +63,7 @@ const EGovSendModal: React.FC<{ invoiceId: number; onClose: () => void }> = ({ i
   const [returnDate, setReturnDate] = useState('');
   const [tab, setTab] = useState<'view' | 'checks'>('view');
   const [status, setStatus] = useState<Record<string, string> | null>(null);
+  const [cancelReason, setCancelReason] = useState('');
 
   const opts = useCallback(
     () => ({
@@ -94,7 +96,7 @@ const EGovSendModal: React.FC<{ invoiceId: number; onClose: () => void }> = ({ i
 
   const doSend = async () => {
     if (!pv) return;
-    if (!window.confirm(`${pv.invoiceNo} numarasıyla ${pv.docKind === 2 ? 'e-Arşiv' : 'e-Fatura'} olarak gönderilsin mi? Gönderilen belge geri alınamaz.`)) return;
+    if (!(await appConfirm(`${pv.invoiceNo} numarasıyla ${pv.docKind === 2 ? 'e-Arşiv' : 'e-Fatura'} olarak gönderilsin mi? Gönderilen belge geri alınamaz.`))) return;
     setBusy(true);
     setError(null);
     try {
@@ -110,8 +112,9 @@ const EGovSendModal: React.FC<{ invoiceId: number; onClose: () => void }> = ({ i
 
   const doCancel = async () => {
     if (!pv) return;
-    const reason = window.prompt(`${pv.invoiceNo} e-Arşiv faturası iptal edilecek. İptal gerekçesi:`);
-    if (!reason?.trim()) return;
+    const reason = cancelReason.trim();
+    if (!reason) return setError('İptal gerekçesi yazın.');
+    if (!(await appConfirm(`${pv.invoiceNo} e-Arşiv faturası iptal edilecek. Devam edilsin mi?`))) return;
     setBusy(true);
     setError(null);
     try {
@@ -221,6 +224,14 @@ const EGovSendModal: React.FC<{ invoiceId: number; onClose: () => void }> = ({ i
                 >
                   <Download className="w-3.5 h-3.5" /> UBL indir
                 </button>
+                {pv.docKind === 2 && pv.sendStatus === 'Gönderildi' && pv.cancelAllowed && (
+                  <input
+                    value={cancelReason}
+                    onChange={(e) => setCancelReason(e.target.value)}
+                    placeholder="İptal gerekçesi"
+                    className="rounded-sm border border-slate-300 px-2 py-1 w-44"
+                  />
+                )}
                 {pv.docKind === 2 && pv.sendStatus === 'Gönderildi' && (
                   <button
                     type="button"
