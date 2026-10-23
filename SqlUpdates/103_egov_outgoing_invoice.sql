@@ -1,4 +1,4 @@
--- 93: E-Devlet — giden e-fatura hazırlama (yol haritası E-03)
+-- 103: E-Devlet — giden e-fatura hazırlama (yol haritası E-03)
 -- EGovSendSetting: firma bazında GİB seri önekleri, varsayılan senaryo ve canlı gönderim izni (varsayılan kapalı).
 -- EGovNumberCounter: önek + yıl bazında GİB belge numarası sayacı (numara gönderimde verilir, boşluk olmaz).
 -- EGovDocument: giden belgenin gönderim durumu.
