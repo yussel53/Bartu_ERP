@@ -1,4 +1,4 @@
--- 94: E-Devlet — e-Arşiv fatura bilgileri ve iptal (yol haritası E-04)
+-- 104: E-Devlet — e-Arşiv fatura bilgileri ve iptal (yol haritası E-04)
 -- EGovInvoiceEArchive: fatura başına gönderim şekli, alıcı e-postası ve internet satışı bilgileri (GİB e-Arşiv kılavuzu 3.3.2.17).
 -- EGovSendSetting: firmanın varsayılan web adresi ve gönderim şekli.
 -- EGovDocument: e-Arşiv iptal bilgisi.
