@@ -1,4 +1,4 @@
--- 95: E-Devlet — GİB mükellef listesi küçültme
+-- 105: E-Devlet — GİB mükellef listesi küçültme
 -- Tam GİB listesi (≈5,5 milyon etiket) yerine yalnız carilerin ve firmaların VKN/TCKN'lerine ait etiketler tutulur.
 -- Gece senkronu listeyi geçici dosyaya indirip yalnız bu VKN'leri yazar; listede olmayan VKN e-Logo'dan anlık sorgulanır.
 -- EFaturaMukellefCheck: VKN'nin en son ne zaman (gece listesi ya da e-Logo) kontrol edildiği — «mükellef değil» kararı buna dayanır.
