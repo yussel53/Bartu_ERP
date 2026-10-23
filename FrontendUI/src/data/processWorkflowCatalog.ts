@@ -9,6 +9,8 @@ export interface TriggerOption {
   needsDocKind?: boolean;
   needsDirection?: boolean;
   needsTypeFilter?: boolean;
+  /** Tetik için SELECT alanı */
+  needsSql?: boolean;
 }
 
 export const TRIGGER_OPTIONS: TriggerOption[] = [
@@ -37,7 +39,7 @@ export const TRIGGER_OPTIONS: TriggerOption[] = [
   },
   { value: 6, label: 'Yinelemeli / zamanlanmış', hint: 'Zamanlayıcı ile periyodik' },
   { value: 7, label: 'E-posta kontrol', hint: 'Gelen kutusu tarama tetikleyicisi' },
-  { value: 8, label: 'DB tarama', hint: 'Veritabanı koşulu sağlandığında' },
+  { value: 8, label: 'DB tarama', hint: 'Veritabanı koşulu sağlandığında', needsSql: true },
 ];
 
 export const DOC_KIND_OPTIONS = [

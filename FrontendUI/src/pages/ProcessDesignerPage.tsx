@@ -9,7 +9,8 @@ import {
   Save,
   Trash2,
 } from 'lucide-react';
-import { ProcessDef, ProcessStep, listProcessDefs, saveProcessDef } from '../api/processApi';
+import { ProcessDef, ProcessStep, deleteProcessDef, listProcessDefs, saveProcessDef } from '../api/processApi';
+import { appConfirm } from '../utils/appConfirm';
 import { listRoles, type Role } from '../api/rolesApi';
 import {
   DIRECTION_OPTIONS,
@@ -55,8 +56,38 @@ function parseCfg(json?: string | null): Record<string, unknown> {
   }
 }
 
+function stepSql(configJson?: string | null): string {
+  const sql = parseCfg(configJson).sql;
+  return typeof sql === 'string' ? sql : '';
+}
+
+function withStepSql(configJson: string | null | undefined, sql: string): string | null {
+  const next = parseCfg(configJson);
+  if (!sql.trim()) delete next.sql;
+  else next.sql = sql;
+  return Object.keys(next).length ? JSON.stringify(next) : null;
+}
+
+const SQL_NODES = new Set(['DbScan', 'DbScanLoop']);
+
 function stepKey(): string {
   return `s-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
+}
+
+/** Sıra değişince çıkışlar adım numarasına göre yeniden bağlanır. 0 = süreci bitir. */
+function renumberSteps(list: DraftStep[]): DraftStep[] {
+  const oldToNew = new Map<number, number>();
+  list.forEach((s, i) => oldToNew.set(s.stepNo, i + 1));
+  const link = (n?: number | null) => {
+    if (n == null || n === 0) return n ?? null;
+    return oldToNew.get(n) ?? null;
+  };
+  return list.map((s, i) => ({
+    ...s,
+    stepNo: i + 1,
+    nextStepOnOk: link(s.nextStepOnOk),
+    nextStepOnFail: link(s.nextStepOnFail),
+  }));
 }
 
 export const ProcessDesignerPage: React.FC<ProcessDesignerPageProps> = ({ onBack }) => {
@@ -150,12 +181,12 @@ export const ProcessDesignerPage: React.FC<ProcessDesignerPageProps> = ({ onBack
       const t = copy[idx];
       copy[idx] = copy[j];
       copy[j] = t;
-      return copy.map((s, i) => ({ ...s, stepNo: i + 1 }));
+      return renumberSteps(copy);
     });
   };
 
   const removeStep = (idx: number) => {
-    setSteps((prev) => prev.filter((_, i) => i !== idx).map((s, i) => ({ ...s, stepNo: i + 1 })));
+    setSteps((prev) => renumberSteps(prev.filter((_, i) => i !== idx)));
   };
 
   const onSave = async () => {
@@ -193,6 +224,31 @@ export const ProcessDesignerPage: React.FC<ProcessDesignerPageProps> = ({ onBack
       loadDef(saved);
     } catch (e) {
       setMsg({ kind: 'err', text: e instanceof Error ? e.message : 'Kayıt başarısız' });
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const onDelete = async (def: ProcessDef) => {
+    if (def.processDefID <= 0) return;
+    const ok = await appConfirm(
+      `«${def.name}» silinsin mi? Adımları, süren örnekleri ve onay görevleri de silinir.`,
+      { title: 'Süreç sil', okLabel: 'Sil', danger: true },
+    );
+    if (!ok) return;
+    setBusy(true);
+    setMsg(null);
+    try {
+      await deleteProcessDef(def.processDefID);
+      if (selectedId === def.processDefID) {
+        setSelectedId(null);
+        setDraft(null);
+        setSteps([]);
+      }
+      setMsg({ kind: 'ok', text: 'Süreç silindi.' });
+      await reload();
+    } catch (e) {
+      setMsg({ kind: 'err', text: e instanceof Error ? e.message : 'Silinemedi' });
     } finally {
       setBusy(false);
     }
@@ -275,11 +331,11 @@ export const ProcessDesignerPage: React.FC<ProcessDesignerPageProps> = ({ onBack
           ) : (
             <ul className="pb-4">
               {defs.map((d) => (
-                <li key={d.processDefID}>
+                <li key={d.processDefID} className="flex items-stretch border-b border-slate-100">
                   <button
                     type="button"
                     onClick={() => loadDef(d)}
-                    className={`w-full text-left px-3 py-2 border-b border-slate-100 hover:bg-slate-50 ${
+                    className={`flex-1 min-w-0 text-left px-3 py-2 hover:bg-slate-50 ${
                       selectedId === d.processDefID ? 'bg-sky-50 border-l-2 border-l-sky-500' : ''
                     }`}
                   >
@@ -289,6 +345,15 @@ export const ProcessDesignerPage: React.FC<ProcessDesignerPageProps> = ({ onBack
                       <span>· {triggerLabel(d.triggerType)}</span>
                       {!d.isActive && <span className="text-rose-600">pasif</span>}
                     </div>
+                  </button>
+                  <button
+                    type="button"
+                    title="Süreç sil"
+                    disabled={busy}
+                    onClick={() => void onDelete(d)}
+                    className="px-2 text-slate-400 hover:text-rose-700 hover:bg-rose-50 disabled:opacity-40"
+                  >
+                    <Trash2 className="w-3.5 h-3.5" />
                   </button>
                 </li>
               ))}
@@ -416,6 +481,22 @@ export const ProcessDesignerPage: React.FC<ProcessDesignerPageProps> = ({ onBack
                       </select>
                     </label>
                   )}
+                  {triggerOpt?.needsSql && (
+                    <label className="block text-[12px] text-slate-600 sm:col-span-2">
+                      SELECT
+                      <textarea
+                        value={typeof cfg.sql === 'string' ? cfg.sql : ''}
+                        onChange={(e) => setCfg({ sql: e.target.value })}
+                        rows={4}
+                        spellCheck={false}
+                        placeholder="SELECT ... FROM ... WHERE ..."
+                        className="mt-1 w-full rounded-md border border-slate-200 px-2.5 py-1.5 text-[12px] font-mono"
+                      />
+                      <span className="mt-1 block text-[11px] text-slate-400">
+                        Yalnızca SELECT. Kayıt, tetik ayarına yazılır.
+                      </span>
+                    </label>
+                  )}
                   {triggerOpt?.needsTypeFilter && (
                     <label className="block text-[12px] text-slate-600">
                       Tip filtresi (Type_ / boş = hepsi)
@@ -493,8 +574,79 @@ export const ProcessDesignerPage: React.FC<ProcessDesignerPageProps> = ({ onBack
                               </label>
                               <div className="text-[11px] opacity-80 sm:col-span-2">
                                 Tip: <strong>{meta?.label || s.nodeType}</strong> · {s.actionType}
-                                {meta?.dualOut && ' · çift çıkış (ok / fail)'}
                               </div>
+                              {SQL_NODES.has(s.nodeType || '') && (
+                                <label className="block text-[11px] sm:col-span-2">
+                                  SELECT
+                                  <textarea
+                                    value={stepSql(s.configJson)}
+                                    onChange={(e) => {
+                                      const v = e.target.value;
+                                      setSteps((prev) =>
+                                        prev.map((x, i) =>
+                                          i === idx ? { ...x, configJson: withStepSql(x.configJson, v) } : x,
+                                        ),
+                                      );
+                                    }}
+                                    rows={4}
+                                    spellCheck={false}
+                                    placeholder="SELECT ... FROM ... WHERE ..."
+                                    className="mt-0.5 w-full rounded border border-black/10 bg-white/80 px-2 py-1 text-[12px] font-mono"
+                                  />
+                                  <span className="mt-0.5 block text-[10px] opacity-70">
+                                    {s.nodeType === 'DbScanLoop'
+                                      ? 'Her satır için süreç bu sorguyla taranır. Yalnızca SELECT.'
+                                      : 'Koşulu sağlayan kayıtlar. Yalnızca SELECT.'}
+                                  </span>
+                                </label>
+                              )}
+                              <label className="block text-[11px]">
+                                Onay sonrası
+                                <select
+                                  value={s.nextStepOnOk == null ? '' : String(s.nextStepOnOk)}
+                                  onChange={(e) => {
+                                    const raw = e.target.value;
+                                    const v = raw === '' ? null : Number(raw);
+                                    setSteps((prev) =>
+                                      prev.map((x, i) => (i === idx ? { ...x, nextStepOnOk: v } : x)),
+                                    );
+                                  }}
+                                  className="mt-0.5 w-full rounded border border-black/10 bg-white/80 px-2 py-1 text-[12px]"
+                                >
+                                  <option value="">Sıradaki adım</option>
+                                  <option value="0">Süreci bitir</option>
+                                  {steps
+                                    .filter((x) => x._key !== s._key)
+                                    .map((x) => (
+                                      <option key={x._key} value={x.stepNo}>
+                                        {x.stepNo} · {x.title || x.code}
+                                      </option>
+                                    ))}
+                                </select>
+                              </label>
+                              <label className="block text-[11px]">
+                                Red sonrası
+                                <select
+                                  value={s.nextStepOnFail == null ? '' : String(s.nextStepOnFail)}
+                                  onChange={(e) => {
+                                    const raw = e.target.value;
+                                    const v = raw === '' ? null : Number(raw);
+                                    setSteps((prev) =>
+                                      prev.map((x, i) => (i === idx ? { ...x, nextStepOnFail: v } : x)),
+                                    );
+                                  }}
+                                  className="mt-0.5 w-full rounded border border-black/10 bg-white/80 px-2 py-1 text-[12px]"
+                                >
+                                  <option value="">Süreci reddet</option>
+                                  {steps
+                                    .filter((x) => x._key !== s._key)
+                                    .map((x) => (
+                                      <option key={x._key} value={x.stepNo}>
+                                        {x.stepNo} · {x.title || x.code}
+                                      </option>
+                                    ))}
+                                </select>
+                              </label>
                               {(meta?.needsApprover || s.nodeType === 'TaskForm') && (
                                 <label className="block text-[11px] sm:col-span-2">
                                   Onaycı rol
@@ -553,7 +705,19 @@ export const ProcessDesignerPage: React.FC<ProcessDesignerPageProps> = ({ onBack
                   </ol>
                 )}
 
-                <div className="flex justify-end pt-2">
+                <div className="flex justify-between gap-2 pt-2">
+                  {draft.processDefID > 0 ? (
+                    <button
+                      type="button"
+                      disabled={busy}
+                      onClick={() => void onDelete(draft)}
+                      className="inline-flex items-center gap-1.5 rounded-md border border-rose-200 px-3 py-2 text-[13px] text-rose-700 hover:bg-rose-50 disabled:opacity-50"
+                    >
+                      <Trash2 className="w-4 h-4" /> Sil
+                    </button>
+                  ) : (
+                    <span />
+                  )}
                   <button
                     type="button"
                     disabled={busy}

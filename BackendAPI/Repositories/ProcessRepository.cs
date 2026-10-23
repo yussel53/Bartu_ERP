@@ -346,6 +346,49 @@ public sealed class ProcessRepository
         return (await GetDefAsync(dto.ProcessDefID, ct))!;
     }
 
+    /// <summary>Tanımı, adımlarını, örneklerini ve onay görevlerini siler.</summary>
+    public async Task DeleteDefAsync(int id, CancellationToken ct)
+    {
+        await EnsureTablesAsync(ct);
+        if (id <= 0) throw new InvalidOperationException("Süreç seçilmedi.");
+        var exists = await _db.ExecuteScalarAsync<int>(new CommandDefinition(
+            "SELECT COUNT(1) FROM dbo.SYS_ProcessDef WHERE ProcessDefID = @id",
+            new { id }, cancellationToken: ct));
+        if (exists == 0) throw new InvalidOperationException("Süreç bulunamadı.");
+
+        var instanceIds = (await _db.QueryAsync<int>(new CommandDefinition(
+            "SELECT ProcessInstanceID FROM dbo.SYS_ProcessInstance WHERE ProcessDefID = @id",
+            new { id }, cancellationToken: ct))).ToList();
+
+        if (instanceIds.Count > 0)
+        {
+            await _db.ExecuteAsync(new CommandDefinition(
+                "DELETE FROM dbo.SYS_ProcessTask WHERE ProcessInstanceID IN @ids",
+                new { ids = instanceIds }, cancellationToken: ct));
+            if (await TableExistsAsync("SYS_ProcessDocLink", ct))
+            {
+                await _db.ExecuteAsync(new CommandDefinition(
+                    "UPDATE dbo.SYS_ProcessDocLink SET ProcessInstanceID = NULL WHERE ProcessInstanceID IN @ids",
+                    new { ids = instanceIds }, cancellationToken: ct));
+            }
+            await _db.ExecuteAsync(new CommandDefinition(
+                "DELETE FROM dbo.SYS_ProcessInstance WHERE ProcessDefID = @id",
+                new { id }, cancellationToken: ct));
+        }
+
+        await _db.ExecuteAsync(new CommandDefinition("""
+            DELETE t FROM dbo.SYS_ProcessTask t
+            INNER JOIN dbo.SYS_ProcessStep s ON s.ProcessStepID = t.ProcessStepID
+            WHERE s.ProcessDefID = @id
+            """, new { id }, cancellationToken: ct));
+        await _db.ExecuteAsync(new CommandDefinition(
+            "DELETE FROM dbo.SYS_ProcessStep WHERE ProcessDefID = @id",
+            new { id }, cancellationToken: ct));
+        await _db.ExecuteAsync(new CommandDefinition(
+            "DELETE FROM dbo.SYS_ProcessDef WHERE ProcessDefID = @id",
+            new { id }, cancellationToken: ct));
+    }
+
     /// <summary>
     /// Tetik tipine + SourceTable + TriggerConfigJson bağlamına uyan aktif süreçleri başlatır.
     /// </summary>
@@ -548,14 +591,9 @@ public sealed class ProcessRepository
         if (def.ProcessDefID == 0)
             throw new InvalidOperationException($"Aktif süreç bulunamadı: {code}");
 
-        var firstStep = await _db.QueryFirstOrDefaultAsync<ProcessStepDto>(new CommandDefinition("""
-            SELECT TOP 1 ProcessStepID, ProcessDefID, StepNo, Code, Title, ApproverRoleId, ApproverUserId, ActionType, IsActive
-            FROM dbo.SYS_ProcessStep
-            WHERE ProcessDefID = @id AND IsActive = 1
-            ORDER BY StepNo
-            """, new { id = def.ProcessDefID }, cancellationToken: ct));
-        if (firstStep is null)
-            throw new InvalidOperationException("Süreçte aktif adım yok.");
+        var steps = await LoadStepsAsync(def.ProcessDefID, ct);
+        var firstStep = steps.FirstOrDefault()
+            ?? throw new InvalidOperationException("Süreçte aktif adım yok.");
 
         var title = string.IsNullOrWhiteSpace(req.Title)
             ? $"{def.Name} · {req.SourceTable}#{req.SourceId}"
@@ -579,20 +617,15 @@ public sealed class ProcessRepository
             req.StartedBy
         }, cancellationToken: ct));
 
-        await _db.ExecuteAsync(new CommandDefinition("""
-            INSERT INTO dbo.SYS_ProcessTask
-              (ProcessInstanceID, ProcessStepID, Status, AssignedRoleId, AssignedUserId)
-            VALUES
-              (@instanceId, @stepId, N'Pending', @roleId, @userId)
-            """, new
+        if (IsTerminate(firstStep))
         {
-            instanceId,
-            stepId = firstStep.ProcessStepID,
-            roleId = firstStep.ApproverRoleId,
-            userId = firstStep.ApproverUserId
-        }, cancellationToken: ct));
-
-        await TouchSourceProcessAsync(req.SourceTable, req.SourceId, "InProgress", instanceId, ct);
+            await CompleteInstanceAsync(instanceId, "Approved", null, req.SourceTable, req.SourceId, ct);
+        }
+        else
+        {
+            await OpenTaskAsync(instanceId, firstStep, ct);
+            await TouchSourceProcessAsync(req.SourceTable, req.SourceId, "InProgress", instanceId, ct);
+        }
 
         return await _db.QueryFirstAsync<ProcessInstanceDto>(new CommandDefinition("""
             SELECT
@@ -651,54 +684,15 @@ public sealed class ProcessRepository
             WHERE ProcessTaskID = @taskId
             """, new { taskId, userId = req.UserId, comment = req.Comment }, cancellationToken: ct));
 
-        var next = await _db.QueryFirstOrDefaultAsync<ProcessStepDto>(new CommandDefinition("""
-            SELECT TOP 1 ProcessStepID, ProcessDefID, StepNo, Code, Title, ApproverRoleId, ApproverUserId, ActionType, IsActive
-            FROM dbo.SYS_ProcessStep
-            WHERE ProcessDefID = (
-                SELECT ProcessDefID FROM dbo.SYS_ProcessInstance WHERE ProcessInstanceID = @iid
-              )
-              AND IsActive = 1
-              AND StepNo > (
-                SELECT CurrentStepNo FROM dbo.SYS_ProcessInstance WHERE ProcessInstanceID = @iid
-              )
-            ORDER BY StepNo
-            """, new { iid = task.ProcessInstanceID }, cancellationToken: ct));
+        var header = await InstanceHeaderAsync(task.ProcessInstanceID, ct);
+        var steps = await LoadStepsAsync(header.ProcessDefID, ct);
+        var current = steps.FirstOrDefault(s => s.ProcessStepID == task.ProcessStepID);
+        var next = ResolveNext(steps, current, ok: true);
 
-        if (next is null)
-        {
-            await _db.ExecuteAsync(new CommandDefinition("""
-                UPDATE dbo.SYS_ProcessInstance
-                SET Status = N'Approved', CompletedAt = SYSUTCDATETIME(), LastComment = @comment
-                WHERE ProcessInstanceID = @iid
-                """, new { iid = task.ProcessInstanceID, comment = req.Comment }, cancellationToken: ct));
-
-            var inst = await _db.QueryFirstAsync<(string SourceTable, int SourceId)>(new CommandDefinition(
-                "SELECT SourceTable, SourceId FROM dbo.SYS_ProcessInstance WHERE ProcessInstanceID = @iid",
-                new { iid = task.ProcessInstanceID }, cancellationToken: ct));
-            await TouchSourceProcessAsync(inst.SourceTable, inst.SourceId, "Approved", task.ProcessInstanceID, ct);
-        }
+        if (next is null || IsTerminate(next))
+            await CompleteInstanceAsync(task.ProcessInstanceID, "Approved", req.Comment, header.SourceTable, header.SourceId, ct);
         else
-        {
-            await _db.ExecuteAsync(new CommandDefinition("""
-                UPDATE dbo.SYS_ProcessInstance
-                SET Status = N'InProgress', CurrentStepNo = @stepNo, LastComment = @comment
-                WHERE ProcessInstanceID = @iid
-                """, new { iid = task.ProcessInstanceID, stepNo = next.StepNo, comment = req.Comment },
-                cancellationToken: ct));
-
-            await _db.ExecuteAsync(new CommandDefinition("""
-                INSERT INTO dbo.SYS_ProcessTask
-                  (ProcessInstanceID, ProcessStepID, Status, AssignedRoleId, AssignedUserId)
-                VALUES
-                  (@iid, @stepId, N'Pending', @roleId, @userId)
-                """, new
-            {
-                iid = task.ProcessInstanceID,
-                stepId = next.ProcessStepID,
-                roleId = next.ApproverRoleId,
-                userId = next.ApproverUserId
-            }, cancellationToken: ct));
-        }
+            await OpenTaskAsync(task.ProcessInstanceID, next, ct, req.Comment);
 
         return (await LoadTaskAsync(taskId, ct))!;
     }
@@ -718,18 +712,106 @@ public sealed class ProcessRepository
             WHERE ProcessTaskID = @taskId
             """, new { taskId, userId = req.UserId, comment = req.Comment }, cancellationToken: ct));
 
-        await _db.ExecuteAsync(new CommandDefinition("""
-            UPDATE dbo.SYS_ProcessInstance
-            SET Status = N'Rejected', CompletedAt = SYSUTCDATETIME(), LastComment = @comment
-            WHERE ProcessInstanceID = @iid
-            """, new { iid = task.ProcessInstanceID, comment = req.Comment }, cancellationToken: ct));
+        var header = await InstanceHeaderAsync(task.ProcessInstanceID, ct);
+        var steps = await LoadStepsAsync(header.ProcessDefID, ct);
+        var current = steps.FirstOrDefault(s => s.ProcessStepID == task.ProcessStepID);
+        var next = ResolveNext(steps, current, ok: false);
 
-        var inst = await _db.QueryFirstAsync<(string SourceTable, int SourceId)>(new CommandDefinition(
-            "SELECT SourceTable, SourceId FROM dbo.SYS_ProcessInstance WHERE ProcessInstanceID = @iid",
-            new { iid = task.ProcessInstanceID }, cancellationToken: ct));
-        await TouchSourceProcessAsync(inst.SourceTable, inst.SourceId, "Rejected", task.ProcessInstanceID, ct);
+        if (next is null)
+            await CompleteInstanceAsync(task.ProcessInstanceID, "Rejected", req.Comment, header.SourceTable, header.SourceId, ct);
+        else if (IsTerminate(next))
+            await CompleteInstanceAsync(task.ProcessInstanceID, "Approved", req.Comment, header.SourceTable, header.SourceId, ct);
+        else
+            await OpenTaskAsync(task.ProcessInstanceID, next, ct, req.Comment);
 
         return (await LoadTaskAsync(taskId, ct))!;
+    }
+
+    /// <summary>NextStepOnOk/Fail adım numarasıdır. Onayda boş = sıradaki, 0 = bitir. Redde boş = süreci reddet.</summary>
+    private static ProcessStepDto? ResolveNext(IReadOnlyList<ProcessStepDto> steps, ProcessStepDto? current, bool ok)
+    {
+        if (current is null) return null;
+        var link = ok ? current.NextStepOnOk : current.NextStepOnFail;
+        if (!ok && link is null or 0) return null;
+        if (ok && link is 0) return null;
+        if (ok && link is null)
+            return steps.Where(s => s.StepNo > current.StepNo).OrderBy(s => s.StepNo).FirstOrDefault();
+        if (link is > 0)
+        {
+            var target = steps.FirstOrDefault(s => s.StepNo == link)
+                ?? throw new InvalidOperationException($"Sonraki adım bulunamadı (adım no {link}).");
+            if (target.ProcessStepID == current.ProcessStepID)
+                throw new InvalidOperationException("Adım kendine bağlanamaz.");
+            return target;
+        }
+        return null;
+    }
+
+    private static bool IsTerminate(ProcessStepDto step) =>
+        string.Equals(step.NodeType, "Terminate", StringComparison.OrdinalIgnoreCase);
+
+    private async Task<(int ProcessDefID, string SourceTable, int SourceId)> InstanceHeaderAsync(int instanceId, CancellationToken ct)
+    {
+        return await _db.QueryFirstAsync<(int ProcessDefID, string SourceTable, int SourceId)>(new CommandDefinition("""
+            SELECT ProcessDefID, SourceTable, SourceId
+            FROM dbo.SYS_ProcessInstance WHERE ProcessInstanceID = @id
+            """, new { id = instanceId }, cancellationToken: ct));
+    }
+
+    private async Task<List<ProcessStepDto>> LoadStepsAsync(int processDefId, CancellationToken ct)
+    {
+        var hasNode = await ColumnExistsAsync("SYS_ProcessStep", "NodeType", ct);
+        var sql = hasNode
+            ? """
+              SELECT ProcessStepID, ProcessDefID, StepNo, Code, Title, ApproverRoleId, ApproverUserId,
+                     ActionType, IsActive, NodeType, ConfigJson, NextStepOnOk, NextStepOnFail
+              FROM dbo.SYS_ProcessStep
+              WHERE ProcessDefID = @id AND IsActive = 1
+              ORDER BY StepNo
+              """
+            : """
+              SELECT ProcessStepID, ProcessDefID, StepNo, Code, Title, ApproverRoleId, ApproverUserId,
+                     ActionType, IsActive, N'TaskForm' AS NodeType, CAST(NULL AS nvarchar(max)) AS ConfigJson,
+                     CAST(NULL AS int) AS NextStepOnOk, CAST(NULL AS int) AS NextStepOnFail
+              FROM dbo.SYS_ProcessStep
+              WHERE ProcessDefID = @id AND IsActive = 1
+              ORDER BY StepNo
+              """;
+        var rows = await _db.QueryAsync<ProcessStepDto>(new CommandDefinition(sql, new { id = processDefId }, cancellationToken: ct));
+        return rows.ToList();
+    }
+
+    private async Task OpenTaskAsync(int instanceId, ProcessStepDto step, CancellationToken ct, string? comment = null)
+    {
+        await _db.ExecuteAsync(new CommandDefinition("""
+            UPDATE dbo.SYS_ProcessInstance
+            SET Status = N'InProgress', CurrentStepNo = @stepNo, LastComment = COALESCE(@comment, LastComment)
+            WHERE ProcessInstanceID = @iid
+            """, new { iid = instanceId, stepNo = step.StepNo, comment }, cancellationToken: ct));
+
+        await _db.ExecuteAsync(new CommandDefinition("""
+            INSERT INTO dbo.SYS_ProcessTask
+              (ProcessInstanceID, ProcessStepID, Status, AssignedRoleId, AssignedUserId)
+            VALUES
+              (@iid, @stepId, N'Pending', @roleId, @userId)
+            """, new
+        {
+            iid = instanceId,
+            stepId = step.ProcessStepID,
+            roleId = step.ApproverRoleId,
+            userId = step.ApproverUserId
+        }, cancellationToken: ct));
+    }
+
+    private async Task CompleteInstanceAsync(
+        int instanceId, string status, string? comment, string sourceTable, int sourceId, CancellationToken ct)
+    {
+        await _db.ExecuteAsync(new CommandDefinition("""
+            UPDATE dbo.SYS_ProcessInstance
+            SET Status = @status, CompletedAt = SYSUTCDATETIME(), LastComment = COALESCE(@comment, LastComment)
+            WHERE ProcessInstanceID = @iid
+            """, new { iid = instanceId, status, comment }, cancellationToken: ct));
+        await TouchSourceProcessAsync(sourceTable, sourceId, status, instanceId, ct);
     }
 
     private async Task<ProcessTaskDto?> LoadTaskAsync(int taskId, CancellationToken ct)

@@ -55,6 +55,20 @@ public sealed class ProcessController : ControllerBase
         }
     }
 
+    [HttpDelete("defs/{id:int}")]
+    public async Task<IActionResult> DeleteDef(int id, CancellationToken ct)
+    {
+        try
+        {
+            await _repo.DeleteDefAsync(id, ct);
+            return Ok(new { ok = true });
+        }
+        catch (Exception ex)
+        {
+            return BadRequest(new { message = ex.Message });
+        }
+    }
+
     [HttpGet("instances")]
     public async Task<IActionResult> ListInstances([FromQuery] string? status, [FromQuery] int take = 100, CancellationToken ct = default)
     {

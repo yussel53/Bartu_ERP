@@ -105,6 +105,10 @@ export async function listProcessDefs(includeInactive = true): Promise<ProcessDe
   return unwrapList<ProcessDef>(data);
 }
 
+export async function deleteProcessDef(id: number): Promise<void> {
+  await apiJson(`/api/process/defs/${id}`, { method: 'DELETE' });
+}
+
 export async function saveProcessDef(def: ProcessDef): Promise<ProcessDef> {
   return apiJson<ProcessDef>('/api/process/defs', {
     method: 'POST',

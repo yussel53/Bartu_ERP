@@ -16,6 +16,7 @@ import {
   approveProcessTask,
   egovPdfUrl,
   linkEgov,
+  deleteProcessDef,
   listProcessDefs,
   listProcessInbox,
   listProcessInstances,
@@ -25,6 +26,7 @@ import {
 } from '../api/processApi';
 import { listRoles, type Role } from '../api/rolesApi';
 import { getCurrentUserId } from '../data/permissions';
+import { appConfirm } from '../utils/appConfirm';
 
 type TabKey = 'inbox' | 'defs' | 'instances' | 'actions';
 
@@ -129,6 +131,24 @@ export const ProcessManagementPage: React.FC<ProcessManagementPageProps> = ({
       await reload();
     } catch (e) {
       setMsg({ kind: 'err', text: e instanceof Error ? e.message : 'Red başarısız' });
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const onDeleteDef = async (def: ProcessDef) => {
+    const ok = await appConfirm(
+      `«${def.name}» silinsin mi? Adımları, süren örnekleri ve onay görevleri de silinir.`,
+      { title: 'Süreç sil', okLabel: 'Sil', danger: true },
+    );
+    if (!ok) return;
+    setBusy(true);
+    try {
+      await deleteProcessDef(def.processDefID);
+      setMsg({ kind: 'ok', text: 'Süreç silindi.' });
+      await reload();
+    } catch (e) {
+      setMsg({ kind: 'err', text: e instanceof Error ? e.message : 'Silinemedi' });
     } finally {
       setBusy(false);
     }
@@ -351,9 +371,17 @@ export const ProcessManagementPage: React.FC<ProcessManagementPageProps> = ({
                     <span className="text-[13px] font-semibold text-slate-800">{d.name}</span>
                     <span className="ml-2 text-[11px] font-mono text-slate-400">{d.code}</span>
                   </div>
-                  <span className="text-[11px] text-slate-500">
+                  <span className="flex items-center gap-2 text-[11px] text-slate-500">
                     {TRIGGER_LABEL[d.triggerType] || `Tetik ${d.triggerType}`}
                     {!d.isActive && ' · Pasif'}
+                    <button
+                      type="button"
+                      disabled={busy}
+                      onClick={() => void onDeleteDef(d)}
+                      className="rounded border border-rose-200 px-2 py-0.5 text-rose-700 hover:bg-rose-50 disabled:opacity-40"
+                    >
+                      Sil
+                    </button>
                   </span>
                 </div>
                 {d.description && <p className="text-[12px] text-slate-500 mt-1">{d.description}</p>}
