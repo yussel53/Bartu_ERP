@@ -399,7 +399,7 @@ public sealed class EGovOutgoingService
     }
 
     /// <summary>Entegratör bilgisi + canlı adres kilidi (gönderim ve iptal ortak)</summary>
-    private async Task<(ELogoCompanyCredentials? Cred, bool IsLive, string? Why)> IntegratorLockAsync(int? companyId, CancellationToken ct)
+    public async Task<(ELogoCompanyCredentials? Cred, bool IsLive, string? Why)> IntegratorLockAsync(int? companyId, CancellationToken ct)
     {
         var cred = companyId is int cid ? (await _elogo.ListCompaniesAsync(ct)).FirstOrDefault(c => c.CompanyId == cid) : null;
         var live = IsLiveUrl(cred?.IntegratorWsUrl);
