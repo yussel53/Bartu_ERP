@@ -100,6 +100,7 @@ builder.Services.AddScoped<NumberTemplateRepository>();
 builder.Services.AddScoped<DbUpdateRepository>();
 builder.Services.AddScoped<DbBootstrapRepository>();
 builder.Services.AddScoped<EFaturaMukellefRepository>();
+builder.Services.AddScoped<EFaturaMukellefLookupService>();
 builder.Services.AddScoped<EGovMukellefCheckRepository>();
 builder.Services.AddScoped<EGovDocumentRepository>();
 builder.Services.AddSingleton<GibEFaturaUserListService>();

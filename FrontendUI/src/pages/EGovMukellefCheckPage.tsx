@@ -146,10 +146,12 @@ export const EGovMukellefCheckPage: React.FC<{ onBack: () => void }> = ({ onBack
           >
             {data.authoritative ? <CheckCircle2 className="w-3.5 h-3.5" /> : <AlertTriangle className="w-3.5 h-3.5" />}
             <span>
-              Yerel GİB listesi: <b>{data.localListCount.toLocaleString('tr-TR')}</b> etiket · son senkron {dt(data.lastSyncAt)}
+              Carilerin GİB etiketleri: <b>{data.localListCount.toLocaleString('tr-TR')}</b> · son gece senkronu {dt(data.lastSyncAt)}
+              {data.onlineChecked > 0 && <> · e-Logo'dan sorgulanan: <b>{data.onlineChecked}</b> VKN</>}
             </span>
+            {data.onlineError && <span>{data.onlineError}</span>}
             {!data.authoritative && (
-              <span>Liste eksik ya da eski — yalnız mükellef bulunan cariler için öneri yapılır; «mükellef değil» sonucu kullanılmaz.</span>
+              <span>Kontrol edilemeyen VKN'ler için «mükellef değil» sonucu kullanılmaz; yalnız mükellef bulunanlara öneri yapılır.</span>
             )}
           </div>
 
@@ -224,10 +226,10 @@ export const EGovMukellefCheckPage: React.FC<{ onBack: () => void }> = ({ onBack
                           <span className="text-emerald-700" title={r.gibTitle ?? undefined}>
                             Mükellef
                           </span>
-                        ) : data.authoritative ? (
+                        ) : r.checked ? (
                           <span className="text-slate-600">Mükellef değil</span>
                         ) : (
-                          <span className="text-slate-400">Listede yok</span>
+                          <span className="text-slate-400">Kontrol edilemedi</span>
                         )}
                       </td>
                       <td className={`${td} whitespace-nowrap`}>

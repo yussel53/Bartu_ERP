@@ -14,6 +14,8 @@ public sealed class MukellefCheckRow
     public string? TaxNr { get; set; }
     /// <summary>GİB listesinde aktif e-Fatura PK etiketi var</summary>
     public bool IsMukellef { get; set; }
+    /// <summary>VKN yakın zamanda (gece listesi ya da e-Logo) kontrol edildi — «mükellef değil» güvenilir</summary>
+    public bool Checked { get; set; }
     public string? GibTitle { get; set; }
     /// <summary>CustomerCard.EinvoiceType: 0 Yok · 1 e-Fatura · 2 e-Arşiv</summary>
     public int? EinvoiceType { get; set; }
@@ -33,8 +35,11 @@ public sealed class MukellefCheckResult
 {
     public int LocalListCount { get; set; }
     public DateTime? LastSyncAt { get; set; }
-    /// <summary>Yerel liste tam ve güncel — «mükellef değil» sonucu güvenilir (yoksa yalnız olumlu güncelleme önerilir)</summary>
+    /// <summary>Tüm carilerin VKN'si yakın zamanda kontrol edildi — «mükellef değil» sonuçları güvenilir</summary>
     public bool Authoritative { get; set; }
+    /// <summary>Bu kontrolde e-Logo'dan anlık sorgulanan VKN sayısı</summary>
+    public int OnlineChecked { get; set; }
+    public string? OnlineError { get; set; }
     public int TotalCustomers { get; set; }
     public int MukellefCount { get; set; }
     public int ChangeCount { get; set; }
@@ -56,11 +61,16 @@ public sealed class EGovMukellefCheckRepository
 {
     private readonly IDbConnection _db;
     private readonly GibEFaturaUserListService _gib;
+    private readonly EFaturaMukellefLookupService _lookup;
 
-    public EGovMukellefCheckRepository(IDbConnection db, GibEFaturaUserListService gib)
+    /// <summary>Bir toplu kontrolde e-Logo'dan anlık sorgulanacak en fazla VKN (50'şerlik çağrılar)</summary>
+    private const int OnlineMax = 500;
+
+    public EGovMukellefCheckRepository(IDbConnection db, GibEFaturaUserListService gib, EFaturaMukellefLookupService lookup)
     {
         _db = db;
         _gib = gib;
+        _lookup = lookup;
     }
 
     private sealed class CardAddr
@@ -93,9 +103,13 @@ public sealed class EGovMukellefCheckRepository
                 "SELECT COUNT(*) FROM dbo.EFaturaMukellef WHERE IsActive = 1", cancellationToken: ct)),
         };
         (r.LastSyncAt, _, _) = await _gib.GetLastSyncAsync(_db, ct);
-        r.Authoritative = _gib.IsLocalListAuthoritative(r.LocalListCount, r.LastSyncAt);
 
-        var rows = await BuildAsync(null, r.Authoritative, ct);
+        // Gece listesinden sonra eklenen / kontrolü eskiyen VKN'ler e-Logo'dan sorgulanır
+        (r.OnlineChecked, r.OnlineError) = await _lookup.RefreshOnlineAsync(await CustomerTaxesAsync(null, ct), OnlineMax, ct);
+        var rows = await BuildAsync(null, ct);
+        r.Authoritative = rows.All(x => x.Checked);
+        r.LocalListCount = await _db.ExecuteScalarAsync<int>(new CommandDefinition(
+            "SELECT COUNT(*) FROM dbo.EFaturaMukellef WHERE IsActive = 1", cancellationToken: ct));
         r.TotalCustomers = rows.Select(x => x.CustomerCardID).Distinct().Count();
         r.MukellefCount = rows.Where(x => x.IsMukellef).Select(x => x.CustomerCardID).Distinct().Count();
         r.ChangeCount = rows.Count(x => x.HasChanges);
@@ -106,13 +120,9 @@ public sealed class EGovMukellefCheckRepository
     public async Task<(int Cards, int Addresses)> ApplyAsync(IReadOnlyCollection<MukellefApplyItem> items, CancellationToken ct = default)
     {
         Open();
-        var count = await _db.ExecuteScalarAsync<int>(new CommandDefinition(
-            "SELECT COUNT(*) FROM dbo.EFaturaMukellef WHERE IsActive = 1", cancellationToken: ct));
-        var (lastSync, _, _) = await _gib.GetLastSyncAsync(_db, ct);
-        var authoritative = _gib.IsLocalListAuthoritative(count, lastSync);
-
         var cardIds = items.Select(i => i.CustomerCardID).Distinct().ToArray();
-        var rows = (await BuildAsync(cardIds, authoritative, ct))
+        await _lookup.RefreshOnlineAsync(await CustomerTaxesAsync(cardIds, ct), OnlineMax, ct);
+        var rows = (await BuildAsync(cardIds, ct))
             .Where(x => items.Any(i => i.CustomerCardID == x.CustomerCardID && i.CustomerAdressID == x.CustomerAdressID))
             .ToList();
 
@@ -130,7 +140,7 @@ public sealed class EGovMukellefCheckRepository
         {
             var status = a.IsMukellef
                 ? $"GİB: e-Fatura mükellefi · PK {a.SuggestedPostLabel}"
-                : authoritative ? "GİB: e-Fatura mükellefi değil" : "GİB yerel listesinde yok (liste güncel değil)";
+                : a.Checked ? "GİB: e-Fatura mükellefi değil" : "GİB kontrolü yapılamadı (e-Logo sorgusu başarısız)";
             addresses += await _db.ExecuteAsync(new CommandDefinition(
                 """
                 UPDATE dbo.CustomerAdress
@@ -142,8 +152,20 @@ public sealed class EGovMukellefCheckRepository
         return (cards, addresses);
     }
 
+    /// <summary>Carilerin (kart + adres) 10/11 haneli VKN/TCKN'leri</summary>
+    private async Task<List<string>> CustomerTaxesAsync(int[]? cardIds, CancellationToken ct)
+    {
+        var filter = cardIds is null ? "" : "AND c.CustomerCardID IN @cardIds";
+        var raw = await _db.QueryAsync<string?>(new CommandDefinition($"""
+            SELECT c.TaxNr FROM dbo.CustomerCard c WHERE c.CustomerCardID > 0 {filter}
+            UNION SELECT a.TaxNr FROM dbo.CustomerAdress a JOIN dbo.CustomerCard c ON c.CustomerCardID = a.CustomerCardID
+            WHERE ISNULL(a.Active, 1) = 1 {filter}
+            """, new { cardIds }, cancellationToken: ct));
+        return raw.Select(EFaturaMukellefLookupService.Normalize).Where(t => t.Length is 10 or 11).Distinct().ToList();
+    }
+
     /// <summary>Kart + adres satırları ve öneriler. cardIds null → tüm cariler (VKN/TCKN'si olanlar).</summary>
-    private async Task<List<MukellefCheckRow>> BuildAsync(int[]? cardIds, bool authoritative, CancellationToken ct)
+    private async Task<List<MukellefCheckRow>> BuildAsync(int[]? cardIds, CancellationToken ct)
     {
         var hasAddr = await _db.ExecuteScalarAsync<int>(new CommandDefinition(
             "SELECT CASE WHEN OBJECT_ID(N'dbo.CustomerAdress', N'U') IS NULL THEN 0 ELSE 1 END", cancellationToken: ct)) == 1;
@@ -173,7 +195,8 @@ public sealed class EGovMukellefCheckRepository
             var d = new string((v ?? "").Where(char.IsDigit).ToArray());
             return d.Length is 10 or 11 ? d : null;
         }
-        var taxes = list.Select(x => Tax(x.AddrTax) ?? Tax(x.CardTax)).Where(t => t != null).Distinct().ToList();
+        var taxes = list.Select(x => Tax(x.AddrTax) ?? Tax(x.CardTax)).Where(t => t != null).Select(t => t!).Distinct().ToList();
+        var fresh = await _lookup.FreshAsync(taxes, ct);
 
         var gib = new Dictionary<string, List<EFaturaMukellefRow>>();
         foreach (var chunk in taxes.Chunk(1000))
@@ -193,6 +216,7 @@ public sealed class EGovMukellefCheckRepository
             var tax = Tax(x.AddrTax) ?? Tax(x.CardTax);
             if (tax is null) continue;
             gib.TryGetValue(tax, out var aliases);
+            var authoritative = fresh.Contains(tax);
             aliases ??= new();
             var pk = aliases.Where(a => string.Equals(a.AliasType, "PK", StringComparison.OrdinalIgnoreCase)).ToList();
             var gb = aliases.Where(a => string.Equals(a.AliasType, "GB", StringComparison.OrdinalIgnoreCase)).ToList();
@@ -207,6 +231,7 @@ public sealed class EGovMukellefCheckRepository
                 AddressTitle = x.AddressTitle,
                 TaxNr = tax,
                 IsMukellef = isMukellef,
+                Checked = authoritative,
                 GibTitle = aliases.Select(a => a.Title).FirstOrDefault(t => !string.IsNullOrWhiteSpace(t)),
                 EinvoiceType = x.EinvoiceType,
                 EinvoiceEntryDate = x.EinvoiceEntryDate,
@@ -224,7 +249,7 @@ public sealed class EGovMukellefCheckRepository
             }
             else if (authoritative)
             {
-                // Liste tam ve güncel: mükellef değil → e-Arşiv (önceden e-Fatura işaretliyse), etiketler boşalır
+                // VKN yakın zamanda kontrol edildi: mükellef değil → e-Arşiv (önceden e-Fatura işaretliyse), etiketler boşalır
                 row.SuggestedEinvoiceType = x.EinvoiceType == 1 ? 2 : x.EinvoiceType;
                 row.SuggestedEntryDate = x.EinvoiceType == 1 ? null : x.EinvoiceEntryDate;
                 row.SuggestedPostLabel = null;
@@ -232,7 +257,7 @@ public sealed class EGovMukellefCheckRepository
             }
             else
             {
-                // Yerel liste eksik: «yok» güvenilir değil — değişiklik önerilmez
+                // VKN kontrol edilemedi: «yok» güvenilir değil — değişiklik önerilmez
                 row.SuggestedEinvoiceType = x.EinvoiceType;
                 row.SuggestedEntryDate = x.EinvoiceEntryDate;
                 row.SuggestedPostLabel = row.PostLabel;

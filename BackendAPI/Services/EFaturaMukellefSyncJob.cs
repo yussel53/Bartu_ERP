@@ -55,6 +55,7 @@ public sealed class EFaturaMukellefSyncJob : BackgroundService
                 if (opt.NightlySyncEnabled && InWindow(now, opt.NightlySyncHour) && _store.GetSettings().HasMinimumInfo())
                 {
                     var dbs = _scopes.CreateScope().ServiceProvider.GetRequiredService<TenantDbRegistry>().List();
+                    var ran = false;
                     foreach (var name in dbs)
                     {
                         if (stoppingToken.IsCancellationRequested) break;
@@ -66,6 +67,7 @@ public sealed class EFaturaMukellefSyncJob : BackgroundService
                             if (!await DueAsync(db, now, opt.NightlySyncHour, stoppingToken)) continue;
                             var elogo = await scope.ServiceProvider.GetRequiredService<ELogoDocumentSyncService>().FindELogoCompanyAsync(stoppingToken);
                             var r = await _gib.SyncFullAsync(db, stoppingToken, elogo, mode: "Nightly", reuseCacheHours: 20);
+                            ran = true;
                             if (r.Success) _log.LogInformation("GİB mükellef gece senkronu ({Db}): {Msg}", name, r.Message);
                             else _log.LogWarning("GİB mükellef gece senkronu başarısız ({Db}): {Msg}", name, r.Message);
                         }
@@ -74,6 +76,8 @@ public sealed class EFaturaMukellefSyncJob : BackgroundService
                             _log.LogWarning(ex, "GİB mükellef gece senkronu hatası: {Db}", name);
                         }
                     }
+                    // Tüm veritabanları aynı indirmeyi paylaştı; liste dosyaları diskte kalmaz
+                    if (ran) _gib.DeleteCachedZips();
                 }
             }
             catch (Exception ex) when (!stoppingToken.IsCancellationRequested)
@@ -101,7 +105,7 @@ public sealed class EFaturaMukellefSyncJob : BackgroundService
     {
         if (db.State != ConnectionState.Open) db.Open();
         if (await db.ExecuteScalarAsync<int>(new CommandDefinition(
-                "SELECT CASE WHEN OBJECT_ID(N'dbo.EFaturaMukellef', N'U') IS NULL OR OBJECT_ID(N'dbo.EFaturaMukellef_Import', N'U') IS NULL THEN 0 ELSE 1 END",
+                "SELECT CASE WHEN OBJECT_ID(N'dbo.EFaturaMukellef', N'U') IS NULL OR OBJECT_ID(N'dbo.EFaturaMukellefCheck', N'U') IS NULL THEN 0 ELSE 1 END",
                 cancellationToken: ct)) == 0)
             return false;
         // Sunucu saati Türkiye saatinden farklı olabilir: eşik, sunucu yerel saatine çevrilir

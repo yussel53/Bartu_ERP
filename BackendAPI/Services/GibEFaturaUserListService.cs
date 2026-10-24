@@ -4,7 +4,6 @@ using System.Xml;
 using System.Xml.Linq;
 using BartuERP.Backend.Repositories;
 using Dapper;
-using Microsoft.Data.SqlClient;
 
 namespace BartuERP.Backend.Services;
 
@@ -32,15 +31,13 @@ public sealed class GibEFaturaUserListOptions
 
     public int DownloadTimeoutMinutes { get; set; } = 60;
 
-    /** Yerel listede yoksa GİB zip içinde ara */
+    /** Yerel tabloda olmayan / kontrolü eski VKN e-Logo'dan (CheckGibUser) anlık sorgulanır */
     public bool AutoExternalLookup { get; set; } = true;
 
-    /**
-     * Yerel kayıt sayısı bu eşiğin üstündeyse ve son sync taze ise
-     * harici tarama atlanır (liste güncel kabul edilir).
-     */
+    /** Senkronda okunan etiket sayısı bunun altındaysa liste eksik sayılır, yerel kayıtlar değiştirilmez */
     public int MinSyncedLocalCount { get; set; } = 10_000;
 
+    /** VKN kontrolü (gece listesi ya da e-Logo) bu kadar saat geçerli; sonra yeniden sorulur */
     public int SyncFreshHours { get; set; } = 48;
 
     public int BulkBatchSize { get; set; } = 5000;
@@ -50,15 +47,6 @@ public sealed class GibEFaturaUserListOptions
 
     /** Gece senkronunun başlayacağı saat (Türkiye saati, 0-23) */
     public int NightlySyncHour { get; set; } = 3;
-}
-
-public sealed class GibLookupOutcome
-{
-    public bool Attempted { get; set; }
-    public bool Success { get; set; }
-    public string Message { get; set; } = "";
-    public int Matched { get; set; }
-    public List<EFaturaMukellefRow> Rows { get; set; } = new();
 }
 
 public sealed class GibSyncOutcome
@@ -75,8 +63,8 @@ public sealed class GibSyncOutcome
 }
 
 /// <summary>
-/// GİB e-Fatura kayıtlı kullanıcı PK/GB XML zip listelerini indirir,
-/// önbellekler, VKN ile tarar ve yerel EFaturaMukellef tablosuna yazar.
+/// GİB e-Fatura kayıtlı kullanıcı PK/GB XML zip listelerini indirir ve yalnız carilerin VKN/TCKN'lerine ait
+/// etiketleri yerel EFaturaMukellef tablosuna yazar (tam liste tutulmaz; listede olmayan VKN e-Logo'dan sorulur).
 /// </summary>
 public sealed class GibEFaturaUserListService
 {
@@ -112,75 +100,10 @@ public sealed class GibEFaturaUserListService
         return dir;
     }
 
-    public async Task<GibLookupOutcome> LookupAndCacheByTaxNrAsync(
-        string taxNr,
-        IDbConnection db,
-        CancellationToken ct = default)
-    {
-        var outcome = new GibLookupOutcome { Attempted = true };
-        var tax = NormalizeTax(taxNr);
-        if (tax.Length < 10)
-        {
-            outcome.Message = "Geçersiz VKN";
-            return outcome;
-        }
-
-        await Gate.WaitAsync(ct);
-        try
-        {
-            var pkPath = await EnsureZipAsync(
-                "pk",
-                PrimaryAndFallbacks(_opt.PkListUrl, _opt.PkListFallbackUrls),
-                ct,
-                forceRefresh: false,
-                timeoutMinutes: 3,
-                maxAgeHoursOverride: 24 * 7);
-            var gbPath = await EnsureZipAsync(
-                "gb",
-                PrimaryAndFallbacks(_opt.GbListUrl, _opt.GbListFallbackUrls),
-                ct,
-                forceRefresh: false,
-                timeoutMinutes: 3,
-                maxAgeHoursOverride: 24 * 7);
-
-            var found = new List<EFaturaMukellefRow>();
-            found.AddRange(await SearchZipForTaxAsync(pkPath, tax, "PK", ct));
-            found.AddRange(await SearchZipForTaxAsync(gbPath, tax, "GB", ct));
-
-            outcome.Matched = found.Count;
-            outcome.Rows = found;
-            if (found.Count == 0)
-            {
-                outcome.Success = true;
-                outcome.Message = $"GİB listesinde VKN {tax} bulunamadı (PK+GB tarandı)";
-                return outcome;
-            }
-
-            if (db.State != ConnectionState.Open) db.Open();
-            foreach (var row in found)
-            {
-                await UpsertLocalAsync(db, row, ct);
-            }
-
-            outcome.Success = true;
-            outcome.Message = $"GİB listesinden {found.Count} alias bulundu ve yerel tabloya yazıldı";
-            return outcome;
-        }
-        catch (Exception ex)
-        {
-            _log.LogWarning(ex, "GİB mükellef harici sorgu başarısız");
-            outcome.Success = false;
-            outcome.Message =
-                "GİB kayıtlı kullanıcı listesine erişilemedi: " + ex.Message +
-                " (merkez.gib.gov.tr erişimi / IP yetkisi gerekir; Listeyi Güncelle ile tekrar deneyin)";
-            return outcome;
-        }
-        finally
-        {
-            Gate.Release();
-        }
-    }
-
+    /// <summary>
+    /// Gece / elle senkron: PK ve GB listeleri geçici dosyaya indirilir, akış olarak okunur ve yalnız carilerin
+    /// (CustomerCard, CustomerAdress) ve firmaların VKN/TCKN'lerine ait etiketler yazılır. Tam liste veritabanında tutulmaz.
+    /// </summary>
     /// <param name="elogo">GİB zip adresine erişilemezse liste bu e-Logo hesabından (getUserListNew) alınır</param>
     /// <param name="mode">SYS_EFaturaMukellefSync.Mode — FullZip (elle) · Nightly (gece görevi)</param>
     /// <param name="reuseCacheHours">&gt; 0: önbellekteki zip bu kadar saatten yeniyse yeniden indirilmez
@@ -207,38 +130,47 @@ public sealed class GibEFaturaUserListService
                 new { url = _opt.PkListUrl, mode },
                 cancellationToken: ct));
 
+            var targets = await LoadTargetTaxesAsync(db, ct);
+
             var (pkPath, pkSource) = await AcquireZipAsync("pk", elogo, reuseCacheHours, ct);
             var (gbPath, _) = await AcquireZipAsync("gb", elogo, reuseCacheHours, ct);
             outcome.Source = pkSource;
 
-            await db.ExecuteAsync(new CommandDefinition(
-                "TRUNCATE TABLE dbo.EFaturaMukellef_Import",
-                cancellationToken: ct));
+            var found = targets.ToDictionary(t => t, _ => new List<EFaturaMukellefRow>());
+            outcome.PkImported = await ScanZipAsync(pkPath, "PK", found, ct);
+            outcome.GbImported = await ScanZipAsync(gbPath, "GB", found, ct);
 
-            outcome.PkImported = await ImportZipToStagingAsync(db, pkPath, "PK", ct);
-            outcome.GbImported = await ImportZipToStagingAsync(db, gbPath, "GB", ct);
+            // Yarım indirilmiş liste «mükellef değil» kararı yazdırmasın
+            if (outcome.PkImported + outcome.GbImported < _opt.MinSyncedLocalCount)
+                throw new InvalidOperationException(
+                    $"GİB listesi eksik okundu ({outcome.PkImported + outcome.GbImported:N0} etiket) — yerel kayıtlar değiştirilmedi.");
 
-            await MergeStagingAsync(db, ct);
-
-            // Listeden çıkan etiketler pasif — yalnız tam liste geldiyse (yarım indirme yereli silmesin)
-            if (outcome.PkImported + outcome.GbImported >= _opt.MinSyncedLocalCount)
+            var activeBefore = await db.ExecuteScalarAsync<int>(new CommandDefinition(
+                "SELECT COUNT(*) FROM dbo.EFaturaMukellef WHERE IsActive = 1", cancellationToken: ct));
+            using (var tx = db.BeginTransaction())
             {
-                outcome.Deactivated = await db.ExecuteAsync(new CommandDefinition(
-                    @"UPDATE m SET IsActive = 0
-                      FROM dbo.EFaturaMukellef m
-                      WHERE m.IsActive = 1
-                        AND NOT EXISTS (SELECT 1 FROM dbo.EFaturaMukellef_Import i WHERE i.TaxNr = m.TaxNr AND i.Alias = m.Alias)",
-                    cancellationToken: ct,
-                    commandTimeout: 0));
+                foreach (var (tax, rows) in found)
+                    await EFaturaMukellefLookupService.SaveAsync(db, tx, tax, rows, "GibList", ct);
+
+                // Artık cari olmayan VKN'ler: son 7 günde anlık sorgulanmadıysa silinir (yeni cari girişinde yeniden sorulur)
+                await db.ExecuteAsync(new CommandDefinition(
+                    @"DELETE m FROM dbo.EFaturaMukellef m
+                      WHERE NOT EXISTS (SELECT 1 FROM dbo.EFaturaMukellefCheck c WHERE c.TaxNr = m.TaxNr AND c.CheckedAt >= DATEADD(DAY, -7, GETDATE()));
+                      DELETE dbo.EFaturaMukellefCheck WHERE CheckedAt < DATEADD(DAY, -7, GETDATE());",
+                    transaction: tx, cancellationToken: ct, commandTimeout: 0));
+                tx.Commit();
             }
 
             outcome.TotalLocal = await db.ExecuteScalarAsync<int>(new CommandDefinition(
                 "SELECT COUNT(*) FROM dbo.EFaturaMukellef WHERE IsActive = 1",
                 cancellationToken: ct));
+            outcome.Deactivated = Math.Max(0, activeBefore - outcome.TotalLocal);
+            var mukellef = found.Count(f => f.Value.Any(r => r.AliasType == "PK"));
 
             outcome.Success = true;
             outcome.Message =
-                $"GİB senkron tamam: PK {outcome.PkImported:N0}, GB {outcome.GbImported:N0}, pasife alınan {outcome.Deactivated:N0}, yerel toplam {outcome.TotalLocal:N0} · kaynak: {outcome.Source}";
+                $"GİB senkron tamam: listede PK {outcome.PkImported:N0}, GB {outcome.GbImported:N0} etiket okundu; " +
+                $"{found.Count:N0} cari VKN/TCKN'den {mukellef:N0} mükellef, yerel {outcome.TotalLocal:N0} etiket · kaynak: {outcome.Source}";
 
             await db.ExecuteAsync(new CommandDefinition(
                 @"UPDATE dbo.SYS_EFaturaMukellefSync
@@ -260,7 +192,7 @@ public sealed class GibEFaturaUserListService
         }
         catch (Exception ex)
         {
-            _log.LogError(ex, "GİB mükellef full sync başarısız");
+            _log.LogError(ex, "GİB mükellef senkronu başarısız");
             outcome.Success = false;
             outcome.Message = ex.Message;
             if (syncId is > 0 && db.State == ConnectionState.Open)
@@ -283,6 +215,70 @@ public sealed class GibEFaturaUserListService
         }
     }
 
+    /// <summary>İndirilmiş liste dosyalarını siler (senkron bitince — liste diskte de kalmaz)</summary>
+    public void DeleteCachedZips()
+    {
+        try
+        {
+            foreach (var f in Directory.EnumerateFiles(ResolveCacheDir(), "efatura_*_list.xml.zip*"))
+                File.Delete(f);
+        }
+        catch (Exception ex)
+        {
+            _log.LogWarning(ex, "GİB liste dosyaları silinemedi");
+        }
+    }
+
+    /// <summary>Carilerin (kart + adres) ve firmaların 10/11 haneli VKN/TCKN'leri</summary>
+    private static async Task<HashSet<string>> LoadTargetTaxesAsync(IDbConnection db, CancellationToken ct)
+    {
+        var raw = await db.QueryAsync<string?>(new CommandDefinition(
+            @"SELECT TaxNr FROM dbo.CustomerCard WHERE TaxNr IS NOT NULL
+              UNION SELECT TaxNr FROM dbo.CustomerAdress WHERE TaxNr IS NOT NULL
+              UNION SELECT TaxNumber FROM dbo.SYS_Companies WHERE TaxNumber IS NOT NULL",
+            cancellationToken: ct));
+        return raw.Select(NormalizeTax).Where(t => t.Length is 10 or 11).ToHashSet();
+    }
+
+    /// <summary>Zip içindeki listeyi akış olarak okur; yalnız hedef VKN'lerin etiketleri toplanır. Dönen: okunan etiket sayısı.</summary>
+    private static async Task<int> ScanZipAsync(
+        string zipPath,
+        string defaultType,
+        Dictionary<string, List<EFaturaMukellefRow>> found,
+        CancellationToken ct)
+    {
+        await using var fs = new FileStream(zipPath, FileMode.Open, FileAccess.Read, FileShare.Read);
+        using var zip = new ZipArchive(fs, ZipArchiveMode.Read);
+        var entry = zip.Entries.FirstOrDefault(e =>
+            e.FullName.EndsWith(".xml", StringComparison.OrdinalIgnoreCase))
+            ?? zip.Entries.FirstOrDefault()
+            ?? throw new InvalidOperationException("Zip içinde XML yok: " + zipPath);
+
+        await using var entryStream = entry.Open();
+        using var reader = XmlReader.Create(entryStream, new XmlReaderSettings
+        {
+            IgnoreComments = true,
+            IgnoreWhitespace = true,
+            Async = true,
+            DtdProcessing = DtdProcessing.Ignore,
+        });
+
+        var read = 0;
+        while (await reader.ReadAsync())
+        {
+            ct.ThrowIfCancellationRequested();
+            if (reader.NodeType != XmlNodeType.Element) continue;
+            if (!reader.LocalName.Equals("User", StringComparison.OrdinalIgnoreCase)) continue;
+
+            foreach (var user in await ReadUsersAsync(reader, defaultType))
+            {
+                read++;
+                if (found.TryGetValue(user.TaxNr, out var list)) list.Add(user);
+            }
+        }
+        return read;
+    }
+
     public async Task<(DateTime? LastOk, int? TotalLocal, string? Message)> GetLastSyncAsync(
         IDbConnection db,
         CancellationToken ct = default)
@@ -300,13 +296,6 @@ public sealed class GibEFaturaUserListService
                   ORDER BY SyncID DESC",
                 cancellationToken: ct));
         return (row.FinishedAt, row.TotalLocal, row.Message);
-    }
-
-    public bool IsLocalListAuthoritative(int localCount, DateTime? lastOkSync)
-    {
-        if (localCount < _opt.MinSyncedLocalCount) return false;
-        if (lastOkSync is null) return false;
-        return DateTime.Now - lastOkSync.Value <= TimeSpan.FromHours(_opt.SyncFreshHours);
     }
 
     /// <summary>
@@ -424,188 +413,6 @@ public sealed class GibEFaturaUserListService
         return list;
     }
 
-    private static async Task<List<EFaturaMukellefRow>> SearchZipForTaxAsync(
-        string zipPath,
-        string taxNr,
-        string defaultType,
-        CancellationToken ct)
-    {
-        var list = new List<EFaturaMukellefRow>();
-        await using var fs = new FileStream(zipPath, FileMode.Open, FileAccess.Read, FileShare.Read);
-        using var zip = new ZipArchive(fs, ZipArchiveMode.Read);
-        var entry = zip.Entries.FirstOrDefault(e =>
-            e.FullName.EndsWith(".xml", StringComparison.OrdinalIgnoreCase))
-            ?? zip.Entries.FirstOrDefault();
-        if (entry is null) return list;
-
-        await using var entryStream = entry.Open();
-        using var reader = XmlReader.Create(entryStream, new XmlReaderSettings
-        {
-            IgnoreComments = true,
-            IgnoreWhitespace = true,
-            Async = true,
-            DtdProcessing = DtdProcessing.Ignore,
-        });
-
-        while (await reader.ReadAsync())
-        {
-            ct.ThrowIfCancellationRequested();
-            if (reader.NodeType != XmlNodeType.Element) continue;
-            if (!reader.Name.Equals("User", StringComparison.OrdinalIgnoreCase)
-                && !reader.LocalName.Equals("User", StringComparison.OrdinalIgnoreCase))
-                continue;
-
-            foreach (var user in await ReadUsersAsync(reader, defaultType))
-                if (string.Equals(user.TaxNr, taxNr, StringComparison.Ordinal))
-                    list.Add(user);
-        }
-
-        return list;
-    }
-
-    private async Task<int> ImportZipToStagingAsync(
-        IDbConnection db,
-        string zipPath,
-        string defaultType,
-        CancellationToken ct)
-    {
-        var sqlConn = db as SqlConnection
-            ?? throw new InvalidOperationException("SqlConnection gerekli (bulk import)");
-
-        await using var fs = new FileStream(zipPath, FileMode.Open, FileAccess.Read, FileShare.Read);
-        using var zip = new ZipArchive(fs, ZipArchiveMode.Read);
-        var entry = zip.Entries.FirstOrDefault(e =>
-            e.FullName.EndsWith(".xml", StringComparison.OrdinalIgnoreCase))
-            ?? zip.Entries.FirstOrDefault()
-            ?? throw new InvalidOperationException("Zip içinde XML yok: " + zipPath);
-
-        await using var entryStream = entry.Open();
-        using var reader = XmlReader.Create(entryStream, new XmlReaderSettings
-        {
-            IgnoreComments = true,
-            IgnoreWhitespace = true,
-            Async = true,
-            DtdProcessing = DtdProcessing.Ignore,
-        });
-
-        var table = CreateImportTable();
-        var imported = 0;
-        var batch = Math.Max(500, _opt.BulkBatchSize);
-
-        while (await reader.ReadAsync())
-        {
-            ct.ThrowIfCancellationRequested();
-            if (reader.NodeType != XmlNodeType.Element) continue;
-            if (!reader.LocalName.Equals("User", StringComparison.OrdinalIgnoreCase)) continue;
-
-            foreach (var user in await ReadUsersAsync(reader, defaultType))
-            {
-                table.Rows.Add(
-                    user.TaxNr,
-                    user.Title,
-                    user.Alias,
-                    user.AliasType,
-                    user.UnitType,
-                    user.FirstCreateDate.HasValue ? user.FirstCreateDate.Value : DBNull.Value);
-                imported++;
-            }
-
-            if (table.Rows.Count >= batch)
-            {
-                await BulkCopyAsync(sqlConn, table, ct);
-                table.Rows.Clear();
-            }
-        }
-
-        if (table.Rows.Count > 0)
-            await BulkCopyAsync(sqlConn, table, ct);
-
-        return imported;
-    }
-
-    private static DataTable CreateImportTable()
-    {
-        var t = new DataTable();
-        t.Columns.Add("TaxNr", typeof(string));
-        t.Columns.Add("Title", typeof(string));
-        t.Columns.Add("Alias", typeof(string));
-        t.Columns.Add("AliasType", typeof(string));
-        t.Columns.Add("UnitType", typeof(string));
-        t.Columns.Add("FirstCreateDate", typeof(DateTime));
-        return t;
-    }
-
-    private static async Task BulkCopyAsync(SqlConnection conn, DataTable table, CancellationToken ct)
-    {
-        using var bulk = new SqlBulkCopy(conn)
-        {
-            DestinationTableName = "dbo.EFaturaMukellef_Import",
-            BatchSize = table.Rows.Count,
-            BulkCopyTimeout = 0,
-        };
-        foreach (DataColumn col in table.Columns)
-            bulk.ColumnMappings.Add(col.ColumnName, col.ColumnName);
-        await bulk.WriteToServerAsync(table, ct);
-    }
-
-    private static async Task MergeStagingAsync(IDbConnection db, CancellationToken ct)
-    {
-        await db.ExecuteAsync(new CommandDefinition(
-            @"MERGE dbo.EFaturaMukellef AS t
-              USING (
-                SELECT TaxNr, LEFT(Title, 250) AS Title, Alias, AliasType, UnitType, FirstCreateDate
-                FROM (
-                  SELECT *, ROW_NUMBER() OVER (PARTITION BY TaxNr, Alias ORDER BY CASE WHEN UnitType = N'e-Fatura' THEN 0 ELSE 1 END) AS rn
-                  FROM dbo.EFaturaMukellef_Import
-                ) x
-                WHERE rn = 1 AND LEN(Alias) <= 200
-              ) AS s
-              ON t.TaxNr = s.TaxNr AND t.Alias = s.Alias
-              WHEN MATCHED THEN UPDATE SET
-                Title = s.Title,
-                AliasType = s.AliasType,
-                UnitType = s.UnitType,
-                FirstCreateDate = COALESCE(s.FirstCreateDate, t.FirstCreateDate),
-                IsActive = 1
-              WHEN NOT MATCHED THEN INSERT (TaxNr, Title, Alias, AliasType, UnitType, FirstCreateDate, IsActive)
-                VALUES (s.TaxNr, s.Title, s.Alias, s.AliasType, s.UnitType, COALESCE(s.FirstCreateDate, GETDATE()), 1);",
-            cancellationToken: ct,
-            commandTimeout: 0));
-    }
-
-    private static async Task UpsertLocalAsync(IDbConnection db, EFaturaMukellefRow row, CancellationToken ct)
-    {
-        var id = await db.ExecuteScalarAsync<int?>(new CommandDefinition(
-            @"SELECT TOP 1 EFaturaMukellefID FROM dbo.EFaturaMukellef WHERE TaxNr = @tax AND Alias = @alias",
-            new { tax = row.TaxNr, alias = row.Alias },
-            cancellationToken: ct));
-
-        if (id is > 0)
-        {
-            await db.ExecuteAsync(new CommandDefinition(
-                @"UPDATE dbo.EFaturaMukellef
-                  SET Title = @Title, AliasType = @AliasType, UnitType = @UnitType, IsActive = 1
-                  WHERE EFaturaMukellefID = @id",
-                new { id = id.Value, row.Title, row.AliasType, row.UnitType },
-                cancellationToken: ct));
-            return;
-        }
-
-        await db.ExecuteAsync(new CommandDefinition(
-            @"INSERT INTO dbo.EFaturaMukellef (TaxNr, Title, Alias, AliasType, UnitType, FirstCreateDate, IsActive)
-              VALUES (@TaxNr, @Title, @Alias, @AliasType, @UnitType, @FirstCreateDate, 1)",
-            new
-            {
-                row.TaxNr,
-                row.Title,
-                row.Alias,
-                row.AliasType,
-                row.UnitType,
-                FirstCreateDate = row.FirstCreateDate ?? DateTime.Now,
-            },
-            cancellationToken: ct));
-    }
-
     /// <summary>
     /// Bir &lt;User&gt; kaydını okur (okuyucu kaydın bitişinde kalır). GİB «newUser» biçimi:
     /// User/Documents/Document[@type=Invoice|DespatchAdvice]/Alias/{Name, CreationTime, DeletionTime} —
@@ -694,18 +501,10 @@ BEGIN
     SourceUrl NVARCHAR(500) NULL
   );
 END
-IF OBJECT_ID(N'dbo.EFaturaMukellef_Import', N'U') IS NULL
-BEGIN
-  CREATE TABLE dbo.EFaturaMukellef_Import (
-    TaxNr NVARCHAR(11) NOT NULL,
-    Title NVARCHAR(500) NULL,
-    Alias NVARCHAR(250) NOT NULL,
-    AliasType NVARCHAR(10) NULL,
-    UnitType NVARCHAR(50) NULL,
-    FirstCreateDate DATETIME NULL
-  );
-END");
+IF OBJECT_ID(N'dbo.EFaturaMukellefCheck', N'U') IS NULL
+  THROW 50000, N'EFaturaMukellefCheck tablosu yok — Veritabanı Güncelleme ile 105_egov_mukellef_slim.sql uygulayın.', 1;");
     }
+
 
     private static string NormalizeTax(string? taxNr)
     {
