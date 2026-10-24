@@ -19,6 +19,7 @@ import {
   runProcessScans,
   saveProcessDef,
 } from '../api/processApi';
+import { evaluateFormula, formulaFieldRefs, FORMULA_FUNCTIONS } from '../data/formulaEval';
 import { DataFetchEditor, ModuleTransferEditor } from './ProcessJobEditors';
 import { appConfirm } from '../utils/appConfirm';
 import { listRoles, type Role } from '../api/rolesApi';
@@ -116,6 +117,43 @@ function fieldTokens(triggerJson: string | null | undefined, list: { configJson?
     }
   }
   return tokens;
+}
+
+const FORMULA_NAMES = new Set(FORMULA_FUNCTIONS.map((f) => f.toUpperCase()));
+
+/** İfade düz metin, {Alan} ya da ek alan formülü olabilir. Uymayanı kayda bırakmaz. */
+function checkProcessExpr(expr: string, tokens: { token: string; label: string }[]): string | null {
+  const text = expr.trim();
+  if (!text) return null;
+  const opened = (text.match(/\{/g) || []).length;
+  const closed = (text.match(/\}/g) || []).length;
+  if (opened !== closed) return 'Kapanmayan { }';
+
+  const allowed = new Set<string>();
+  for (const t of tokens) {
+    const inner = t.token.replace(/^\{|\}$/g, '').trim();
+    if (inner) allowed.add(inner.toLocaleLowerCase('tr-TR'));
+  }
+  const braces = [...text.matchAll(/\{([^{}]+)\}/g)].map((m) => m[1].trim()).filter(Boolean);
+  const unknown = braces.filter((name) => !allowed.has(name.toLocaleLowerCase('tr-TR')));
+  if (unknown.length) return `Bilinmeyen alan: ${unknown.join(', ')}`;
+
+  const stripped = text.replace(/\{[^{}]+\}/g, '1');
+  const formulaLike =
+    /[[\]()]|[+\-*/%=<>]/.test(stripped) ||
+    /\b(IF|AND|OR|NOT|ROUND|ABS|MIN|MAX|LEN|UPPER|LOWER|TRIM|CONCAT|LEFT|RIGHT|TODAY|YEAR|MONTH|DAY)\s*\(/i.test(stripped);
+  if (!formulaLike) return null;
+
+  const formula = text.replace(/\{([^{}]+)\}/g, '[$1]');
+  const sample: Record<string, unknown> = {};
+  for (const name of allowed) sample[name] = 1;
+  const { error } = evaluateFormula(formula, sample);
+  if (error) return error;
+  const bad = formulaFieldRefs(formula).filter(
+    (name) => !FORMULA_NAMES.has(name.toUpperCase()) && !allowed.has(name.toLocaleLowerCase('tr-TR')),
+  );
+  if (bad.length) return `Bilinmeyen alan: ${bad.join(', ')}`;
+  return null;
 }
 
 const SqlFieldEditor: React.FC<{
@@ -232,6 +270,7 @@ export const ProcessDesignerPage: React.FC<ProcessDesignerPageProps> = ({ onBack
   const [selectedId, setSelectedId] = useState<number | 'new' | null>(null);
   const [draft, setDraft] = useState<ProcessDef | null>(null);
   const [steps, setSteps] = useState<DraftStep[]>([]);
+  const [openKeys, setOpenKeys] = useState<Set<string>>(() => new Set());
   const [transferTargets, setTransferTargets] = useState<ExtraFieldTarget[]>([]);
 
   const reload = useCallback(async () => {
@@ -260,6 +299,7 @@ export const ProcessDesignerPage: React.FC<ProcessDesignerPageProps> = ({ onBack
   const loadDef = (d: ProcessDef) => {
     setSelectedId(d.processDefID);
     setDraft({ ...d, steps: [] });
+    setOpenKeys(new Set());
     setSteps(
       (d.steps || []).map((s) => ({
         ...s,
@@ -275,6 +315,7 @@ export const ProcessDesignerPage: React.FC<ProcessDesignerPageProps> = ({ onBack
     setSelectedId('new');
     setDraft(d);
     setSteps([]);
+    setOpenKeys(new Set());
     setMsg(null);
   };
 
@@ -292,10 +333,12 @@ export const ProcessDesignerPage: React.FC<ProcessDesignerPageProps> = ({ onBack
 
   const addNode = (n: WorkflowNodeDef) => {
     const no = steps.length + 1;
+    const key = stepKey();
+    setOpenKeys((prev) => new Set(prev).add(key));
     setSteps((prev) => [
       ...prev,
       {
-        _key: stepKey(),
+        _key: key,
         processStepID: 0,
         processDefID: draft?.processDefID || 0,
         stepNo: no,
@@ -335,6 +378,14 @@ export const ProcessDesignerPage: React.FC<ProcessDesignerPageProps> = ({ onBack
     if (!code || !draft.name.trim()) {
       setMsg({ kind: 'err', text: 'Kod ve ad zorunlu.' });
       return;
+    }
+    for (let i = 0; i < steps.length; i++) {
+      const err = checkProcessExpr(stepExpr(steps[i].configJson), fieldTokens(draft.triggerConfigJson, steps, i));
+      if (err) {
+        setOpenKeys((prev) => new Set(prev).add(steps[i]._key));
+        setMsg({ kind: 'err', text: `${steps[i].title || steps[i].code}: ${err}` });
+        return;
+      }
     }
     setBusy(true);
     setMsg(null);
@@ -698,17 +749,84 @@ export const ProcessDesignerPage: React.FC<ProcessDesignerPageProps> = ({ onBack
                     <em>Görev Formu</em>, <em>Karar</em> ekleyin.
                   </p>
                 ) : (
-                  <ol className="space-y-2">
+                  <ol className="space-y-1">
                     {steps.map((s, idx) => {
                       const meta = nodeMeta(s.nodeType || 'TaskForm');
                       const tone = meta ? NODE_TONE_CLASS[meta.tone] : NODE_TONE_CLASS.purple;
+                      const open = openKeys.has(s._key);
+                      const tokens = fieldTokens(draft.triggerConfigJson, steps, idx);
+                      const exprErr = checkProcessExpr(stepExpr(s.configJson), tokens);
                       return (
                         <li
                           key={s._key}
-                          className={`rounded-md border px-3 py-2.5 ${tone}`}
+                          className={`rounded-md border ${open ? 'px-3 py-2.5' : 'px-2 py-1'} ${tone}`}
                         >
-                          <div className="flex flex-wrap items-start gap-2">
-                            <span className="text-[11px] font-mono opacity-70 w-6 pt-1">{idx + 1}</span>
+                          <div className="flex items-center gap-1">
+                            <span className="text-[11px] font-mono opacity-70 w-5 shrink-0">{idx + 1}</span>
+                            <button
+                              type="button"
+                              className="flex-1 min-w-0 text-left text-[12px] truncate"
+                              onClick={() => setOpenKeys((prev) => new Set(prev).add(s._key))}
+                            >
+                              <span className="font-medium">{s.title || s.code}</span>
+                              <span className="opacity-70"> · {meta?.label || s.nodeType}</span>
+                            </button>
+                            <button
+                              type="button"
+                              title="Genişlet"
+                              onClick={() => setOpenKeys((prev) => new Set(prev).add(s._key))}
+                              className={`w-6 h-6 rounded border text-[14px] leading-none ${open ? 'border-black/10 opacity-40' : 'border-black/20 bg-white hover:bg-black/5'}`}
+                            >
+                              +
+                            </button>
+                            <button
+                              type="button"
+                              title="Daralt"
+                              onClick={() =>
+                                setOpenKeys((prev) => {
+                                  const next = new Set(prev);
+                                  next.delete(s._key);
+                                  return next;
+                                })
+                              }
+                              className={`w-6 h-6 rounded border text-[14px] leading-none ${open ? 'border-black/20 bg-white hover:bg-black/5' : 'border-black/10 opacity-40'}`}
+                            >
+                              −
+                            </button>
+                            <button
+                              type="button"
+                              title="Yukarı"
+                              onClick={() => moveStep(idx, -1)}
+                              className="p-1 rounded hover:bg-black/5"
+                            >
+                              <ArrowUp className="w-3.5 h-3.5" />
+                            </button>
+                            <button
+                              type="button"
+                              title="Aşağı"
+                              onClick={() => moveStep(idx, 1)}
+                              className="p-1 rounded hover:bg-black/5"
+                            >
+                              <ArrowDown className="w-3.5 h-3.5" />
+                            </button>
+                            <button
+                              type="button"
+                              title="Sil"
+                              onClick={() => {
+                                setOpenKeys((prev) => {
+                                  const next = new Set(prev);
+                                  next.delete(s._key);
+                                  return next;
+                                });
+                                removeStep(idx);
+                              }}
+                              className="p-1 rounded hover:bg-rose-100 text-rose-700"
+                            >
+                              <Trash2 className="w-3.5 h-3.5" />
+                            </button>
+                          </div>
+                          {open && (
+                          <div className="flex flex-wrap items-start gap-2 mt-2">
                             <div className="flex-1 min-w-0 grid gap-2 sm:grid-cols-2">
                               <label className="block text-[11px]">
                                 Başlık
@@ -761,7 +879,7 @@ export const ProcessDesignerPage: React.FC<ProcessDesignerPageProps> = ({ onBack
                                 <ModuleTransferEditor
                                   json={s.configJson}
                                   targets={transferTargets}
-                                  sourceNames={fieldTokens(draft.triggerConfigJson, steps, idx)
+                                  sourceNames={tokens
                                     .map((t) => t.label)
                                     .filter((label) => !label.endsWith('(tablo)'))}
                                   onChange={(next) =>
@@ -770,11 +888,11 @@ export const ProcessDesignerPage: React.FC<ProcessDesignerPageProps> = ({ onBack
                                   onError={(text) => setMsg({ kind: 'err', text })}
                                 />
                               )}
-                              {fieldTokens(draft.triggerConfigJson, steps, idx).length > 0 && (
+                              {tokens.length > 0 && (
                                 <div className="sm:col-span-2 space-y-1">
                                   <div className="text-[10px] uppercase tracking-wide opacity-70">Kullanılabilir alanlar</div>
                                   <div className="flex flex-wrap gap-1">
-                                    {fieldTokens(draft.triggerConfigJson, steps, idx).map((t) => (
+                                    {tokens.map((t) => (
                                       <button
                                         key={t.token}
                                         type="button"
@@ -811,9 +929,16 @@ export const ProcessDesignerPage: React.FC<ProcessDesignerPageProps> = ({ onBack
                                         );
                                       }}
                                       rows={2}
-                                      className="mt-0.5 w-full rounded border border-black/10 bg-white px-2 py-1 text-[12px] font-mono"
+                                      className={`mt-0.5 w-full rounded border bg-white px-2 py-1 text-[12px] font-mono ${exprErr ? 'border-rose-400' : 'border-black/10'}`}
                                     />
                                   </label>
+                                  {exprErr ? (
+                                    <p className="text-[11px] text-rose-700">{exprErr}</p>
+                                  ) : stepExpr(s.configJson).trim() ? (
+                                    <p className="text-[11px] text-emerald-700">Uyumlu</p>
+                                  ) : (
+                                    <p className="text-[11px] opacity-60">Düz metin, {'{Alan}'} veya formül (IF, +, [Alan]).</p>
+                                  )}
                                 </div>
                               )}
                               <label className="block text-[11px]">
@@ -888,33 +1013,8 @@ export const ProcessDesignerPage: React.FC<ProcessDesignerPageProps> = ({ onBack
                                 </label>
                               )}
                             </div>
-                            <div className="flex flex-col gap-1">
-                              <button
-                                type="button"
-                                title="Yukarı"
-                                onClick={() => moveStep(idx, -1)}
-                                className="p-1 rounded hover:bg-black/5"
-                              >
-                                <ArrowUp className="w-3.5 h-3.5" />
-                              </button>
-                              <button
-                                type="button"
-                                title="Aşağı"
-                                onClick={() => moveStep(idx, 1)}
-                                className="p-1 rounded hover:bg-black/5"
-                              >
-                                <ArrowDown className="w-3.5 h-3.5" />
-                              </button>
-                              <button
-                                type="button"
-                                title="Sil"
-                                onClick={() => removeStep(idx)}
-                                className="p-1 rounded hover:bg-rose-100 text-rose-700"
-                              >
-                                <Trash2 className="w-3.5 h-3.5" />
-                              </button>
-                            </div>
                           </div>
+                          )}
                         </li>
                       );
                     })}
