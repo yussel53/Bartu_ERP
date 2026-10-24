@@ -1,4 +1,5 @@
 using BartuERP.Backend.Repositories;
+using BartuERP.Backend.Services;
 using Microsoft.AspNetCore.Mvc;
 
 namespace BartuERP.Backend.Controllers;
@@ -101,6 +102,67 @@ public sealed class ProcessController : ControllerBase
         catch (Exception ex)
         {
             return StatusCode(500, new { message = ex.Message });
+        }
+    }
+
+    public sealed class SelectColumnsRequest
+    {
+        public string? Sql { get; set; }
+    }
+
+    [HttpPost("columns")]
+    public async Task<IActionResult> Columns([FromBody] SelectColumnsRequest body, CancellationToken ct)
+    {
+        try
+        {
+            var columns = await _repo.DescribeSelectAsync(body.Sql ?? "", ct);
+            return Ok(new { columns });
+        }
+        catch (Exception ex)
+        {
+            return BadRequest(new { message = ex.Message });
+        }
+    }
+
+    [HttpPost("source/test")]
+    public async Task<IActionResult> SourceTest([FromBody] ProcessSourceRequest body, CancellationToken ct)
+    {
+        try
+        {
+            return Ok(await ProcessSource.TestAsync(body, ct));
+        }
+        catch (Exception ex)
+        {
+            return BadRequest(new { ok = false, message = ex.Message, databases = Array.Empty<string>() });
+        }
+    }
+
+    [HttpPost("source/columns")]
+    public async Task<IActionResult> SourceColumns([FromBody] ProcessSourceRequest body, CancellationToken ct)
+    {
+        try
+        {
+            if (body.SourceType == 0)
+                return Ok(new { columns = await _repo.DescribeSelectAsync(body.Sql ?? "", ct) });
+            return Ok(new { columns = await ProcessSource.ColumnsAsync(body, ct) });
+        }
+        catch (Exception ex)
+        {
+            return BadRequest(new { message = ex.Message });
+        }
+    }
+
+    [HttpPost("scan")]
+    public async Task<IActionResult> Scan([FromQuery] int? defId, CancellationToken ct)
+    {
+        try
+        {
+            var startedBy = User.UserId() > 0 ? User.UserId() : (int?)null;
+            return Ok(await _repo.RunDbScansAsync(defId, startedBy, ct));
+        }
+        catch (Exception ex)
+        {
+            return BadRequest(new { message = ex.Message });
         }
     }
 

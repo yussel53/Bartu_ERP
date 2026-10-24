@@ -36,6 +36,20 @@ interface ProcessManagementPageProps {
   initialTab?: TabKey;
 }
 
+function dataBrief(json?: string | null): string {
+  if (!json) return '';
+  try {
+    const o = JSON.parse(json) as {
+      belge?: { no?: string | null; tarih?: string | null };
+      cari?: { unvan?: string | null };
+      adres?: { il?: string | null };
+    };
+    return [o.belge?.no, o.belge?.tarih, o.cari?.unvan, o.adres?.il].filter(Boolean).join(' · ');
+  } catch {
+    return '';
+  }
+}
+
 const TRIGGER_LABEL: Record<number, string> = {
   1: 'Manuel',
   2: 'Fiş kaydedilince',
@@ -440,7 +454,12 @@ export const ProcessManagementPage: React.FC<ProcessManagementPageProps> = ({
                   <tr key={i.processInstanceID} className="border-t border-slate-100">
                     <td className="px-3 py-1.5 font-mono text-slate-500">{i.processInstanceID}</td>
                     <td className="px-3 py-1.5">{i.processName}</td>
-                    <td className="px-3 py-1.5">{i.title}</td>
+                    <td className="px-3 py-1.5">
+                      <div>{i.title}</div>
+                      {dataBrief(i.dataJson) && (
+                        <div className="text-[11px] text-slate-500">{dataBrief(i.dataJson)}</div>
+                      )}
+                    </td>
                     <td className="px-3 py-1.5">
                       {i.sourceTable}#{i.sourceId}
                     </td>

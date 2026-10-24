@@ -72,6 +72,8 @@ export const WORKFLOW_NODES: WorkflowNodeDef[] = [
   { nodeType: 'Manual', label: 'Manuel', actionType: 'Approve', tone: 'green', group: 'tetik' },
   { nodeType: 'Scheduled', label: 'Yinelemeli', actionType: 'Approve', tone: 'green', group: 'tetik' },
   { nodeType: 'EmailCheck', label: 'E-Posta Kontrol', actionType: 'Approve', tone: 'green', group: 'tetik' },
+  { nodeType: 'DataFetch', label: 'Veri Çek', actionType: 'Approve', tone: 'blue', group: 'veri' },
+  { nodeType: 'ModuleTransfer', label: 'Modüle Aktar', actionType: 'Transfer', tone: 'gold', group: 'veri' },
   { nodeType: 'DbScan', label: 'DB Tarama', actionType: 'Approve', tone: 'blue', group: 'veri' },
   { nodeType: 'DbScanLoop', label: 'Yinelemeli DB Tarama', actionType: 'Approve', tone: 'blue', group: 'veri' },
   { nodeType: 'EInvoiceCheck', label: 'E-Fatura Kontrol', actionType: 'Review', tone: 'blue', group: 'veri', needsApprover: true },

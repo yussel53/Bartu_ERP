@@ -62,7 +62,7 @@ export const SCHEMA_MODULE_MAP: SchemaTableRef[] = [
   { table: 'OrderTrans', module: 'satis|satinalma', group: 'hareketler', title: 'Sipariş Satırları' },
   { table: 'SYS_ProcessDef', module: 'surec', group: 'ana-kayitlar', title: 'Süreçler', notes: 'TriggerType 1–8 · TriggerConfigJson · Category' },
   { table: 'SYS_ProcessStep', module: 'surec', group: 'ana-kayitlar', title: 'Süreç Adımları', notes: 'NodeType · ConfigJson · ApproverRoleId' },
-  { table: 'SYS_ProcessInstance', module: 'surec', group: 'hareketler', title: 'Süreç Örnekleri' },
+  { table: 'SYS_ProcessInstance', module: 'surec', group: 'hareketler', title: 'Süreç Örnekleri', notes: 'DataJson: belge, cari, adres, satir — her başlangıçta aynı nesne' },
   { table: 'SYS_ProcessTask', module: 'surec', group: 'hareketler', title: 'Onay Kuyruğu', notes: 'Kullanıcı onay görevleri' },
   { table: 'SYS_ProcessDocLink', module: 'surec', group: 'islemler', title: 'Belge Bağları', notes: 'TalepToOrder · EGovToOrder' },
   { table: 'Invoice', module: 'satis|satinalma', group: 'hareketler', title: 'Fatura', notes: 'InvoiceType ile satış/alış/iade' },

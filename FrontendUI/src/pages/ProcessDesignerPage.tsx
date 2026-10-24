@@ -9,7 +9,17 @@ import {
   Save,
   Trash2,
 } from 'lucide-react';
-import { ProcessDef, ProcessStep, deleteProcessDef, listProcessDefs, saveProcessDef } from '../api/processApi';
+import { listExtraFieldTargets, type ExtraFieldTarget } from '../api/extraFieldsApi';
+import {
+  ProcessDef,
+  ProcessStep,
+  deleteProcessDef,
+  describeProcessSelect,
+  listProcessDefs,
+  runProcessScans,
+  saveProcessDef,
+} from '../api/processApi';
+import { DataFetchEditor, ModuleTransferEditor } from './ProcessJobEditors';
 import { appConfirm } from '../utils/appConfirm';
 import { listRoles, type Role } from '../api/rolesApi';
 import {
@@ -61,14 +71,138 @@ function stepSql(configJson?: string | null): string {
   return typeof sql === 'string' ? sql : '';
 }
 
-function withStepSql(configJson: string | null | undefined, sql: string): string | null {
-  const next = parseCfg(configJson);
-  if (!sql.trim()) delete next.sql;
-  else next.sql = sql;
-  return Object.keys(next).length ? JSON.stringify(next) : null;
+function stepExpr(configJson?: string | null): string {
+  const ifade = parseCfg(configJson).ifade;
+  return typeof ifade === 'string' ? ifade : '';
 }
 
 const SQL_NODES = new Set(['DbScan', 'DbScanLoop']);
+
+type ScanCol = { name: string; kind: 'alan' | 'tablo' };
+
+function readScanCols(json?: string | null): ScanCol[] {
+  const raw = parseCfg(json).columns;
+  if (!Array.isArray(raw)) return [];
+  return raw.flatMap((item) => {
+    if (!item || typeof item !== 'object') return [];
+    const rec = item as { name?: unknown; kind?: unknown };
+    const name = String(rec.name ?? '').trim();
+    if (!name) return [];
+    return [{ name, kind: rec.kind === 'tablo' ? 'tablo' as const : 'alan' as const }];
+  });
+}
+
+function patchCfg(json: string | null | undefined, patch: Record<string, unknown>): string | null {
+  const next: Record<string, unknown> = { ...parseCfg(json), ...patch };
+  for (const key of Object.keys(next)) {
+    if (next[key] == null || next[key] === '') delete next[key];
+  }
+  return Object.keys(next).length ? JSON.stringify(next) : null;
+}
+
+function fieldTokens(triggerJson: string | null | undefined, list: { configJson?: string | null }[], idx: number) {
+  const bags = [triggerJson, ...list.slice(0, idx).map((s) => s.configJson)];
+  const tokens: { token: string; label: string }[] = [];
+  const seen = new Set<string>();
+  for (const json of bags) {
+    const cols = readScanCols(json);
+    const tableName = String(parseCfg(json).tabloAdi || 'Satirlar');
+    if (cols.some((c) => c.kind === 'tablo') && seen.add(`{${tableName}}`)) {
+      tokens.push({ token: `{${tableName}}`, label: `${tableName} (tablo)` });
+    }
+    for (const col of cols) {
+      const token = col.kind === 'tablo' ? `{${tableName}.${col.name}}` : `{${col.name}}`;
+      if (seen.add(token)) tokens.push({ token, label: col.kind === 'tablo' ? `${tableName}.${col.name}` : col.name });
+    }
+  }
+  return tokens;
+}
+
+const SqlFieldEditor: React.FC<{
+  json?: string | null;
+  onChange: (json: string | null) => void;
+  onError: (text: string) => void;
+}> = ({ json, onChange, onError }) => {
+  const [loading, setLoading] = useState(false);
+  const cols = readScanCols(json);
+  const tableName = String(parseCfg(json).tabloAdi || 'Satirlar');
+  const loadCols = async () => {
+    const sql = stepSql(json);
+    if (!sql.trim()) {
+      onError('Önce SELECT yazın.');
+      return;
+    }
+    setLoading(true);
+    try {
+      const names = await describeProcessSelect(sql);
+      const prev = new Map(cols.map((c) => [c.name.toLowerCase(), c.kind]));
+      onChange(patchCfg(json, {
+        sql,
+        columns: names.map((name) => ({ name, kind: prev.get(name.toLowerCase()) ?? 'alan' })),
+      }));
+    } catch (e) {
+      onError(e instanceof Error ? e.message : 'Kolonlar okunamadı');
+    } finally {
+      setLoading(false);
+    }
+  };
+  return (
+    <div className="sm:col-span-2 space-y-2">
+      <label className="block text-[11px]">
+        SELECT
+        <textarea
+          value={stepSql(json)}
+          onChange={(e) => onChange(patchCfg(json, { sql: e.target.value }))}
+          rows={4}
+          spellCheck={false}
+          placeholder="SELECT ... FROM ... WHERE ..."
+          className="mt-0.5 w-full rounded border border-black/10 bg-white px-2 py-1 text-[12px] font-mono"
+        />
+      </label>
+      <button
+        type="button"
+        disabled={loading}
+        onClick={() => void loadCols()}
+        className="rounded border border-sky-300 bg-white px-2 py-1 text-[11px] text-sky-800 hover:bg-sky-50 disabled:opacity-50"
+      >
+        {loading ? 'Kolonlar okunuyor…' : 'Kolon başlıklarını al'}
+      </button>
+      {cols.length > 0 && (
+        <div className="rounded border border-black/10 bg-white/70 p-2 space-y-1">
+          <div className="text-[10px] uppercase tracking-wide opacity-70">Kolonlar · sonraki adımlarda kullanılır</div>
+          {cols.map((col) => (
+            <label key={col.name} className="flex items-center gap-2 text-[12px]">
+              <span className="font-mono flex-1 min-w-0 truncate">{col.name}</span>
+              <select
+                value={col.kind}
+                onChange={(e) => {
+                  const kind = e.target.value === 'tablo' ? 'tablo' : 'alan';
+                  onChange(patchCfg(json, {
+                    columns: cols.map((c) => (c.name === col.name ? { ...c, kind } : c)),
+                  }));
+                }}
+                className="rounded border border-slate-200 bg-white px-1 py-0.5 text-[11px]"
+              >
+                <option value="alan">Alan</option>
+                <option value="tablo">Tablo</option>
+              </select>
+            </label>
+          ))}
+          {cols.some((c) => c.kind === 'tablo') && (
+            <label className="block text-[11px] pt-1">
+              Tablo adı
+              <input
+                value={tableName}
+                onChange={(e) => onChange(patchCfg(json, { tabloAdi: e.target.value.trim() || 'Satirlar' }))}
+                className="mt-0.5 w-full rounded border border-slate-200 bg-white px-2 py-1 text-[12px] font-mono"
+              />
+            </label>
+          )}
+        </div>
+      )}
+    </div>
+  );
+};
 
 function stepKey(): string {
   return `s-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
@@ -98,14 +232,20 @@ export const ProcessDesignerPage: React.FC<ProcessDesignerPageProps> = ({ onBack
   const [selectedId, setSelectedId] = useState<number | 'new' | null>(null);
   const [draft, setDraft] = useState<ProcessDef | null>(null);
   const [steps, setSteps] = useState<DraftStep[]>([]);
+  const [transferTargets, setTransferTargets] = useState<ExtraFieldTarget[]>([]);
 
   const reload = useCallback(async () => {
     setBusy(true);
     setMsg(null);
     try {
-      const [df, rl] = await Promise.all([listProcessDefs(true), listRoles().catch(() => [] as Role[])]);
+      const [df, rl, targets] = await Promise.all([
+        listProcessDefs(true),
+        listRoles().catch(() => [] as Role[]),
+        listExtraFieldTargets().catch(() => [] as ExtraFieldTarget[]),
+      ]);
       setDefs(df);
       setRoles(rl);
+      setTransferTargets(targets);
     } catch (e) {
       setMsg({ kind: 'err', text: e instanceof Error ? e.message : 'Tanımlar okunamadı' });
     } finally {
@@ -229,6 +369,24 @@ export const ProcessDesignerPage: React.FC<ProcessDesignerPageProps> = ({ onBack
     }
   };
 
+  const onScan = async () => {
+    if (!draft || draft.processDefID <= 0) return;
+    setBusy(true);
+    setMsg(null);
+    try {
+      const r = await runProcessScans(draft.processDefID);
+      const extra = r.messages?.length ? ` ${r.messages.join(' ')}` : '';
+      setMsg({
+        kind: r.started === 0 && r.messages?.length ? 'err' : 'ok',
+        text: `${r.started} süreç başladı, ${r.skipped} açık kayıt atlandı.${extra}`,
+      });
+    } catch (e) {
+      setMsg({ kind: 'err', text: e instanceof Error ? e.message : 'Tarama başarısız' });
+    } finally {
+      setBusy(false);
+    }
+  };
+
   const onDelete = async (def: ProcessDef) => {
     if (def.processDefID <= 0) return;
     const ok = await appConfirm(
@@ -296,6 +454,16 @@ export const ProcessDesignerPage: React.FC<ProcessDesignerPageProps> = ({ onBack
         >
           <RefreshCw className={`w-3.5 h-3.5 ${busy ? 'animate-spin' : ''}`} /> Yenile
         </button>
+        {draft && draft.processDefID > 0 && (draft.triggerType === 8 || steps.some((s) => s.nodeType === 'DbScan' || s.nodeType === 'DbScanLoop' || s.nodeType === 'DataFetch')) && (
+          <button
+            type="button"
+            disabled={busy}
+            onClick={() => void onScan()}
+            className="inline-flex items-center gap-1.5 rounded-md border border-sky-300 bg-sky-50 px-3 py-1.5 text-[12px] font-semibold text-sky-800 hover:bg-sky-100 disabled:opacity-50"
+          >
+            Taramayı çalıştır
+          </button>
+        )}
         <button
           type="button"
           onClick={onNew}
@@ -482,20 +650,16 @@ export const ProcessDesignerPage: React.FC<ProcessDesignerPageProps> = ({ onBack
                     </label>
                   )}
                   {triggerOpt?.needsSql && (
-                    <label className="block text-[12px] text-slate-600 sm:col-span-2">
-                      SELECT
-                      <textarea
-                        value={typeof cfg.sql === 'string' ? cfg.sql : ''}
-                        onChange={(e) => setCfg({ sql: e.target.value })}
-                        rows={4}
-                        spellCheck={false}
-                        placeholder="SELECT ... FROM ... WHERE ..."
-                        className="mt-1 w-full rounded-md border border-slate-200 px-2.5 py-1.5 text-[12px] font-mono"
+                    <div className="sm:col-span-2">
+                      <SqlFieldEditor
+                        json={draft.triggerConfigJson}
+                        onChange={(next) => setDraft({ ...draft, triggerConfigJson: next })}
+                        onError={(text) => setMsg({ kind: 'err', text })}
                       />
                       <span className="mt-1 block text-[11px] text-slate-400">
-                        Yalnızca SELECT. Kayıt, tetik ayarına yazılır.
+                        Alan kolonları her satırda bir süreç açar. Tablo işaretli kolonlar aynı başlık altında satır listesi olur.
                       </span>
-                    </label>
+                    </div>
                   )}
                   {triggerOpt?.needsTypeFilter && (
                     <label className="block text-[12px] text-slate-600">
@@ -576,29 +740,81 @@ export const ProcessDesignerPage: React.FC<ProcessDesignerPageProps> = ({ onBack
                                 Tip: <strong>{meta?.label || s.nodeType}</strong> · {s.actionType}
                               </div>
                               {SQL_NODES.has(s.nodeType || '') && (
-                                <label className="block text-[11px] sm:col-span-2">
-                                  SELECT
-                                  <textarea
-                                    value={stepSql(s.configJson)}
-                                    onChange={(e) => {
-                                      const v = e.target.value;
-                                      setSteps((prev) =>
-                                        prev.map((x, i) =>
-                                          i === idx ? { ...x, configJson: withStepSql(x.configJson, v) } : x,
-                                        ),
-                                      );
-                                    }}
-                                    rows={4}
-                                    spellCheck={false}
-                                    placeholder="SELECT ... FROM ... WHERE ..."
-                                    className="mt-0.5 w-full rounded border border-black/10 bg-white/80 px-2 py-1 text-[12px] font-mono"
-                                  />
-                                  <span className="mt-0.5 block text-[10px] opacity-70">
-                                    {s.nodeType === 'DbScanLoop'
-                                      ? 'Her satır için süreç bu sorguyla taranır. Yalnızca SELECT.'
-                                      : 'Koşulu sağlayan kayıtlar. Yalnızca SELECT.'}
-                                  </span>
-                                </label>
+                                <SqlFieldEditor
+                                  json={s.configJson}
+                                  onChange={(next) =>
+                                    setSteps((prev) => prev.map((x, i) => (i === idx ? { ...x, configJson: next } : x)))
+                                  }
+                                  onError={(text) => setMsg({ kind: 'err', text })}
+                                />
+                              )}
+                              {s.nodeType === 'DataFetch' && (
+                                <DataFetchEditor
+                                  json={s.configJson}
+                                  onChange={(next) =>
+                                    setSteps((prev) => prev.map((x, i) => (i === idx ? { ...x, configJson: next } : x)))
+                                  }
+                                  onError={(text) => setMsg({ kind: 'err', text })}
+                                />
+                              )}
+                              {s.nodeType === 'ModuleTransfer' && (
+                                <ModuleTransferEditor
+                                  json={s.configJson}
+                                  targets={transferTargets}
+                                  sourceNames={fieldTokens(draft.triggerConfigJson, steps, idx)
+                                    .map((t) => t.label)
+                                    .filter((label) => !label.endsWith('(tablo)'))}
+                                  onChange={(next) =>
+                                    setSteps((prev) => prev.map((x, i) => (i === idx ? { ...x, configJson: next } : x)))
+                                  }
+                                  onError={(text) => setMsg({ kind: 'err', text })}
+                                />
+                              )}
+                              {fieldTokens(draft.triggerConfigJson, steps, idx).length > 0 && (
+                                <div className="sm:col-span-2 space-y-1">
+                                  <div className="text-[10px] uppercase tracking-wide opacity-70">Kullanılabilir alanlar</div>
+                                  <div className="flex flex-wrap gap-1">
+                                    {fieldTokens(draft.triggerConfigJson, steps, idx).map((t) => (
+                                      <button
+                                        key={t.token}
+                                        type="button"
+                                        onClick={() =>
+                                          setSteps((prev) =>
+                                            prev.map((x, i) =>
+                                              i === idx
+                                                ? {
+                                                    ...x,
+                                                    configJson: patchCfg(x.configJson, {
+                                                      ifade: `${stepExpr(x.configJson)}${t.token}`,
+                                                    }),
+                                                  }
+                                                : x,
+                                            ),
+                                          )
+                                        }
+                                        className="rounded border border-sky-200 bg-sky-50 px-1.5 py-0.5 text-[11px] font-mono text-sky-900 hover:bg-sky-100"
+                                      >
+                                        {t.label}
+                                      </button>
+                                    ))}
+                                  </div>
+                                  <label className="block text-[11px]">
+                                    İfade
+                                    <textarea
+                                      value={stepExpr(s.configJson)}
+                                      onChange={(e) => {
+                                        const ifade = e.target.value;
+                                        setSteps((prev) =>
+                                          prev.map((x, i) =>
+                                            i === idx ? { ...x, configJson: patchCfg(x.configJson, { ifade }) } : x,
+                                          ),
+                                        );
+                                      }}
+                                      rows={2}
+                                      className="mt-0.5 w-full rounded border border-black/10 bg-white px-2 py-1 text-[12px] font-mono"
+                                    />
+                                  </label>
+                                </div>
                               )}
                               <label className="block text-[11px]">
                                 Onay sonrası

@@ -1,6 +1,7 @@
 using System.Data;
 using System.Text.Json;
 using Dapper;
+using Microsoft.Data.SqlClient;
 
 namespace BartuERP.Backend.Repositories;
 
@@ -68,6 +69,8 @@ public sealed class ProcessInstanceDto
     public DateTime StartedAt { get; set; }
     public DateTime? CompletedAt { get; set; }
     public string? LastComment { get; set; }
+    /// <summary>Ortak nesne: belge, cari, adres, satir.</summary>
+    public string? DataJson { get; set; }
 }
 
 public sealed class ProcessTaskDto
@@ -101,6 +104,13 @@ public sealed class ProcessTaskDto
     public decimal? Amount { get; set; }
 }
 
+public sealed class ProcessScanResult
+{
+    public int Started { get; set; }
+    public int Skipped { get; set; }
+    public List<string> Messages { get; set; } = new();
+}
+
 public sealed class ProcessStartRequest
 {
     public string ProcessCode { get; set; } = "";
@@ -110,6 +120,8 @@ public sealed class ProcessStartRequest
     public int? TargetId { get; set; }
     public string? Title { get; set; }
     public int? StartedBy { get; set; }
+    /// <summary>Hazır nesne. Boşsa kaynak kayıttan üretilir.</summary>
+    public string? DataJson { get; set; }
 }
 
 public sealed class ProcessTaskActionRequest
@@ -433,6 +445,272 @@ public sealed class ProcessRepository
         return started;
     }
 
+    /// <summary>DB tarama SELECT'ini çalıştırır. Her satır aynı nesneyle bir süreç başlatır.</summary>
+    public async Task<ProcessScanResult> RunDbScansAsync(int? processDefId, int? startedBy, CancellationToken ct)
+    {
+        await EnsureTablesAsync(ct);
+        var result = new ProcessScanResult();
+        var defs = (await ListDefsAsync(false, ct))
+            .Where(d => processDefId is null or 0 || d.ProcessDefID == processDefId)
+            .ToList();
+        foreach (var def in defs)
+        {
+            ScanPlan? plan;
+            List<IDictionary<string, object?>> rows;
+            var external = ExternalOf(def);
+            if (external != null)
+            {
+                plan = external.Plan;
+                try
+                {
+                    rows = (await ProcessSource.RowsAsync(external.Request, ct))
+                        .Cast<IDictionary<string, object?>>()
+                        .ToList();
+                }
+                catch (Exception ex)
+                {
+                    result.Messages.Add($"{def.Code}: {ex.Message}");
+                    continue;
+                }
+            }
+            else
+            {
+                plan = ScanPlanOf(def);
+                if (plan is null || string.IsNullOrWhiteSpace(plan.Sql)) continue;
+                if (!ProcessContextData.IsSafeSelect(plan.Sql))
+                {
+                    result.Messages.Add($"{def.Code}: yalnız tek bir SELECT yazılabilir.");
+                    continue;
+                }
+                try
+                {
+                    var raw = await _db.QueryAsync(new CommandDefinition(
+                        $"SELECT TOP (200) * FROM ({plan.Sql}) AS scan_q", cancellationToken: ct));
+                    rows = raw.Select(r => (IDictionary<string, object?>)ToNullableDict(r)).ToList();
+                }
+                catch (Exception ex)
+                {
+                    result.Messages.Add($"{def.Code}: {ex.Message}");
+                    continue;
+                }
+            }
+            foreach (var group in GroupScanRows(rows, plan))
+            {
+                var draft = await ProcessContextData.BuildAsync(_db, null, 0, group.Header, ct, group.Lines, plan.TableName);
+                var (table, id) = ProcessContextData.SourceOf(group.Header, draft);
+                var open = await _db.ExecuteScalarAsync<int>(new CommandDefinition("""
+                    SELECT COUNT(1) FROM dbo.SYS_ProcessInstance
+                    WHERE ProcessDefID = @defId AND SourceTable = @tbl AND SourceId = @id
+                      AND Status IN (N'Pending', N'InProgress')
+                    """, new { defId = def.ProcessDefID, tbl = table, id }, cancellationToken: ct));
+                if (open > 0)
+                {
+                    result.Skipped++;
+                    continue;
+                }
+                var json = await ProcessContextData.BuildAsync(_db, table, id, group.Header, ct, group.Lines, plan.TableName);
+                await StartAsync(new ProcessStartRequest
+                {
+                    ProcessCode = def.Code,
+                    SourceTable = table,
+                    SourceId = id,
+                    TargetTable = def.TargetTable,
+                    StartedBy = startedBy,
+                    DataJson = json,
+                    Title = ProcessContextData.TitleOf(json)
+                }, ct);
+                result.Started++;
+            }
+        }
+        return result;
+    }
+
+    public async Task<IReadOnlyList<string>> DescribeSelectAsync(string sql, CancellationToken ct)
+    {
+        if (!ProcessContextData.IsSafeSelect(sql))
+            throw new InvalidOperationException("Yalnızca tek bir SELECT yazılabilir.");
+        EnsureOpen();
+        if (_db is not SqlConnection conn)
+            throw new InvalidOperationException("Sorgu kolonları okunamadı.");
+        await using var cmd = conn.CreateCommand();
+        cmd.CommandText = $"SELECT TOP (0) * FROM ({sql}) AS scan_q";
+        cmd.CommandTimeout = 30;
+        await using var reader = await cmd.ExecuteReaderAsync(ct);
+        var names = new List<string>();
+        var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        for (var i = 0; i < reader.FieldCount; i++)
+        {
+            var name = reader.GetName(i);
+            if (string.IsNullOrWhiteSpace(name) || !seen.Add(name)) continue;
+            names.Add(name);
+        }
+        return names;
+    }
+
+    private sealed class ScanPlan
+    {
+        public string Sql { get; init; } = "";
+        public string TableName { get; init; } = "Satirlar";
+        public List<(string Name, bool Table)> Columns { get; init; } = new();
+    }
+
+    private sealed class ScanGroup
+    {
+        public Dictionary<string, object?> Header { get; init; } = new();
+        public List<IDictionary<string, object?>> Lines { get; init; } = new();
+    }
+
+    private static bool IsLocalFetch(string? json)
+    {
+        if (string.IsNullOrWhiteSpace(json)) return true;
+        try
+        {
+            using var doc = JsonDocument.Parse(json);
+            if (!doc.RootElement.TryGetProperty("sourceType", out var el)) return true;
+            if (el.ValueKind == JsonValueKind.Number && el.TryGetInt32(out var n)) return n == 0;
+            return true;
+        }
+        catch
+        {
+            return true;
+        }
+    }
+
+    private static ScanPlan? ScanPlanOf(ProcessDefDto def)
+    {
+        if (def.TriggerType == 8 && TryScanPlan(def.TriggerConfigJson, out var fromTrigger))
+            return fromTrigger;
+        foreach (var step in def.Steps)
+        {
+            if (step.NodeType is "DbScan" or "DbScanLoop" && TryScanPlan(step.ConfigJson, out var fromStep))
+                return fromStep;
+            if (step.NodeType == "DataFetch" && IsLocalFetch(step.ConfigJson) && TryScanPlan(step.ConfigJson, out var fromFetch))
+                return fromFetch;
+        }
+        return null;
+    }
+
+    private sealed class ExternalFetch
+    {
+        public ProcessSourceRequest Request { get; init; } = new();
+        public ScanPlan Plan { get; init; } = new();
+    }
+
+    private static ExternalFetch? ExternalOf(ProcessDefDto def)
+    {
+        foreach (var step in def.Steps)
+        {
+            if (step.NodeType != "DataFetch" || IsLocalFetch(step.ConfigJson)) continue;
+            ProcessSourceRequest? req;
+            try
+            {
+                req = JsonSerializer.Deserialize<ProcessSourceRequest>(step.ConfigJson ?? "{}",
+                    new JsonSerializerOptions { PropertyNameCaseInsensitive = true });
+            }
+            catch
+            {
+                continue;
+            }
+            if (req is null || req.SourceType is not (1 or 2 or 3)) continue;
+            return new ExternalFetch { Request = req, Plan = ReadPlan(step.ConfigJson) };
+        }
+        return null;
+    }
+
+    private static ScanPlan ReadPlan(string? json)
+    {
+        ProcessContextData.TryReadSql(json, out var sql);
+        var columns = new List<(string Name, bool Table)>();
+        var tableName = "Satirlar";
+        try
+        {
+            using var doc = JsonDocument.Parse(string.IsNullOrWhiteSpace(json) ? "{}" : json);
+            if (doc.RootElement.TryGetProperty("tabloAdi", out var tn) && tn.ValueKind == JsonValueKind.String)
+            {
+                var name = tn.GetString()?.Trim();
+                if (!string.IsNullOrWhiteSpace(name)) tableName = name;
+            }
+            if (doc.RootElement.TryGetProperty("columns", out var arr) && arr.ValueKind == JsonValueKind.Array)
+            {
+                foreach (var el in arr.EnumerateArray())
+                {
+                    var name = el.TryGetProperty("name", out var n) ? n.GetString()?.Trim() : null;
+                    if (string.IsNullOrWhiteSpace(name)) continue;
+                    var kind = el.TryGetProperty("kind", out var k) ? k.GetString() : "alan";
+                    columns.Add((name, string.Equals(kind, "tablo", StringComparison.OrdinalIgnoreCase)));
+                }
+            }
+        }
+        catch
+        {
+            /* kolon listesi yoksa her satır ayrı süreç */
+        }
+        return new ScanPlan { Sql = sql, TableName = tableName, Columns = columns };
+    }
+
+    private static bool TryScanPlan(string? json, out ScanPlan plan)
+    {
+        plan = ReadPlan(json);
+        return !string.IsNullOrWhiteSpace(plan.Sql);
+    }
+
+    private static List<ScanGroup> GroupScanRows(IReadOnlyList<IDictionary<string, object?>> rows, ScanPlan plan)
+    {
+        var tableCols = plan.Columns.Where(c => c.Table).Select(c => c.Name).ToList();
+        if (tableCols.Count == 0)
+        {
+            return rows.Select(r => new ScanGroup
+            {
+                Header = new Dictionary<string, object?>(r, StringComparer.OrdinalIgnoreCase)
+            }).ToList();
+        }
+
+        var headerCols = plan.Columns.Where(c => !c.Table).Select(c => c.Name).ToList();
+        var groups = new List<ScanGroup>();
+        var index = new Dictionary<string, int>(StringComparer.Ordinal);
+        foreach (var row in rows)
+        {
+            var key = string.Join("|", headerCols.Select(c => Convert.ToString(Val(row, c)) ?? ""));
+            if (!index.TryGetValue(key, out var at))
+            {
+                var header = new Dictionary<string, object?>(StringComparer.OrdinalIgnoreCase);
+                foreach (var c in headerCols)
+                    header[c] = Val(row, c);
+                foreach (var idName in new[] { "EGovDocumentID", "InvoiceID", "OrderVoucherID", "ProductVoucherID", "CustomerCardID", "ProductCardID" })
+                {
+                    if (row.TryGetValue(idName, out var idv)) header[idName] = idv;
+                }
+                groups.Add(new ScanGroup { Header = header });
+                at = groups.Count - 1;
+                index[key] = at;
+            }
+            var line = new Dictionary<string, object?>(StringComparer.OrdinalIgnoreCase);
+            foreach (var c in tableCols)
+                line[c] = Val(row, c);
+            groups[at].Lines.Add(line);
+        }
+        return groups;
+    }
+
+    private static object? Val(IDictionary<string, object?> row, string key)
+    {
+        if (row.TryGetValue(key, out var v)) return v;
+        foreach (var kv in row)
+        {
+            if (kv.Key.Equals(key, StringComparison.OrdinalIgnoreCase)) return kv.Value;
+        }
+        return null;
+    }
+
+    private static Dictionary<string, object?> ToNullableDict(object raw)
+    {
+        var map = new Dictionary<string, object?>(StringComparer.OrdinalIgnoreCase);
+        if (raw is not IDictionary<string, object> src) return map;
+        foreach (var kv in src)
+            map[kv.Key] = kv.Value is DBNull ? null : kv.Value;
+        return map;
+    }
+
     private static bool MatchTriggerConfig(string? cfgJson, Dictionary<string, string?>? ctx)
     {
         if (string.IsNullOrWhiteSpace(cfgJson) || cfgJson.Trim() is "{}" or "null")
@@ -445,6 +723,12 @@ public sealed class ProcessRepository
             foreach (var prop in doc.RootElement.EnumerateObject())
             {
                 if (prop.Value.ValueKind is JsonValueKind.Null) continue;
+                if (prop.Value.ValueKind is JsonValueKind.Object or JsonValueKind.Array) continue;
+                if (prop.Name.Equals("sql", StringComparison.OrdinalIgnoreCase)
+                    || prop.Name.Equals("columns", StringComparison.OrdinalIgnoreCase)
+                    || prop.Name.Equals("tabloAdi", StringComparison.OrdinalIgnoreCase)
+                    || prop.Name.Equals("ifade", StringComparison.OrdinalIgnoreCase))
+                    continue;
 
                 // typeFilter boş/null → her tip eşleşir
                 if (prop.Name.Equals("typeFilter", StringComparison.OrdinalIgnoreCase)
@@ -494,11 +778,13 @@ public sealed class ProcessRepository
     public async Task<IReadOnlyList<ProcessInstanceDto>> ListInstancesAsync(string? status, int take, CancellationToken ct)
     {
         await EnsureTablesAsync(ct);
-        return (await _db.QueryAsync<ProcessInstanceDto>(new CommandDefinition("""
+        var hasData = await ColumnExistsAsync("SYS_ProcessInstance", "DataJson", ct);
+        return (await _db.QueryAsync<ProcessInstanceDto>(new CommandDefinition($"""
             SELECT TOP (@take)
               i.ProcessInstanceID, i.ProcessDefID, d.Code AS ProcessCode, d.Name AS ProcessName,
               i.Status, i.SourceTable, i.SourceId, i.TargetTable, i.TargetId, i.Title,
               i.CurrentStepNo, i.StartedBy, i.StartedAt, i.CompletedAt, i.LastComment
+              {(hasData ? ", i.DataJson" : ", CAST(NULL AS nvarchar(max)) AS DataJson")}
             FROM dbo.SYS_ProcessInstance i
             INNER JOIN dbo.SYS_ProcessDef d ON d.ProcessDefID = i.ProcessDefID
             WHERE (@status IS NULL OR i.Status = @status)
@@ -595,16 +881,26 @@ public sealed class ProcessRepository
         var firstStep = steps.FirstOrDefault()
             ?? throw new InvalidOperationException("Süreçte aktif adım yok.");
 
+        var hasData = await ColumnExistsAsync("SYS_ProcessInstance", "DataJson", ct);
+        string? dataJson = null;
+        if (hasData)
+        {
+            dataJson = string.IsNullOrWhiteSpace(req.DataJson)
+                ? await ProcessContextData.BuildAsync(_db, req.SourceTable, req.SourceId, null, ct)
+                : req.DataJson;
+        }
         var title = string.IsNullOrWhiteSpace(req.Title)
-            ? $"{def.Name} · {req.SourceTable}#{req.SourceId}"
+            ? ProcessContextData.TitleOf(dataJson ?? "") ?? $"{def.Name} · {req.SourceTable}#{req.SourceId}"
             : req.Title.Trim();
 
-        var instanceId = await _db.ExecuteScalarAsync<int>(new CommandDefinition("""
+        var instanceId = await _db.ExecuteScalarAsync<int>(new CommandDefinition($"""
             INSERT INTO dbo.SYS_ProcessInstance
-              (ProcessDefID, Status, SourceTable, SourceId, TargetTable, TargetId, Title, CurrentStepNo, StartedBy)
+              (ProcessDefID, Status, SourceTable, SourceId, TargetTable, TargetId, Title, CurrentStepNo, StartedBy
+               {(hasData ? ", DataJson" : "")})
             OUTPUT INSERTED.ProcessInstanceID
             VALUES
-              (@ProcessDefID, N'InProgress', @SourceTable, @SourceId, @TargetTable, @TargetId, @Title, @StepNo, @StartedBy)
+              (@ProcessDefID, N'InProgress', @SourceTable, @SourceId, @TargetTable, @TargetId, @Title, @StepNo, @StartedBy
+               {(hasData ? ", @DataJson" : "")})
             """, new
         {
             ProcessDefID = def.ProcessDefID,
@@ -614,7 +910,8 @@ public sealed class ProcessRepository
             req.TargetId,
             Title = title,
             StepNo = firstStep.StepNo,
-            req.StartedBy
+            req.StartedBy,
+            DataJson = dataJson
         }, cancellationToken: ct));
 
         if (IsTerminate(firstStep))
@@ -627,15 +924,17 @@ public sealed class ProcessRepository
             await TouchSourceProcessAsync(req.SourceTable, req.SourceId, "InProgress", instanceId, ct);
         }
 
-        return await _db.QueryFirstAsync<ProcessInstanceDto>(new CommandDefinition("""
+        var created = await _db.QueryFirstAsync<ProcessInstanceDto>(new CommandDefinition($"""
             SELECT
               i.ProcessInstanceID, i.ProcessDefID, d.Code AS ProcessCode, d.Name AS ProcessName,
               i.Status, i.SourceTable, i.SourceId, i.TargetTable, i.TargetId, i.Title,
               i.CurrentStepNo, i.StartedBy, i.StartedAt, i.CompletedAt, i.LastComment
+              {(hasData ? ", i.DataJson" : ", CAST(NULL AS nvarchar(max)) AS DataJson")}
             FROM dbo.SYS_ProcessInstance i
             INNER JOIN dbo.SYS_ProcessDef d ON d.ProcessDefID = i.ProcessDefID
             WHERE i.ProcessInstanceID = @instanceId
             """, new { instanceId }, cancellationToken: ct));
+        return created;
     }
 
     private async Task TouchSourceProcessAsync(string table, int id, string status, int? instanceId, CancellationToken ct)
