@@ -13,6 +13,7 @@ import { ReportSchedulesPage } from '../pages/ReportSchedulesPage';
 import { BudgetReportPage } from '../pages/BudgetReportPage';
 import { ApprovalGroupsPage } from '../pages/ApprovalGroupsPage';
 import { EGovAutoFetchPage } from '../pages/EGovAutoFetchPage';
+import { EGovSendSettingsPage } from '../pages/EGovSendSettingsPage';
 import { EGovMukellefCheckPage } from '../pages/EGovMukellefCheckPage';
 import { EGovConsolePage } from '../pages/EGovConsolePage';
 import { EGovTaxReportPage } from '../pages/EGovTaxReportPage';
@@ -167,6 +168,9 @@ export const ModuleWorkspace: React.FC<ModuleWorkspaceProps> = ({
     }
     if (activeScreen.isEGovAutoFetch) {
       return <EGovAutoFetchPage onBack={() => onNavigate(module.path)} />;
+    }
+    if (activeScreen.isEGovSendSettings) {
+      return <EGovSendSettingsPage onBack={() => onNavigate(module.path)} />;
     }
     if (activeScreen.isEGovMukellefCheck) {
       return <EGovMukellefCheckPage onBack={() => onNavigate(module.path)} />;

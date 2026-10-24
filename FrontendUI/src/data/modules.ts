@@ -1424,6 +1424,13 @@ export const APP_MODULES: AppModule[] = [
             subtitle: 'EGovAutoFetchSetting · gelen e-belgeler e-Logo’dan zamanlanmış çekilir, yeni faturalar onaya gider',
             isEGovAutoFetch: true,
           },
+          {
+            id: 'gonderim-ayarlari',
+            path: 'edevlet/tanimlar/gonderim-ayarlari',
+            title: 'Gönderim Ayarları',
+            subtitle: 'EGovSendSetting · giden e-Fatura / e-Arşiv seri önekleri, senaryo ve numara sayacı',
+            isEGovSendSettings: true,
+          },
         ],
       },
       {
