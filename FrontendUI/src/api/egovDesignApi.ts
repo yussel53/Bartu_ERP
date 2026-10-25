@@ -1,4 +1,4 @@
-import { API_BASE, apiJson } from '../config/api';
+import { API_BASE, ApiError, apiJson } from '../config/api';
 
 export interface EGovDesignRow {
   eGovXsltDesignID: number;
@@ -76,7 +76,7 @@ type Result = { success: boolean; message?: string; id?: number };
 async function sendForm<T>(path: string, form: FormData, fallback: string): Promise<T> {
   const res = await fetch(`${API_BASE}${path}`, { method: 'POST', body: form });
   const data = await res.json().catch(() => ({}));
-  if (!res.ok) throw new Error((data as { message?: string }).message || fallback);
+  if (!res.ok) throw new ApiError((data as { message?: string }).message || fallback, res.status, data);
   return data as T;
 }
 
@@ -86,11 +86,24 @@ export function listEGovDesigns(): Promise<Listed<EGovDesignRow>> {
   return apiJson('/api/egov/designs');
 }
 
-export function uploadEGovDesign(file: File, title?: string, docGroup?: string): Promise<Result> {
+/** Seçilen XSLT'nin içerikten anlaşılan belge grupları ve önerilen grup */
+export function detectEGovDesignGroups(file: File): Promise<{ groups: string[]; suggested: string }> {
+  const form = new FormData();
+  form.append('file', file);
+  return sendForm('/api/egov/designs/detect', form, 'XSLT incelenemedi');
+}
+
+/** İçerik seçilen belge grubuyla uyuşmuyor (409) — force ile yine de kaydedilebilir */
+export function isDocGroupMismatch(e: unknown): e is ApiError {
+  return e instanceof ApiError && e.status === 409 && (e.body as { code?: string } | null)?.code === 'docgroup-mismatch';
+}
+
+export function uploadEGovDesign(file: File, title?: string, docGroup?: string, force = false): Promise<Result> {
   const form = new FormData();
   form.append('file', file);
   if (title?.trim()) form.append('title', title.trim());
   if (docGroup) form.append('docGroup', docGroup);
+  if (force) form.append('force', 'true');
   return sendForm('/api/egov/designs', form, 'Tasarım yüklenemedi');
 }
 
@@ -99,15 +112,16 @@ export function loadStandardEGovDesigns(): Promise<Result & { added?: number; sk
   return apiJson('/api/egov/designs/standard', { method: 'POST' });
 }
 
-export function replaceEGovDesignContent(id: number, file: File): Promise<Result> {
+export function replaceEGovDesignContent(id: number, file: File, force = false): Promise<Result> {
   const form = new FormData();
   form.append('file', file);
+  if (force) form.append('force', 'true');
   return sendForm(`/api/egov/designs/${id}/content`, form, 'XSLT değiştirilemedi');
 }
 
 export function updateEGovDesign(
   id: number,
-  body: { title: string; isActive: boolean; notes?: string | null; docGroup?: string | null },
+  body: { title: string; isActive: boolean; notes?: string | null; docGroup?: string | null; force?: boolean },
 ): Promise<Result> {
   return apiJson(`/api/egov/designs/${id}`, { method: 'PUT', body: JSON.stringify(body) });
 }

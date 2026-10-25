@@ -101,6 +101,7 @@ public sealed class EGovDesignContent
     public string Title { get; set; } = "";
     public string? FileName { get; set; }
     public string XsltContent { get; set; } = "";
+    public string? DocGroup { get; set; }
 }
 
 public sealed class EGovDesignRuleRow
@@ -194,7 +195,7 @@ public sealed class EGovDesignRepository
     {
         Open();
         return await _db.QuerySingleOrDefaultAsync<EGovDesignContent>(new CommandDefinition(
-            @"SELECT EGovXsltDesignID, Title, FileName, XsltContent
+            @"SELECT EGovXsltDesignID, Title, FileName, XsltContent, DocGroup
               FROM dbo.EGovXsltDesign WHERE EGovXsltDesignID = @id",
             new { id }, cancellationToken: ct));
     }

@@ -87,6 +87,38 @@ public sealed class EGovXsltService
         return $"XSLT örnek belgede çalıştırılamadı: {Inner(firstError!).Message}";
     }
 
+    /// <summary>
+    /// Tasarımın içerikten anlaşılan belge grupları (EFATURA · EARSIV · EIRSALIYE). Örnek belgelerle denenir:
+    /// DespatchAdvice şablonu → e-İrsaliye; TİCARİ örnekte «arşiv» yazan → yalnız e-Arşiv; TİCARİ örnekte «fatura» yazan → e-Fatura;
+    /// e-Arşiv örneğinde «arşiv» yazan → e-Arşiv. Boş liste: anlaşılamadı (denetlenmez).
+    /// </summary>
+    public static List<string> DetectDocGroups(string xslt)
+    {
+        if (xslt.Contains("schema:xsd:DespatchAdvice-2", StringComparison.Ordinal)) return new() { "EIRSALIYE" };
+        var tr = CultureInfo.GetCultureInfo("tr-TR");
+        string Text(string kind)
+        {
+            try
+            {
+                var html = Transform(xslt, SampleXml(kind));
+                html = System.Text.RegularExpressions.Regex.Replace(html, @"<(script|style)[^>]*>[\s\S]*?</\1>", " ", System.Text.RegularExpressions.RegexOptions.IgnoreCase);
+                html = System.Text.RegularExpressions.Regex.Replace(html, "<[^>]+>", " ");
+                return System.Net.WebUtility.HtmlDecode(html).ToLower(tr);
+            }
+            catch
+            {
+                return "";
+            }
+        }
+        static bool Arsiv(string t) => t.Contains("arşiv") || t.Contains("arsiv");
+        var inv = Text("invoice");
+        var ars = Text("earsiv");
+        var groups = new List<string>();
+        if (!Arsiv(inv) && inv.Contains("fatura")) groups.Add("EFATURA");
+        if (Arsiv(ars)) groups.Add("EARSIV");
+        return groups;
+    }
+
     /// <summary>XSLT irsaliye (DespatchAdvice) için mi yazılmış? Önizlemede örnek seçimi için.</summary>
     public static string DetectSampleKind(string xslt) =>
         xslt.Contains("schema:xsd:DespatchAdvice-2", StringComparison.Ordinal) ? "despatch" : "invoice";

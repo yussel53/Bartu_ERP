@@ -20,6 +20,8 @@ import {
   egovDocTypeGroup,
   guessEGovDesignGroup,
   loadStandardEGovDesigns,
+  detectEGovDesignGroups,
+  isDocGroupMismatch,
 } from '../api/egovDesignApi';
 import {
   EGovDesignDocTypes,
@@ -86,6 +88,9 @@ export const EGovDesignTemplatesPage: React.FC<{ onBack: () => void }> = ({ onBa
   const [replaceId, setReplaceId] = useState<number | null>(null);
   const [designEdit, setDesignEdit] = useState<{ id: number; title: string; isActive: boolean; docGroup: string } | null>(null);
   const [uploadGroup, setUploadGroup] = useState('EFATURA');
+  // Seçilen dosyanın içerikten anlaşılan belge grupları (null: henüz bakılmadı / anlaşılamadı)
+  const [detected, setDetected] = useState<string[] | null>(null);
+  const [detecting, setDetecting] = useState(false);
 
   // Önizleme
   const [preview, setPreview] = useState<{ designId: number; title: string } | null>(null);
@@ -128,6 +133,36 @@ export const EGovDesignTemplatesPage: React.FC<{ onBack: () => void }> = ({ onBa
       return false;
     } finally {
       setBusy(false);
+    }
+  };
+
+  /** İçerikle uyuşmayan belge grubu: sunucu 409 döner, kullanıcı onaylarsa force ile yeniden gönderilir */
+  const withForce = async <T,>(call: (force: boolean) => Promise<T>): Promise<T> => {
+    try {
+      return await call(false);
+    } catch (e) {
+      if (!isDocGroupMismatch(e)) throw e;
+      const ok = await appConfirm(`${e.message} Yine de kaydedilsin mi?`, { okLabel: 'Yine de kaydet', danger: true });
+      if (!ok) throw new Error('Kaydedilmedi: belge türü içerikle uyuşmuyor.');
+      return await call(true);
+    }
+  };
+
+  const onPickFile = async (f: File | null) => {
+    setFile(f);
+    setDetected(null);
+    if (!f) return;
+    if (!title.trim()) setTitle(f.name);
+    setUploadGroup(guessEGovDesignGroup(f.name));
+    setDetecting(true);
+    try {
+      const r = await detectEGovDesignGroups(f);
+      setDetected(r.groups);
+      setUploadGroup(r.suggested);
+    } catch (e) {
+      setMsg({ kind: 'err', text: e instanceof Error ? e.message : 'XSLT incelenemedi' });
+    } finally {
+      setDetecting(false);
     }
   };
 
@@ -230,9 +265,10 @@ export const EGovDesignTemplatesPage: React.FC<{ onBack: () => void }> = ({ onBa
   // ─── Tasarımlar ──────────────────────────────────────────────────────────
   const upload = async () => {
     if (!file) return;
-    const ok = await run(() => uploadEGovDesign(file, title, uploadGroup));
+    const ok = await run(() => withForce((force) => uploadEGovDesign(file, title, uploadGroup, force)));
     if (ok) {
       setFile(null);
+      setDetected(null);
       setTitle('');
       if (fileInput.current) fileInput.current.value = '';
     }
@@ -249,7 +285,9 @@ export const EGovDesignTemplatesPage: React.FC<{ onBack: () => void }> = ({ onBa
   const saveDesignEdit = async () => {
     if (!designEdit) return;
     const ok = await run(() =>
-      updateEGovDesign(designEdit.id, { title: designEdit.title, isActive: designEdit.isActive, docGroup: designEdit.docGroup }),
+      withForce((force) =>
+        updateEGovDesign(designEdit.id, { title: designEdit.title, isActive: designEdit.isActive, docGroup: designEdit.docGroup, force }),
+      ),
     );
     if (ok) setDesignEdit(null);
   };
@@ -269,7 +307,7 @@ export const EGovDesignTemplatesPage: React.FC<{ onBack: () => void }> = ({ onBa
     if (!f || replaceId == null) return;
     const id = replaceId;
     setReplaceId(null);
-    const ok = await run(() => replaceEGovDesignContent(id, f));
+    const ok = await run(() => withForce((force) => replaceEGovDesignContent(id, f, force)));
     if (ok && preview?.designId === id) await renderPreview(id, preview.title);
   };
 
@@ -414,22 +452,27 @@ export const EGovDesignTemplatesPage: React.FC<{ onBack: () => void }> = ({ onBa
                 ref={fileInput}
                 type="file"
                 accept=".xslt,.xsl"
-                onChange={(e) => {
-                  const f = e.target.files?.[0] ?? null;
-                  setFile(f);
-                  if (f && !title.trim()) setTitle(f.name);
-                  if (f) setUploadGroup(guessEGovDesignGroup(f.name));
-                }}
+                onChange={(e) => void onPickFile(e.target.files?.[0] ?? null)}
                 className="text-[12px] file:mr-2 file:h-7 file:px-2 file:rounded-sm file:border file:border-slate-300 file:bg-white file:text-[12px]"
               />
               <input value={title} onChange={(e) => setTitle(e.target.value)} placeholder="Tasarım adı" className={`${inp} w-64`} />
-              <select value={uploadGroup} onChange={(e) => setUploadGroup(e.target.value)} className={inp} title="Tasarımın belge türü">
-                {EGOV_DESIGN_GROUPS.map((g) => (
-                  <option key={g.value} value={g.value}>
-                    {g.label}
-                  </option>
-                ))}
-              </select>
+              <label className="inline-flex items-center gap-1 text-[12px] text-slate-600">
+                Belge türü
+                <select value={uploadGroup} onChange={(e) => setUploadGroup(e.target.value)} className={inp} title="Tasarım hangi belge türünün şablonlarında seçilebilsin">
+                  {EGOV_DESIGN_GROUPS.map((g) => (
+                    <option key={g.value} value={g.value}>
+                      {g.label}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              {detecting && <span className="text-[11px] text-slate-400">İçerik inceleniyor…</span>}
+              {!detecting && detected && detected.length > 0 && (
+                <span className={`text-[11px] ${detected.includes(uploadGroup) ? 'text-emerald-700' : 'text-amber-700 font-medium'}`}>
+                  İçerikten: {detected.map((g) => egovDesignGroupLabel(g)).join(' / ')}
+                  {detected.includes(uploadGroup) ? ' ✓' : ' — seçilen türle uyuşmuyor'}
+                </span>
+              )}
               <button type="button" disabled={busy || !ready || !file} onClick={() => void upload()} className={btnPrimary}>
                 <Upload className="w-3.5 h-3.5" /> Yükle
               </button>
