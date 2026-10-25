@@ -152,7 +152,14 @@ public sealed class EGovDesignsController : ControllerBase
         }
         else
         {
-            xml = EGovXsltService.SampleXml(string.IsNullOrWhiteSpace(sample) ? EGovXsltService.DetectSampleKind(t.XsltContent) : sample);
+            // Otomatik örnek tasarımın belge türüne göre: e-Arşiv tasarımı EARSIVFATURA örneğiyle önizlenir
+            var auto = t.DocGroup switch
+            {
+                "EARSIV" => "earsiv",
+                "EIRSALIYE" => "despatch",
+                _ => EGovXsltService.DetectSampleKind(t.XsltContent),
+            };
+            xml = EGovXsltService.SampleXml(string.IsNullOrWhiteSpace(sample) ? auto : sample);
         }
         try
         {
