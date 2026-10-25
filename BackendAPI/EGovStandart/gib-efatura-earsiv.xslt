@@ -2610,7 +2610,7 @@
 									<br/>
 								</xsl:for-each>								
 								<xsl:if
-									test="//n1:Invoice/cbc:InvoiceTypeCode='IHRACKAYITLI' and //n1:Invoice/cac:TaxTotal/cac:TaxSubtotal/cac:TaxCategory/cbc:TaxExemptionReasonCode = '702' and exists(//n1:Invoice/cac:AdditionalDocumentReference/cbc:DocumentType[text()='KARSIBELGENO'])">
+									test="//n1:Invoice/cbc:InvoiceTypeCode='IHRACKAYITLI' and //n1:Invoice/cac:TaxTotal/cac:TaxSubtotal/cac:TaxCategory/cbc:TaxExemptionReasonCode = '702' and boolean(//n1:Invoice/cac:AdditionalDocumentReference/cbc:DocumentType[text()='KARSIBELGENO'])">
 									<b>&#160;&#160;&#160;&#160;&#160; Karşı Belge No: </b>
 									<xsl:value-of
 										select="//n1:Invoice/cac:AdditionalDocumentReference[cbc:DocumentType[text()='KARSIBELGENO']]/cbc:ID"/>
