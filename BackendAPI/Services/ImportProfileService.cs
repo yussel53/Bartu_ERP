@@ -27,6 +27,8 @@ public sealed class ImportProfileDto
     public int? IntervalMinutes { get; set; }
     public bool IsActive { get; set; } = true;
     public int? ProcessDefID { get; set; }
+    public string? AfterSql { get; set; }
+    public bool KeepLog { get; set; } = true;
     public DateTime? LastRunAt { get; set; }
     public DateTime? NextRunAt { get; set; }
     public string? LastStatus { get; set; }
@@ -57,7 +59,7 @@ public sealed class ImportProfileService
         if (!await TableAsync(ct)) return new();
         var rows = await _db.QueryAsync<ProfileRow>(new CommandDefinition(
             @"SELECT ImportProfileID, Title, Kind, SourceKind, SourceJson, MapJson, Mode, CreateMissingCards,
-                     ProductType, IntervalMinutes, IsActive, ProcessDefID, LastRunAt, NextRunAt, LastStatus
+                     ProductType, IntervalMinutes, IsActive, ProcessDefID, AfterSql, KeepLog, LastRunAt, NextRunAt, LastStatus
               FROM dbo.SYS_ImportProfile ORDER BY ImportProfileID DESC", cancellationToken: ct));
         return rows.Select(r => ToDto(r, mask: true)).ToList();
     }
@@ -69,7 +71,8 @@ public sealed class ImportProfileService
         var def = ImportRepository.GetTarget(dto.Kind) ?? throw new InvalidOperationException("Aktarım türü yok.");
         var title = (dto.Title ?? "").Trim();
         if (title.Length == 0) throw new InvalidOperationException("Profil adı yazın.");
-        if (dto.SourceKind is < 0 or > 3) throw new InvalidOperationException("Kaynak tipi yok.");
+        if (dto.SourceKind is < 0 or > 4) throw new InvalidOperationException("Kaynak tipi yok.");
+        if (dto.SourceKind == 4) dto.IntervalMinutes = null;
         if (dto.IntervalMinutes is <= 0) dto.IntervalMinutes = null;
         if (dto.IntervalMinutes is < 5 or > 10080)
             throw new InvalidOperationException("Aralık 5 dakika ile 7 gün arasında olmalı. Boş bırakılırsa yalnız elle çalışır.");
@@ -91,19 +94,27 @@ public sealed class ImportProfileService
         var sourceJson = JsonSerializer.Serialize(dto.Source, Json);
         var mapJson = JsonSerializer.Serialize(dto.Map ?? new(), Json);
         var mode = dto.Mode is "insert" or "update" ? dto.Mode : "upsert";
+        var afterSql = string.IsNullOrWhiteSpace(dto.AfterSql) ? null : dto.AfterSql.Trim();
+        if (afterSql != null)
+        {
+            if (!await ColAsync("SYS_ImportProfile", "AfterSql", ct))
+                throw new InvalidOperationException("Aktarım sonrası alanı yok. 106_sys_import_after_sql.sql uygulayın.");
+            EnsureUpdateSql(afterSql);
+        }
 
         if (dto.ImportProfileID <= 0)
         {
             dto.ImportProfileID = await _db.ExecuteScalarAsync<int>(new CommandDefinition(
                 @"INSERT INTO dbo.SYS_ImportProfile
-                    (Title, Kind, SourceKind, SourceJson, MapJson, Mode, CreateMissingCards, ProductType, IntervalMinutes, IsActive, NextRunAt)
+                    (Title, Kind, SourceKind, SourceJson, MapJson, Mode, CreateMissingCards, ProductType, IntervalMinutes, IsActive, AfterSql, KeepLog, NextRunAt)
                   OUTPUT INSERTED.ImportProfileID
-                  VALUES (@Title, @Kind, @SourceKind, @SourceJson, @MapJson, @Mode, @Cards, @ProductType, @Interval, @Active,
+                  VALUES (@Title, @Kind, @SourceKind, @SourceJson, @MapJson, @Mode, @Cards, @ProductType, @Interval, @Active, @AfterSql, @KeepLog,
                           CASE WHEN @Interval IS NULL THEN NULL ELSE SYSDATETIME() END)",
                 new
                 {
                     Title = title, Kind = def.Kind, dto.SourceKind, SourceJson = sourceJson, MapJson = mapJson, Mode = mode,
                     Cards = dto.CreateMissingCards, dto.ProductType, Interval = dto.IntervalMinutes, Active = dto.IsActive,
+                    AfterSql = afterSql, KeepLog = dto.KeepLog,
                 }, cancellationToken: ct));
         }
         else
@@ -112,14 +123,14 @@ public sealed class ImportProfileService
                 @"UPDATE dbo.SYS_ImportProfile
                   SET Title = @Title, Kind = @Kind, SourceKind = @SourceKind, SourceJson = @SourceJson, MapJson = @MapJson,
                       Mode = @Mode, CreateMissingCards = @Cards, ProductType = @ProductType, IntervalMinutes = @Interval,
-                      IsActive = @Active, UpdatedAt = SYSDATETIME(),
+                      IsActive = @Active, AfterSql = @AfterSql, KeepLog = @KeepLog, UpdatedAt = SYSDATETIME(),
                       NextRunAt = CASE WHEN @Interval IS NULL THEN NULL WHEN NextRunAt IS NULL THEN SYSDATETIME() ELSE NextRunAt END
                   WHERE ImportProfileID = @id",
                 new
                 {
                     Title = title, Kind = def.Kind, dto.SourceKind, SourceJson = sourceJson, MapJson = mapJson, Mode = mode,
                     Cards = dto.CreateMissingCards, dto.ProductType, Interval = dto.IntervalMinutes, Active = dto.IsActive,
-                    id = dto.ImportProfileID,
+                    AfterSql = afterSql, KeepLog = dto.KeepLog, id = dto.ImportProfileID,
                 }, cancellationToken: ct));
         }
 
@@ -131,11 +142,22 @@ public sealed class ImportProfileService
                 new { pid = processId, id = dto.ImportProfileID }, cancellationToken: ct));
         }
         dto.Title = title;
+        dto.AfterSql = afterSql;
         dto.Kind = def.Kind;
         dto.ProcessDefID = processId > 0 ? processId : dto.ProcessDefID;
         dto.HasPassword = !string.IsNullOrEmpty(dto.Source.Password);
         dto.Source.Password = null;
         return dto;
+    }
+
+    public async Task SetKeepLogAsync(int id, bool keepLog, CancellationToken ct)
+    {
+        if (!await ColAsync("SYS_ImportProfile", "KeepLog", ct))
+            throw new InvalidOperationException("Log takibi alanı yok. 107_sys_import_profile_log.sql uygulayın.");
+        var n = await _db.ExecuteAsync(new CommandDefinition(
+            "UPDATE dbo.SYS_ImportProfile SET KeepLog = @keep, UpdatedAt = SYSDATETIME() WHERE ImportProfileID = @id",
+            new { keep = keepLog, id }, cancellationToken: ct));
+        if (n == 0) throw new InvalidOperationException("Aktarım yok.");
     }
 
     public async Task DeleteAsync(int id, CancellationToken ct)
@@ -182,10 +204,12 @@ public sealed class ImportProfileService
             throw new InvalidOperationException("Aktarım profili tablosu yok.");
         var row = await _db.QuerySingleOrDefaultAsync<ProfileRow>(new CommandDefinition(
             @"SELECT ImportProfileID, Title, Kind, SourceKind, SourceJson, MapJson, Mode, CreateMissingCards,
-                     ProductType, IntervalMinutes, IsActive, ProcessDefID, LastRunAt, NextRunAt, LastStatus
+                     ProductType, IntervalMinutes, IsActive, ProcessDefID, AfterSql, KeepLog, LastRunAt, NextRunAt, LastStatus
               FROM dbo.SYS_ImportProfile WHERE ImportProfileID = @id",
             new { id }, cancellationToken: ct)) ?? throw new InvalidOperationException("Profil yok.");
         var dto = ToDto(row, mask: false);
+        if (dto.SourceKind == 4)
+            throw new InvalidOperationException("Excel aktarımı listeden açılıp dosya seçilerek çalışır.");
         dto.Source.SourceType = dto.SourceKind;
         var result = await ApplySourceAsync(dto, dryRun, ct);
         if (!dryRun)
@@ -238,11 +262,20 @@ public sealed class ImportProfileService
         ValidateSource(dto.Source);
         var pulled = await ReadAsync(dto.Source, ct);
         var rows = new List<Dictionary<string, string?>>();
+        var sourceRows = new List<Dictionary<string, string?>>();
         var i = 0;
         foreach (var src in pulled)
         {
             i++;
-            var rec = new Dictionary<string, string?>(StringComparer.OrdinalIgnoreCase) { ["__row"] = (i + 1).ToString(CultureInfo.InvariantCulture) };
+            var rowNo = (i + 1).ToString(CultureInfo.InvariantCulture);
+            var rec = new Dictionary<string, string?>(StringComparer.OrdinalIgnoreCase) { ["__row"] = rowNo };
+            var srcRow = new Dictionary<string, string?>(StringComparer.OrdinalIgnoreCase) { ["__row"] = rowNo };
+            foreach (var kv in src)
+            {
+                if (!Ident.IsMatch(kv.Key)) continue;
+                var text = Cell(kv.Value);
+                if (!string.IsNullOrWhiteSpace(text)) srcRow[kv.Key] = text;
+            }
             var any = false;
             foreach (var map in dto.Map)
             {
@@ -253,10 +286,12 @@ public sealed class ImportProfileService
                 rec[map.Field] = text;
                 any = true;
             }
-            if (any) rows.Add(rec);
+            if (!any) continue;
+            rows.Add(rec);
+            sourceRows.Add(srcRow);
         }
         if (rows.Count == 0) throw new InvalidOperationException("Sorgudan aktarılacak satır gelmedi.");
-        return await _import.ApplyAsync(dto.Kind, new ImportApplyRequest
+        var result = await _import.ApplyAsync(dto.Kind, new ImportApplyRequest
         {
             Rows = rows,
             Mode = dto.Mode,
@@ -265,7 +300,151 @@ public sealed class ImportProfileService
             CreateMissingCards = dto.CreateMissingCards,
             FileName = dto.Title,
             ImportedBy = "surec",
+            WriteLog = dto.KeepLog,
+            ProfileId = dto.ImportProfileID,
         }, ct);
+        if (!dryRun && !string.IsNullOrWhiteSpace(dto.AfterSql))
+            await MarkSourceAsync(dto.Source, dto.AfterSql, result, rows, sourceRows, ct);
+        return result;
+    }
+
+    /// <summary>Her başarılı kayıttan sonra kaynakta UPDATE çalıştırır. @KayitId oluşan kaydın numarasıdır.</summary>
+    public async Task MarkSourceAsync(
+        ProcessSourceRequest source,
+        string afterSql,
+        ImportApplyResult result,
+        IReadOnlyList<Dictionary<string, string?>> mappedRows,
+        IReadOnlyList<Dictionary<string, string?>>? sourceRows,
+        CancellationToken ct)
+    {
+        var sql = afterSql.Trim();
+        if (sql.Length == 0) return;
+        try
+        {
+            EnsureUpdateSql(sql);
+            if (source.SourceType == 3)
+                throw new InvalidOperationException("Geri güncelleme SQL kaynağında çalışır.");
+            if (source.SourceType is 1 or 2 && string.IsNullOrWhiteSpace(source.Server))
+                throw new InvalidOperationException("Geri güncelleme için sunucu yazın.");
+        }
+        catch (Exception ex)
+        {
+            result.AfterError = ex.Message;
+            return;
+        }
+
+        var byRow = new Dictionary<int, Dictionary<string, string?>>();
+        void Take(IReadOnlyList<Dictionary<string, string?>>? list)
+        {
+            if (list == null) return;
+            foreach (var row in list)
+            {
+                if (!row.TryGetValue("__row", out var rn) || !int.TryParse(rn, out var n)) continue;
+                if (!byRow.TryGetValue(n, out var bag))
+                {
+                    bag = new Dictionary<string, string?>(StringComparer.OrdinalIgnoreCase);
+                    byRow[n] = bag;
+                }
+                foreach (var kv in row)
+                {
+                    if (kv.Key == "__row" || string.IsNullOrWhiteSpace(kv.Value)) continue;
+                    if (!Ident.IsMatch(kv.Key)) continue;
+                    bag[kv.Key] = kv.Value;
+                }
+            }
+        }
+        Take(sourceRows);
+        Take(mappedRows);
+
+        var names = ParamNames(sql);
+        foreach (var row in result.Rows)
+        {
+            if (row.Action is not ("insert" or "update") || row.RecordId is not > 0) continue;
+            var lines = row.LineNos is { Count: > 0 } ? row.LineNos : new List<int> { row.RowNo };
+            foreach (var lineNo in lines.Distinct())
+            {
+                byRow.TryGetValue(lineNo, out var vals);
+                vals ??= new Dictionary<string, string?>(StringComparer.OrdinalIgnoreCase);
+                var args = ArgsOf(names, vals, row);
+                try
+                {
+                    if (source.SourceType == 0)
+                    {
+                        Open();
+                        await _db.ExecuteAsync(new CommandDefinition(sql, args, commandTimeout: 60, cancellationToken: ct));
+                    }
+                    else
+                        await ProcessSource.ExecuteAsync(source, sql, args, ct);
+                    result.AfterUpdated++;
+                }
+                catch (Exception ex) when (!ct.IsCancellationRequested)
+                {
+                    result.AfterFailed++;
+                    var note = "Kaynak güncellenemedi: " + ex.Message;
+                    row.Message = string.IsNullOrWhiteSpace(row.Message) ? note : row.Message + "; " + note;
+                }
+            }
+        }
+    }
+
+    private static readonly System.Text.RegularExpressions.Regex Ident =
+        new(@"^[A-Za-z_][A-Za-z0-9_]*$", System.Text.RegularExpressions.RegexOptions.Compiled);
+
+    private static readonly System.Text.RegularExpressions.Regex Param =
+        new(@"(?<!@)@([A-Za-z_][A-Za-z0-9_]*)", System.Text.RegularExpressions.RegexOptions.Compiled);
+
+    private static readonly System.Text.RegularExpressions.Regex Forbidden =
+        new(@"\b(INSERT|DELETE|DROP|ALTER|EXEC|EXECUTE|MERGE|TRUNCATE|GRANT|REVOKE)\b", System.Text.RegularExpressions.RegexOptions.IgnoreCase | System.Text.RegularExpressions.RegexOptions.Compiled);
+
+    public static void EnsureUpdateSql(string sql)
+    {
+        var bare = System.Text.RegularExpressions.Regex.Replace(sql, @"/\*.*?\*/", " ", System.Text.RegularExpressions.RegexOptions.Singleline);
+        bare = System.Text.RegularExpressions.Regex.Replace(bare, @"--.*?$", " ", System.Text.RegularExpressions.RegexOptions.Multiline).Trim();
+        if (bare.Length == 0) throw new InvalidOperationException("Aktarım sonrası UPDATE yazın.");
+        if (System.Text.RegularExpressions.Regex.IsMatch(bare, @"\bGO\b", System.Text.RegularExpressions.RegexOptions.IgnoreCase))
+            throw new InvalidOperationException("Aktarım sonrası komutunda GO kullanılamaz.");
+        if (Forbidden.IsMatch(bare))
+            throw new InvalidOperationException("Aktarım sonrası yalnız UPDATE yazılabilir.");
+        foreach (var part in bare.Split(';', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries))
+        {
+            if (!part.StartsWith("UPDATE", StringComparison.OrdinalIgnoreCase))
+                throw new InvalidOperationException("Aktarım sonrası yalnız UPDATE yazılabilir.");
+        }
+    }
+
+    private static List<string> ParamNames(string sql)
+    {
+        var names = new List<string>();
+        var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        foreach (System.Text.RegularExpressions.Match m in Param.Matches(sql))
+            if (seen.Add(m.Groups[1].Value)) names.Add(m.Groups[1].Value);
+        return names;
+    }
+
+    private static DynamicParameters ArgsOf(List<string> names, Dictionary<string, string?> vals, ImportRowResult row)
+    {
+        string? Pick(params string[] keys)
+        {
+            foreach (var key in keys)
+                if (vals.TryGetValue(key, out var v) && !string.IsNullOrWhiteSpace(v)) return v;
+            return null;
+        }
+        var belge = Pick("DocumentNumber", "EDocumentNumber", "BelgeNo") ?? row.Code;
+        var fis = Pick("DocumentNumber", "journalNO", "FisNo") ?? row.Code;
+        var args = new DynamicParameters();
+        foreach (var name in names)
+        {
+            object? value = name.ToLowerInvariant() switch
+            {
+                "kayitid" => row.RecordId,
+                "belgeno" => belge,
+                "fisno" => fis,
+                "kod" => row.Code,
+                _ => vals.TryGetValue(name, out var v) ? v : null,
+            };
+            args.Add(name, value);
+        }
+        return args;
     }
 
     private async Task<List<Dictionary<string, object?>>> ReadAsync(ProcessSourceRequest req, CancellationToken ct)
@@ -465,6 +644,8 @@ public sealed class ImportProfileService
             LastRunAt = row.LastRunAt,
             NextRunAt = row.NextRunAt,
             LastStatus = row.LastStatus,
+            AfterSql = row.AfterSql,
+            KeepLog = row.KeepLog,
             HasPassword = hasPassword,
         };
     }
@@ -511,6 +692,8 @@ public sealed class ImportProfileService
         public int? IntervalMinutes { get; set; }
         public bool IsActive { get; set; }
         public int? ProcessDefID { get; set; }
+        public string? AfterSql { get; set; }
+        public bool KeepLog { get; set; } = true;
         public DateTime? LastRunAt { get; set; }
         public DateTime? NextRunAt { get; set; }
         public string? LastStatus { get; set; }

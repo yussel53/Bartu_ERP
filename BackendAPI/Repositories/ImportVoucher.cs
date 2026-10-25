@@ -238,7 +238,15 @@ public sealed partial class ImportRepository
 
             var cardNote = CardNote(req.DryRun, opened, cards.Existing);
             var header = HeaderOf(def, first, headerCustomer, headerBank, headerWhouse, saveLines);
-            var res = new ImportRowResult { RowNo = first.RowNo, Code = no, Action = found ? "update" : "insert", RecordId = found ? id : null, Message = cardNote };
+            var res = new ImportRowResult
+            {
+                RowNo = first.RowNo,
+                Code = no,
+                Action = found ? "update" : "insert",
+                RecordId = found ? id : null,
+                Message = cardNote,
+                LineNos = lines.Select(l => l.RowNo).Distinct().ToList(),
+            };
             if (!req.DryRun)
             {
                 var (ok, saved, msg) = await _records.SaveAsync(def.TableName, def.PrimaryKey, new RecordSaveRequest

@@ -31,7 +31,7 @@ public sealed class ImportController : ControllerBase
     [HttpPost("parse")]
     [DisableRequestSizeLimit]
     [RequestFormLimits(MultipartBodyLengthLimit = long.MaxValue)]
-    public IActionResult Parse(IFormFile? file)
+    public IActionResult Parse(IFormFile? file, [FromQuery] string? kind)
     {
         if (file == null || file.Length == 0) return BadRequest(new { message = "Dosya seçilmedi" });
         try
@@ -43,6 +43,8 @@ public sealed class ImportController : ControllerBase
             SpreadsheetData data;
             if (YevmiyeReader.TryRead(bytes, file.FileName, out var yevmiye, out var yerr))
             {
+                if (!string.Equals(kind, "account-voucher", StringComparison.OrdinalIgnoreCase))
+                    return BadRequest(new { message = "e-Defter yevmiye yalnız Muhasebe Fişi aktarımında kullanılır." });
                 if (yerr != null) return BadRequest(new { message = yerr });
                 data = yevmiye!;
             }
@@ -99,6 +101,23 @@ public sealed class ImportController : ControllerBase
         catch (Exception ex) { return StatusCode(500, new { message = ex.Message }); }
     }
 
+    public sealed class ImportLogFlag
+    {
+        public bool KeepLog { get; set; }
+    }
+
+    [HttpPost("profiles/{id:int}/log")]
+    public async Task<IActionResult> SetProfileLog(int id, [FromBody] ImportLogFlag body, CancellationToken ct)
+    {
+        try
+        {
+            await _profiles.SetKeepLogAsync(id, body.KeepLog, ct);
+            return Ok(new { ok = true });
+        }
+        catch (InvalidOperationException ex) { return BadRequest(new { message = ex.Message }); }
+        catch (Exception ex) { return StatusCode(500, new { message = ex.Message }); }
+    }
+
     [HttpDelete("profiles/{id:int}")]
     public async Task<IActionResult> DeleteProfile(int id, CancellationToken ct)
     {
@@ -116,6 +135,25 @@ public sealed class ImportController : ControllerBase
         try { return Ok(await _profiles.RunAsync(id, dryRun, ct)); }
         catch (InvalidOperationException ex) { return BadRequest(new { message = ex.Message }); }
         catch (Exception ex) { return StatusCode(500, new { message = ex.Message }); }
+    }
+
+    [HttpPost("source/test")]
+    public async Task<IActionResult> SourceTest([FromBody] ProcessSourceRequest req, CancellationToken ct)
+    {
+        try
+        {
+            if (req.SourceType == 0)
+            {
+                if (_db.State != ConnectionState.Open) _db.Open();
+                await _db.ExecuteScalarAsync<int>(new CommandDefinition("SELECT 1", cancellationToken: ct));
+                return Ok(new ProcessSourceTest { Ok = true, Message = "Bu veritabanına bağlanıldı." });
+            }
+            return Ok(await ProcessSource.TestAsync(req, ct));
+        }
+        catch (Exception ex)
+        {
+            return Ok(new ProcessSourceTest { Ok = false, Message = ex.InnerException?.Message ?? ex.Message });
+        }
     }
 
     [HttpPost("source/columns")]
@@ -164,7 +202,10 @@ public sealed class ImportController : ControllerBase
         if (req.Rows.Count == 0) return BadRequest(new { message = "Aktarılacak satır yok" });
         try
         {
-            return Ok(await _repo.ApplyAsync(kind, req, ct));
+            var result = await _repo.ApplyAsync(kind, req, ct);
+            if (!req.DryRun && !string.IsNullOrWhiteSpace(req.AfterSql))
+                await _profiles.MarkSourceAsync(req.Source ?? new ProcessSourceRequest(), req.AfterSql, result, req.Rows, req.SourceRows, ct);
+            return Ok(result);
         }
         catch (Exception ex)
         {
@@ -173,18 +214,25 @@ public sealed class ImportController : ControllerBase
     }
 
     [HttpGet("history")]
-    public async Task<IActionResult> History([FromQuery] int take = 30, CancellationToken ct = default)
+    public async Task<IActionResult> History([FromQuery] int take = 30, [FromQuery] int? profileId = null, CancellationToken ct = default)
     {
         try
         {
             if (_db.State != ConnectionState.Open) _db.Open();
             var exists = await _db.ExecuteScalarAsync<int?>("SELECT OBJECT_ID(N'dbo.SYS_ImportLog', N'U')");
             if (exists is null) return Ok(Array.Empty<object>());
-            var rows = await _db.QueryAsync(new CommandDefinition(
-                @"SELECT TOP (@take) ImportLogID, Kind, TableName, FileName, Mode, TotalRows, Inserted, Updated,
+            var hasProfile = await _db.ExecuteScalarAsync<int?>("SELECT COL_LENGTH(N'dbo.SYS_ImportLog', N'ImportProfileID')");
+            var sql = hasProfile is > 0
+                ? @"SELECT TOP (@take) ImportLogID, Kind, TableName, FileName, Mode, TotalRows, Inserted, Updated,
+                         Skipped, Failed, ImportedBy, ImportedAt, ImportProfileID
+                  FROM dbo.SYS_ImportLog
+                  WHERE @profileId IS NULL OR ImportProfileID = @profileId
+                  ORDER BY ImportLogID DESC"
+                : @"SELECT TOP (@take) ImportLogID, Kind, TableName, FileName, Mode, TotalRows, Inserted, Updated,
                          Skipped, Failed, ImportedBy, ImportedAt
-                  FROM dbo.SYS_ImportLog ORDER BY ImportLogID DESC",
-                new { take = Math.Clamp(take, 1, 200) }, cancellationToken: ct));
+                  FROM dbo.SYS_ImportLog ORDER BY ImportLogID DESC";
+            var rows = await _db.QueryAsync(new CommandDefinition(
+                sql, new { take = Math.Clamp(take, 1, 200), profileId }, cancellationToken: ct));
             return Ok(rows);
         }
         catch (Exception ex)

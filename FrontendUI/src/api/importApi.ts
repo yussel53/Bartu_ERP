@@ -52,6 +52,9 @@ export type ImportApplyRequest = {
   createMissingCards?: boolean;
   fileName?: string;
   importedBy?: string;
+  afterSql?: string;
+  source?: ImportSourceRequest;
+  sourceRows?: Record<string, string>[];
 };
 
 export type ImportRowResult = {
@@ -70,6 +73,9 @@ export type ImportApplyResult = {
   skipped: number;
   failed: number;
   rowsTruncated?: boolean;
+  afterUpdated?: number;
+  afterFailed?: number;
+  afterError?: string | null;
   rows: ImportRowResult[];
 };
 
@@ -103,10 +109,11 @@ export const fetchImportSources = () => apiJson<ImportSourceDef[]>('/api/import/
 export const sourceHeader = (source: ImportSourceDef | null, kind: string, field: ImportFieldDef) =>
   source?.headers?.[kind]?.[field.key] || field.label;
 
-export async function parseImportFile(file: File): Promise<ParsedSheet> {
+export async function parseImportFile(file: File, kind?: ImportKind): Promise<ParsedSheet> {
   const form = new FormData();
   form.append('file', file);
-  const res = await fetch(`${API_BASE}/api/import/parse`, { method: 'POST', body: form });
+  const q = kind ? `?kind=${encodeURIComponent(kind)}` : '';
+  const res = await fetch(`${API_BASE}/api/import/parse${q}`, { method: 'POST', body: form });
   const data = await res.json().catch(() => ({}));
   if (!res.ok) {
     const msg = (data as { message?: string }).message || res.statusText || 'Dosya okunamadı';
@@ -127,7 +134,14 @@ export const importTemplateUrl = (kind: ImportKind, source = 'bartu', fields?: s
   return `${API_BASE}/api/import/${kind}/template?${q.toString()}`;
 };
 
-export const fetchImportHistory = (take = 30) => apiJson<ImportLogRow[]>(`/api/import/history?take=${take}`);
+export const fetchImportHistory = (take = 30, profileId?: number) =>
+  apiJson<ImportLogRow[]>(`/api/import/history?take=${take}${profileId ? `&profileId=${profileId}` : ''}`);
+
+export const setImportProfileLog = (id: number, keepLog: boolean) =>
+  apiJson<{ ok: boolean }>(`/api/import/profiles/${id}/log`, {
+    method: 'POST',
+    body: JSON.stringify({ keepLog }),
+  });
 
 export const fetchImportFields = (kind: ImportKind) => apiJson<ImportFieldDef[]>(`/api/import/${kind}/fields`);
 
@@ -166,6 +180,8 @@ export type ImportProfile = {
   lastRunAt?: string | null;
   nextRunAt?: string | null;
   lastStatus?: string | null;
+  afterSql?: string | null;
+  keepLog?: boolean;
   hasPassword?: boolean;
 };
 
@@ -179,6 +195,12 @@ export const deleteImportProfile = (id: number) =>
 
 export const runImportProfile = (id: number, dryRun: boolean) =>
   apiJson<ImportApplyResult>(`/api/import/profiles/${id}/run?dryRun=${dryRun}`, { method: 'POST', body: '{}' });
+
+export const testImportSource = (body: ImportSourceRequest) =>
+  apiJson<{ ok: boolean; message: string; databases?: string[] }>('/api/import/source/test', {
+    method: 'POST',
+    body: JSON.stringify(body),
+  });
 
 export const fetchImportSourceColumns = (body: ImportSourceRequest) =>
   apiJson<string[]>('/api/import/source/columns', { method: 'POST', body: JSON.stringify(body) });

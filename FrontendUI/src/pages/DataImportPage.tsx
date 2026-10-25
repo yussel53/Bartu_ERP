@@ -1,5 +1,6 @@
 import React from 'react';
-import { FileSpreadsheet, Download, Upload, Eye, CheckCircle2, Package, Users, BookOpen, X } from 'lucide-react';
+import { FileSpreadsheet, Download, Upload, Eye, CheckCircle2, X, Play, ScrollText } from 'lucide-react';
+import { RowActions } from '../components/RowActions';
 import {
   applyImport,
   deleteImportProfile,
@@ -7,13 +8,15 @@ import {
   fetchImportHistory,
   fetchImportProfiles,
   fetchImportSourceColumns,
+  testImportSource,
   fetchImportSourceRows,
   fetchImportSources,
   fetchImportTargets,
   importTemplateUrl,
   parseImportFile,
-  runImportProfile,
   saveImportProfile,
+  setImportProfileLog,
+  runImportProfile,
   sourceHeader,
   type ImportApplyResult,
   type ImportFieldDef,
@@ -34,15 +37,9 @@ interface DataImportPageProps {
   onBack?: () => void;
 }
 
-const KIND_ICON: Record<string, React.ComponentType<{ className?: string }>> = {
-  product: Package,
-  customer: Users,
-  account: BookOpen,
-  invoice: FileSpreadsheet,
-  'customer-voucher': Users,
-  'bank-voucher': FileSpreadsheet,
-  'account-voucher': BookOpen,
-};
+const KIND_ORDER: ImportKind[] = [
+  'product', 'customer', 'account', 'invoice', 'customer-voucher', 'bank-voucher', 'account-voucher',
+];
 
 const KIND_LABEL: Record<string, string> = {
   product: 'Malzeme / Hizmet',
@@ -79,7 +76,7 @@ const norm = (s: string) => s.trim().toLocaleLowerCase('tr-TR');
 const CHANNELS = [
   { value: 'excel', label: 'Excel / CSV' },
   { value: '0', label: 'Bu veritabanı (SELECT)' },
-  { value: '1', label: 'SQL Server (Logo, Mikro…)' },
+  { value: '1', label: 'SQL Server' },
   { value: '2', label: 'MySQL' },
   { value: '3', label: 'REST API' },
 ] as const;
@@ -125,6 +122,11 @@ function autoMap(headers: string[], fields: ImportFieldDef[], source: ImportSour
 }
 
 const fmtTime = (v: string) => new Date(v.endsWith('Z') ? v : `${v}Z`).toLocaleString('tr-TR');
+const fmtRun = (v?: string | null) => {
+  if (!v) return '—';
+  const d = new Date(v);
+  return Number.isNaN(d.getTime()) ? '—' : d.toLocaleString('tr-TR');
+};
 
 export const DataImportPage: React.FC<DataImportPageProps> = () => {
   const [targets, setTargets] = React.useState<ImportTargetDef[]>([]);
@@ -132,13 +134,17 @@ export const DataImportPage: React.FC<DataImportPageProps> = () => {
   const [sourceId, setSourceId] = React.useState('bartu');
   const [kind, setKind] = React.useState<ImportKind>('product');
   const [catalog, setCatalog] = React.useState<ImportFieldDef[]>([]);
-  const [picked, setPicked] = React.useState<Set<string>>(new Set());
+  const [extraKeys, setExtraKeys] = React.useState<string[]>([]);
+  const [alias, setAlias] = React.useState<Record<string, string>>({});
+  const aliasRef = React.useRef(alias);
+  aliasRef.current = alias;
   const [channel, setChannel] = React.useState<Channel>('excel');
   const [link, setLink] = React.useState<ImportSourceRequest>(emptySource);
   const [colMap, setColMap] = React.useState<Record<string, string>>({});
   const [profileId, setProfileId] = React.useState(0);
   const [profileTitle, setProfileTitle] = React.useState('');
   const [intervalMin, setIntervalMin] = React.useState('');
+  const [afterSql, setAfterSql] = React.useState('');
   const [profiles, setProfiles] = React.useState<ImportProfile[]>([]);
   const savedMap = React.useRef<ImportMapItem[] | null>(null);
   const [productType, setProductType] = React.useState(1);
@@ -150,13 +156,38 @@ export const DataImportPage: React.FC<DataImportPageProps> = () => {
   const [onlyProblems, setOnlyProblems] = React.useState(false);
   const [history, setHistory] = React.useState<ImportLogRow[]>([]);
   const [busy, setBusy] = React.useState(false);
+  const [screen, setScreen] = React.useState<'list' | 'form'>('list');
   const [error, setError] = React.useState<string | null>(null);
   const [info, setInfo] = React.useState<string | null>(null);
+  const [linkTest, setLinkTest] = React.useState<{ ok: boolean; message: string } | null>(null);
+  const [keepLog, setKeepLog] = React.useState(true);
+  const [logFor, setLogFor] = React.useState<number | null>(null);
+  const [profileLogs, setProfileLogs] = React.useState<ImportLogRow[]>([]);
+  const [runningId, setRunningId] = React.useState<number | null>(null);
   const fileRef = React.useRef<HTMLInputElement>(null);
 
   const target = targets.find((t) => t.kind === kind) ?? null;
   const source = sources.find((s) => s.id === sourceId) ?? sources[0] ?? null;
   const fields = catalog.length ? catalog : (target?.fields ?? []);
+  const curated = target?.fields?.length ? target.fields : fields;
+  const baseTemplate = curated.filter((f) => f.required || f.defaultOn !== false);
+  const known = new Map<string, ImportFieldDef>();
+  for (const f of [...curated, ...fields]) known.set(f.key, f);
+  const templateFields = [
+    ...baseTemplate,
+    ...extraKeys
+      .map((k) => known.get(k))
+      .filter((f): f is ImportFieldDef => {
+        if (!f) return false;
+        return !baseTemplate.some((b) => b.key === f.key);
+      }),
+  ];
+  const addable = [...known.values()]
+    .filter((f) => !templateFields.some((t) => t.key === f.key))
+    .sort((a, b) => a.label.localeCompare(b.label, 'tr'));
+  const headerSource = channel === 'excel' ? source : null;
+  const headerOf = (f: ImportFieldDef) => sourceHeader(headerSource, kind, f);
+  const sourceName = (f: ImportFieldDef) => (alias[f.key] !== undefined ? alias[f.key] : headerOf(f));
 
   React.useEffect(() => {
     let cancel = false;
@@ -165,12 +196,6 @@ export const DataImportPage: React.FC<DataImportPageProps> = () => {
       .catch(() => { if (!cancel) setCatalog([]); });
     return () => { cancel = true; };
   }, [kind]);
-
-  React.useEffect(() => {
-    const list = catalog.length ? catalog : (target?.fields ?? []);
-    if (!list.length) return;
-    setPicked(new Set(list.filter((f) => f.required || f.defaultOn !== false).map((f) => f.key)));
-  }, [kind, catalog, target]);
 
   const loadHistory = React.useCallback(async () => {
     try {
@@ -192,12 +217,30 @@ export const DataImportPage: React.FC<DataImportPageProps> = () => {
   }, [loadHistory]);
 
   React.useEffect(() => {
+    if (!logFor) {
+      setProfileLogs([]);
+      return;
+    }
+    let cancel = false;
+    fetchImportHistory(40, logFor)
+      .then((rows) => { if (!cancel) setProfileLogs(rows); })
+      .catch(() => { if (!cancel) setProfileLogs([]); });
+    return () => { cancel = true; };
+  }, [logFor, profiles]);
+
+  React.useEffect(() => {
     if (!sheet) {
       setColMap((prev) => (Object.keys(prev).length ? {} : prev));
       return;
     }
-    const list = catalog.length ? catalog : (target?.fields ?? []);
-    const map = autoMap(sheet.headers, list, channel === 'excel' ? source : null, kind);
+    const map = autoMap(sheet.headers, templateFields, channel === 'excel' ? source : null, kind);
+    for (const f of templateFields) {
+      if (aliasRef.current[f.key] === undefined) continue;
+      const want = aliasRef.current[f.key].trim();
+      for (const h of Object.keys(map)) if (map[h] === f.key) map[h] = '';
+      const hit = want ? sheet.headers.find((h) => norm(h) === norm(want)) : undefined;
+      if (hit) map[hit] = f.key;
+    }
     if (savedMap.current) {
       for (const item of savedMap.current) {
         if (sheet.headers.includes(item.header)) map[item.header] = item.field;
@@ -209,20 +252,20 @@ export const DataImportPage: React.FC<DataImportPageProps> = () => {
 
   const assigned = Object.values(colMap).filter(Boolean);
   const duplicateFields = [...new Set(assigned.filter((key, i) => assigned.indexOf(key) !== i))];
-  const missingRequired = fields.filter((f) => f.required && !assigned.includes(f.key));
+  const missingRequired = templateFields.filter((f) => f.required && !assigned.includes(f.key));
   const templateOk = Boolean(sheet && sheet.rows.length > 0 && missingRequired.length === 0 && duplicateFields.length === 0);
 
   React.useEffect(() => {
     setResult(null);
     setInfo(null);
-  }, [target, sheet, mode, productType, accountPrefixParent, createMissingCards, sourceId, picked]);
+  }, [target, sheet, mode, productType, accountPrefixParent, createMissingCards, sourceId, extraKeys]);
 
   const onFile = async (file: File | undefined) => {
     if (!file) return;
     setBusy(true);
     setError(null);
     try {
-      setSheet(await parseImportFile(file));
+      setSheet(await parseImportFile(file, kind));
     } catch (e) {
       setSheet(null);
       setError(e instanceof Error ? e.message : 'Dosya okunamadı');
@@ -251,6 +294,21 @@ export const DataImportPage: React.FC<DataImportPageProps> = () => {
     return out;
   };
 
+  const buildSourceRows = (): Record<string, string>[] => {
+    if (!sheet) return [];
+    const out: Record<string, string>[] = [];
+    sheet.rows.forEach((cells, i) => {
+      const rec: Record<string, string> = { __row: String(i + 2) };
+      sheet.headers.forEach((header, col) => {
+        if (!/^[A-Za-z_][A-Za-z0-9_]*$/.test(header)) return;
+        const v = (cells[col] ?? '').trim();
+        if (v) rec[header] = v;
+      });
+      out.push(rec);
+    });
+    return out;
+  };
+
   const sourceRequest = (): ImportSourceRequest => ({
     ...link,
     sourceType: Number(channel),
@@ -263,9 +321,38 @@ export const DataImportPage: React.FC<DataImportPageProps> = () => {
       const headers = await fetchImportSourceColumns(sourceRequest());
       savedMap.current = null;
       setSheet({ fileName: channel === '3' ? 'API' : 'SQL', sheetName: '', headers, rows: [], truncated: false });
-      setInfo(`${headers.length} kolon başlığı alındı. Kavi Soft alanıyla eşleştirin, sonra veriyi çekin.`);
+      setInfo(`${headers.length} kolon başlığı SELECT altında listelendi.`);
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Kolonlar okunamadı');
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const testLink = async () => {
+    setBusy(true);
+    setError(null);
+    setLinkTest(null);
+    try {
+      const res = await testImportSource(sourceRequest());
+      setLinkTest({ ok: res.ok, message: res.message });
+      if (!res.ok) {
+        setError(res.message);
+        return;
+      }
+      const canList = channel === '3' || Boolean((link.sql ?? '').trim());
+      if (!canList) {
+        setInfo(res.message);
+        return;
+      }
+      const headers = await fetchImportSourceColumns(sourceRequest());
+      savedMap.current = null;
+      setSheet({ fileName: channel === '3' ? 'API' : 'SQL', sheetName: '', headers, rows: [], truncated: false });
+      setInfo(`${res.message} ${headers.length} kolon başlığı listelendi.`);
+    } catch (e) {
+      const message = e instanceof Error ? e.message : 'Bağlantı kurulamadı';
+      setLinkTest({ ok: false, message });
+      setError(message);
     } finally {
       setBusy(false);
     }
@@ -286,50 +373,85 @@ export const DataImportPage: React.FC<DataImportPageProps> = () => {
   };
 
   const saveProfile = async () => {
-    if (channel === 'excel') {
-      setError('Zamanlama SQL veya API kaynağı ile kaydedilir. Excel dosyası elle yüklenir.');
+    const title = profileTitle.trim();
+    if (!title) {
+      setError('Aktarım adı yazın.');
       return;
     }
     setBusy(true);
     setError(null);
     try {
+      const map = templateFields
+        .map((f) => {
+          const bound = sheet?.headers.find((h) => colMap[h] === f.key);
+          const header = (bound || sourceName(f)).trim();
+          return header ? { header, field: f.key } : null;
+        })
+        .filter((m): m is ImportMapItem => Boolean(m));
       const saved = await saveImportProfile({
         importProfileID: profileId,
-        title: profileTitle.trim() || (target?.title ?? 'Aktarım'),
+        title,
         kind,
-        sourceKind: Number(channel),
-        source: sourceRequest(),
-        map: Object.entries(colMap).filter(([, field]) => field).map(([header, field]) => ({ header, field })),
+        sourceKind: channel === 'excel' ? 4 : Number(channel),
+        source: channel === 'excel' ? { ...emptySource(), sourceType: 4 } : sourceRequest(),
+        map,
         mode,
         createMissingCards,
         productType: kind === 'product' ? productType : null,
-        intervalMinutes: intervalMin.trim() ? Number(intervalMin) : null,
+        intervalMinutes: channel === 'excel' || !intervalMin.trim() ? null : Number(intervalMin),
+        afterSql: channel === 'excel' || channel === '3' ? null : (afterSql.trim() || null),
+        keepLog,
         isActive: true,
       });
       setProfileId(saved.importProfileID);
-      setProfileTitle(saved.title);
-      const when = saved.intervalMinutes ? `her ${saved.intervalMinutes} dk` : 'yalnız elle';
-      setInfo(`Profil kaydedildi (${when}). Süreç no: ${saved.processDefID ?? '—'}`);
       setProfiles(await fetchImportProfiles());
+      setScreen('list');
+      setInfo(null);
     } catch (e) {
-      setError(e instanceof Error ? e.message : 'Profil kaydedilemedi');
+      setError(e instanceof Error ? e.message : 'Aktarım kaydedilemedi');
     } finally {
       setBusy(false);
     }
   };
 
+  const startNew = () => {
+    setProfileId(0);
+    setProfileTitle('');
+    setKind('product');
+    setChannel('excel');
+    setLink(emptySource());
+    setAlias({});
+    setExtraKeys([]);
+    setSheet(null);
+    setAfterSql('');
+    setIntervalMin('');
+    setResult(null);
+    setError(null);
+    setInfo(null);
+    setLinkTest(null);
+    setKeepLog(true);
+    setMode('upsert');
+    setScreen('form');
+  };
+
   const openProfile = (p: ImportProfile) => {
     setKind(p.kind);
-    setChannel(String(p.sourceKind) as Channel);
+    setChannel(p.sourceKind === 4 ? 'excel' : String(p.sourceKind) as Channel);
+    setScreen('form');
     setLink({ ...emptySource(), ...p.source, password: '' });
     setProfileId(p.importProfileID);
     setProfileTitle(p.title);
     setIntervalMin(p.intervalMinutes ? String(p.intervalMinutes) : '');
+    setAfterSql(p.afterSql ?? '');
+    setKeepLog(p.keepLog !== false);
     setMode(p.mode);
     setCreateMissingCards(p.createMissingCards);
     if (p.productType) setProductType(p.productType);
     savedMap.current = p.map;
+    setExtraKeys(p.map.map((m) => m.field));
+    setAlias(Object.fromEntries(p.map.filter((m) => m.field).map((m) => [m.field, m.header])));
     setSheet(null);
+    setLinkTest(null);
     setInfo(p.lastStatus ? `Son çalışma: ${p.lastStatus}` : 'Profil açıldı. Başlıkları alıp eşlemeyi kontrol edin.');
   };
 
@@ -360,12 +482,20 @@ export const DataImportPage: React.FC<DataImportPageProps> = () => {
         createMissingCards: voucherKind(kind) ? createMissingCards : undefined,
         fileName: sheet.fileName,
         importedBy: String(getCurrentUserId() ?? ''),
+        afterSql: channel !== 'excel' && channel !== '3' ? afterSql.trim() || undefined : undefined,
+        source: channel !== 'excel' && channel !== '3' && afterSql.trim() ? sourceRequest() : undefined,
+        sourceRows: channel !== 'excel' && channel !== '3' && afterSql.trim() ? buildSourceRows() : undefined,
       });
       setResult(r);
-      setOnlyProblems(r.failed > 0);
+      setOnlyProblems(r.failed > 0 || (r.afterFailed ?? 0) > 0);
       const summary = `${r.inserted} yeni · ${r.updated} güncelleme · ${r.skipped} atlanan · ${r.failed} hata`;
+      const after = r.afterError
+        ? ` · kaynak güncellenemedi: ${r.afterError}`
+        : (r.afterUpdated || r.afterFailed)
+          ? ` · kaynak ${r.afterUpdated ?? 0} güncellendi${r.afterFailed ? `, ${r.afterFailed} hata` : ''}`
+          : dryRun && afterSql.trim() ? ' · kaynak güncellemesi kayıtta çalışır' : '';
       const cut = r.rowsTruncated ? ' · listede yalnız hatalar var, sayılar tamdır' : '';
-      setInfo((dryRun ? `Kontrol tamamlandı: ${summary}` : `Aktarım tamamlandı: ${summary}`) + cut);
+      setInfo((dryRun ? `Kontrol tamamlandı: ${summary}` : `Aktarım tamamlandı: ${summary}`) + (after ?? '') + cut);
       if (!dryRun) void loadHistory();
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Aktarım başarısız');
@@ -375,44 +505,261 @@ export const DataImportPage: React.FC<DataImportPageProps> = () => {
   };
 
   const previewRows = sheet ? sheet.rows.slice(0, 5) : [];
-  const mappedFields = fields.filter((f) => Object.values(colMap).includes(f.key));
+  const mappedFields = templateFields.filter((f) => Object.values(colMap).includes(f.key));
   const colOf = (key: string) => sheet ? sheet.headers.findIndex((h) => colMap[h] === key) : -1;
+  const headerFor = (key: string) => sheet?.headers.find((h) => colMap[h] === key) ?? '';
+
+  const bindField = (fieldKey: string, header: string) => {
+    setColMap((prev) => {
+      const next = { ...prev };
+      for (const h of Object.keys(next)) {
+        if (next[h] === fieldKey) next[h] = '';
+      }
+      if (header) next[header] = fieldKey;
+      return next;
+    });
+  };
+
+  const setSourceName = (fieldKey: string, name: string) => {
+    setAlias((prev) => ({ ...prev, [fieldKey]: name }));
+    if (!sheet) return;
+    const hit = sheet.headers.find((h) => norm(h) === norm(name));
+    bindField(fieldKey, hit ?? '');
+  };
+
+  const bindByOrder = () => {
+    if (!sheet) return;
+    const next: Record<string, string> = {};
+    const names: Record<string, string> = {};
+    templateFields.forEach((f, i) => {
+      const h = sheet.headers[i];
+      if (!h) return;
+      next[h] = f.key;
+      names[f.key] = h;
+    });
+    for (const h of sheet.headers) if (!(h in next)) next[h] = '';
+    setAlias((prev) => ({ ...prev, ...names }));
+    setColMap(next);
+    setInfo('Kolonlar şablon sırasına bağlandı.');
+  };
+  const runNow = async (p: ImportProfile) => {
+    if (p.sourceKind === 4) {
+      setError('Excel aktarımı dosya seçilerek çalışır. Aç ile dosyayı seçin.');
+      return;
+    }
+    if (!await appConfirm(`"${p.title}" şimdi aktarılsın mı?`)) return;
+    setBusy(true);
+    setRunningId(p.importProfileID);
+    setError(null);
+    try {
+      const r = await runImportProfile(p.importProfileID, false);
+      setInfo(`${p.title}: ${r.inserted} yeni, ${r.updated} güncelleme, ${r.skipped} atlanan, ${r.failed} hata.`);
+      setProfiles(await fetchImportProfiles());
+      if (p.keepLog !== false) setLogFor(p.importProfileID);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'Aktarım çalışmadı');
+      setProfiles(await fetchImportProfiles().catch(() => profiles));
+    } finally {
+      setBusy(false);
+      setRunningId(null);
+    }
+  };
+
+  const removeProfile = async (p: ImportProfile) => {
+    if (!await appConfirm(`"${p.title}" silinsin mi?`)) return;
+    try {
+      await deleteImportProfile(p.importProfileID);
+      if (logFor === p.importProfileID) setLogFor(null);
+      setProfiles((prev) => prev.filter((x) => x.importProfileID !== p.importProfileID));
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'Silinemedi');
+    }
+  };
+
+  const toggleLog = async (p: ImportProfile, keep: boolean) => {
+    setError(null);
+    try {
+      await setImportProfileLog(p.importProfileID, keep);
+      setProfiles((prev) => prev.map((x) => x.importProfileID === p.importProfileID ? { ...x, keepLog: keep } : x));
+      if (keep) setLogFor(p.importProfileID);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'Log ayarı kaydedilemedi');
+    }
+  };
+
   const resultRows = result ? (onlyProblems ? result.rows.filter((r) => r.action === 'error' || r.message) : result.rows) : [];
+  const sourceLabel = (sourceKind: number) =>
+    sourceKind === 4 ? 'Excel / CSV' : (CHANNELS.find((c) => c.value === String(sourceKind))?.label ?? 'SQL');
+
+  if (screen === 'list') {
+    return (
+      <div className="p-3 space-y-3">
+        <div className="flex items-center gap-2">
+          <FileSpreadsheet className="w-4 h-4 text-emerald-600" />
+          <h2 className="text-[14px] font-semibold text-slate-800 dark:text-slate-100">Veri Aktarımı</h2>
+          <button
+            type="button"
+            onClick={startNew}
+            className="ml-auto inline-flex items-center px-3 h-8 text-[12px] font-semibold text-white bg-blue-600 hover:bg-blue-500 rounded-md"
+          >
+            Ekle
+          </button>
+        </div>
+        {error && <div className="text-[12px] text-red-600">{error}</div>}
+        {info && <div className="text-[12px] text-emerald-700">{info}</div>}
+        <div className="rounded-md border border-slate-200 dark:border-slate-700 overflow-auto">
+          <table className="w-full min-w-[760px] border-collapse text-left text-[12px]">
+            <thead className="bg-slate-100 dark:bg-slate-800">
+              <tr className="text-[11px] text-slate-600">
+                <th className="px-2 py-1.5 w-14" />
+                <th className="px-2 py-1.5">Ad</th>
+                <th className="px-2 py-1.5">Tür</th>
+                <th className="px-2 py-1.5">Kaynak</th>
+                <th className="px-2 py-1.5">Aralık</th>
+                <th className="px-2 py-1.5">Son aktarım</th>
+                <th className="px-2 py-1.5">Son durum</th>
+                <th className="px-2 py-1.5">Log takibi</th>
+              </tr>
+            </thead>
+            <tbody>
+              {profiles.length === 0 ? (
+                <tr>
+                  <td colSpan={8} className="px-3 py-6 text-center text-slate-400">
+                    Kayıtlı aktarım yok. Ekle ile yeni aktarım tanımlayın.
+                  </td>
+                </tr>
+              ) : (
+                profiles.map((p) => (
+                  <tr key={p.importProfileID} className="border-b border-slate-100 dark:border-slate-800 hover:bg-slate-50 dark:hover:bg-slate-800/40 h-9 group">
+                    <td className="px-2 py-1 sticky left-0 bg-white dark:bg-slate-900 group-hover:bg-slate-50 dark:group-hover:bg-slate-800/40">
+                      <RowActions
+                        allowed={{ view: true, create: false, update: true, delete: true }}
+                        handlers={{
+                          onView: () => openProfile(p),
+                          onEdit: () => openProfile(p),
+                          onDelete: () => void removeProfile(p),
+                        }}
+                        extraItems={[
+                          {
+                            key: 'run',
+                            label: runningId === p.importProfileID ? 'Aktarılıyor' : 'Şimdi aktar',
+                            icon: <Play className="w-3.5 h-3.5" />,
+                            onClick: () => void runNow(p),
+                          },
+                          {
+                            key: 'log',
+                            label: 'Log',
+                            icon: <ScrollText className="w-3.5 h-3.5" />,
+                            onClick: () => setLogFor(p.importProfileID),
+                          },
+                        ]}
+                      />
+                    </td>
+                    <td className="px-2 py-1.5 font-medium">{p.title}</td>
+                    <td className="px-2 py-1.5">{KIND_LABEL[p.kind] ?? p.kind}</td>
+                    <td className="px-2 py-1.5 text-slate-600">{sourceLabel(p.sourceKind)}</td>
+                    <td className="px-2 py-1.5 text-slate-500">{p.intervalMinutes ? `${p.intervalMinutes} dk` : 'elle'}</td>
+                    <td className="px-2 py-1.5 text-slate-500 whitespace-nowrap">{fmtRun(p.lastRunAt)}</td>
+                    <td className="px-2 py-1.5 text-slate-500">{p.lastStatus || '—'}</td>
+                    <td className="px-2 py-1.5">
+                      <input
+                        type="checkbox"
+                        className="accent-blue-600"
+                        title="Log takibi"
+                        checked={p.keepLog !== false}
+                        onChange={(e) => void toggleLog(p, e.target.checked)}
+                      />
+                    </td>
+                  </tr>
+                ))
+              )}
+            </tbody>
+          </table>
+        </div>
+        {logFor != null && (
+          <section className="space-y-1.5">
+            <h3 className="text-[12px] font-semibold text-slate-700 dark:text-slate-200">
+              Log — {profiles.find((p) => p.importProfileID === logFor)?.title ?? 'Aktarım'}
+            </h3>
+            <div className="rounded-md border border-slate-200 dark:border-slate-700 overflow-auto">
+              <table className="w-full min-w-[720px] border-collapse text-left text-[12px]">
+                <thead className="bg-slate-100 dark:bg-slate-800">
+                  <tr className="text-[11px] text-slate-600">
+                    <th className="px-2 py-1.5">Zaman</th>
+                    <th className="px-2 py-1.5 text-right">Satır</th>
+                    <th className="px-2 py-1.5 text-right">Yeni</th>
+                    <th className="px-2 py-1.5 text-right">Güncelleme</th>
+                    <th className="px-2 py-1.5 text-right">Atlanan</th>
+                    <th className="px-2 py-1.5 text-right">Hata</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {profileLogs.length === 0 ? (
+                    <tr>
+                      <td colSpan={6} className="px-3 py-3 text-center text-slate-400">Bu aktarımın logu yok.</td>
+                    </tr>
+                  ) : profileLogs.map((h) => (
+                    <tr key={h.ImportLogID} className="border-t border-slate-100 dark:border-slate-800">
+                      <td className="px-2 py-1 text-slate-500">{fmtTime(h.ImportedAt)}</td>
+                      <td className="px-2 py-1 text-right tabular-nums">{h.TotalRows}</td>
+                      <td className="px-2 py-1 text-right tabular-nums text-emerald-700">{h.Inserted}</td>
+                      <td className="px-2 py-1 text-right tabular-nums text-blue-700">{h.Updated}</td>
+                      <td className="px-2 py-1 text-right tabular-nums">{h.Skipped}</td>
+                      <td className={`px-2 py-1 text-right tabular-nums ${h.Failed ? 'text-red-600' : ''}`}>{h.Failed}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </section>
+        )}
+      </div>
+    );
+  }
 
   return (
     <div className="p-3 space-y-3">
-      <div className="flex items-center gap-2">
-        <FileSpreadsheet className="w-4 h-4 text-emerald-600" />
-        <div>
-          <h2 className="text-[14px] font-semibold text-slate-800 dark:text-slate-100">Veri Aktarımı</h2>
-          <p className="text-[11px] text-slate-500">
-            Excel, SQL veya API kaynağından kart ve fiş aktarın. Alanları siz seçer, başlıkları Kavi Soft alanına eşlersiniz. Aralık yazılırsa süreç zamanında kendisi çalışır.
-          </p>
+        <div className="flex items-center gap-2">
+          <button
+            type="button"
+            onClick={() => { setScreen('list'); setError(null); }}
+            className="px-3 h-8 text-[12px] font-semibold rounded-md border border-slate-300 text-slate-700 hover:bg-slate-50"
+          >
+            Geri
+          </button>
+          <h2 className="text-[14px] font-semibold text-slate-800 dark:text-slate-100">
+            {profileId ? 'Aktarımı düzenle' : 'Yeni aktarım'}
+          </h2>
+          <button
+            type="button"
+            disabled={busy}
+            onClick={() => void saveProfile()}
+            className="ml-auto px-3 h-8 text-[12px] font-semibold text-white bg-blue-600 hover:bg-blue-500 rounded-md disabled:opacity-50"
+          >
+            Kaydet
+          </button>
         </div>
-      </div>
 
       <section className="rounded-md border border-slate-200 dark:border-slate-700 bg-slate-50/60 dark:bg-slate-800/30 p-3 space-y-3">
-        <div className="flex flex-wrap gap-2">
-          {(targets.length ? targets.map((t) => t.kind) : (['product', 'customer', 'account'] as ImportKind[])).map((k) => {
-            const Icon = KIND_ICON[k] ?? FileSpreadsheet;
-            const active = k === kind;
-            return (
-              <button
-                key={k}
-                type="button"
-                onClick={() => { setKind(k); setCatalog([]); setSheet(null); setProfileId(0); }}
-                className={`inline-flex items-center gap-1.5 px-3 h-8 text-[12px] font-semibold rounded-md border ${
-                  active
-                    ? 'bg-blue-600 border-blue-600 text-white'
-                    : 'bg-white dark:bg-slate-900 border-slate-300 dark:border-slate-600 text-slate-700 dark:text-slate-200 hover:bg-slate-50'
-                }`}
-              >
-                <Icon className="w-3.5 h-3.5" />
-                {KIND_LABEL[k] ?? targets.find((t) => t.kind === k)?.title ?? k}
-              </button>
-            );
-          })}
-        </div>
+        <label className="block max-w-xs space-y-1">
+          <span className="text-[11px] font-medium text-slate-600">Aktarım</span>
+          <select
+            className={inputCls}
+            value={kind}
+            onChange={(e) => {
+              setKind(e.target.value as ImportKind);
+              setCatalog([]);
+              setExtraKeys([]);
+              setAlias({});
+              setSheet(null);
+              setProfileId(0);
+            }}
+          >
+            {(targets.length ? [...targets.map((t) => t.kind)].sort((a, b) => KIND_ORDER.indexOf(a as ImportKind) - KIND_ORDER.indexOf(b as ImportKind)) : KIND_ORDER).map((k) => (
+              <option key={k} value={k}>{KIND_LABEL[k] ?? targets.find((t) => t.kind === k)?.title ?? k}</option>
+            ))}
+          </select>
+        </label>
 
         {target && (
           <ul className="text-[11px] text-slate-600 dark:text-slate-300 list-disc pl-5 space-y-0.5">
@@ -422,63 +769,81 @@ export const DataImportPage: React.FC<DataImportPageProps> = () => {
             {target.notes.map((n) => (
               <li key={n}>{n}</li>
             ))}
-            {source?.note && <li>{source.note}</li>}
+            {channel === 'excel' && source?.note && <li>{source.note}</li>}
           </ul>
         )}
-        {target && (
+        {target && templateFields.length > 0 && (
           <div className="space-y-1">
             <div className="flex flex-wrap items-center gap-2">
-              <span className="text-[11px] font-medium text-slate-600">Aktarılacak alanlar</span>
-              <span className="text-[11px] text-slate-400">{fields.filter((f) => f.required || picked.has(f.key)).length}/{fields.length}</span>
-              <button
-                type="button"
-                className="text-[11px] text-blue-700 hover:underline"
-                onClick={() => setPicked(new Set(fields.map((f) => f.key)))}
+              <span className="text-[11px] font-medium text-slate-600">Kolon başlık şablonu</span>
+              <span className="text-[11px] text-slate-400">{templateFields.length} kolon</span>
+              {sheet && sheet.headers.length > 0 && (
+                <button type="button" className="text-[11px] text-blue-700 hover:underline" onClick={bindByOrder}>
+                  Kolon sırasına bağla
+                </button>
+              )}
+              <select
+                className="h-7 max-w-[220px] rounded border border-slate-300 bg-white px-1 text-[11px]"
+                value=""
+                onChange={(e) => {
+                  const key = e.target.value;
+                  if (key) setExtraKeys((prev) => (prev.includes(key) ? prev : [...prev, key]));
+                }}
               >
-                Tümünü seç
-              </button>
-              <button
-                type="button"
-                className="text-[11px] text-blue-700 hover:underline"
-                onClick={() => setPicked(new Set(fields.filter((f) => f.required).map((f) => f.key)))}
-              >
-                Yalnız zorunlu
-              </button>
+                <option value="">Şablona kolon ekle…</option>
+                {addable.map((f) => (
+                  <option key={f.key} value={f.key}>{f.label}</option>
+                ))}
+              </select>
             </div>
-            <div className="flex flex-wrap gap-1">
-              {fields.map((f) => {
-                const on = f.required || picked.has(f.key);
-                return (
-                  <label
-                    key={f.key}
-                    title={[f.hint, f.options ? `Değerler: ${Object.keys(f.options).join(', ')}` : ''].filter(Boolean).join(' · ') || undefined}
-                    className={`inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[11px] border cursor-pointer ${
-                      f.required
-                        ? 'border-red-200 bg-red-50 text-red-700'
-                        : on
-                          ? 'border-blue-200 bg-blue-50 text-blue-800'
-                          : 'border-slate-200 bg-white dark:bg-slate-900 text-slate-500'
-                    }`}
-                  >
-                    <input
-                      type="checkbox"
-                      className="accent-blue-600"
-                      checked={on}
-                      disabled={f.required}
-                      onChange={(e) => {
-                        setPicked((prev) => {
-                          const next = new Set(prev);
-                          if (e.target.checked) next.add(f.key);
-                          else next.delete(f.key);
-                          return next;
-                        });
-                      }}
-                    />
-                    {sourceHeader(source, kind, f)}
-                    {f.required && ' *'}
-                  </label>
-                );
-              })}
+            <p className="text-[11px] text-slate-500">
+              Kaynak kolon adı başlıkla aynı gelir. Kaynaktaki ad farklıysa buradan değiştirin.
+              {kind === 'account-voucher' ? ' e-Defter yevmiye XML veya ZIP yalnız bu aktarımda okunur.' : ''}
+            </p>
+            <div className="max-h-56 overflow-auto rounded border border-slate-200 bg-white dark:bg-slate-900">
+              <table className="w-full border-collapse text-left text-[11px]">
+                <thead className="sticky top-0 bg-slate-100 text-slate-600">
+                  <tr>
+                    <th className="px-2 py-1 w-10">Sıra</th>
+                    <th className="px-2 py-1">Başlık</th>
+                    <th className="px-2 py-1 w-[220px]">Kaynak kolon</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {templateFields.map((f, i) => (
+                    <tr key={f.key} className="border-t border-slate-100">
+                      <td className="px-2 py-1 tabular-nums text-slate-400">{i + 1}</td>
+                      <td className="px-2 py-1">
+                        <span className="font-medium text-slate-800">{headerOf(f)}</span>
+                        {f.required && <span className="text-red-600"> *</span>}
+                        {f.label !== headerOf(f) && <span className="text-slate-400"> · {f.label}</span>}
+                        {extraKeys.includes(f.key) && !baseTemplate.some((b) => b.key === f.key) && (
+                          <button
+                            type="button"
+                            className="ml-2 text-slate-400 hover:text-red-600"
+                            onClick={() => setExtraKeys((prev) => prev.filter((k) => k !== f.key))}
+                          >
+                            kaldır
+                          </button>
+                        )}
+                      </td>
+                      <td className="px-2 py-1">
+                        <input
+                          className={`h-7 w-full rounded border bg-white px-1.5 text-[11px] ${f.required && sheet && !headerFor(f.key) ? 'border-red-300' : 'border-slate-300'}`}
+                          value={sourceName(f)}
+                          list={sheet && sheet.headers.length > 0 ? `imp-col-${f.key}` : undefined}
+                          onChange={(e) => setSourceName(f.key, e.target.value)}
+                        />
+                        {sheet && sheet.headers.length > 0 && (
+                          <datalist id={`imp-col-${f.key}`}>
+                            {sheet.headers.map((h) => <option key={h} value={h} />)}
+                          </datalist>
+                        )}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
             </div>
           </div>
         )}
@@ -486,14 +851,14 @@ export const DataImportPage: React.FC<DataImportPageProps> = () => {
         <div className="grid grid-cols-1 md:grid-cols-12 gap-3 items-end">
           <label className="md:col-span-4 space-y-1">
             <span className="text-[11px] font-medium text-slate-600">Kaynak</span>
-            <select className={inputCls} value={channel} onChange={(e) => { setChannel(e.target.value as Channel); setSheet(null); }}>
+            <select className={inputCls} value={channel} onChange={(e) => { setChannel(e.target.value as Channel); setSheet(null); setLinkTest(null); }}>
               {CHANNELS.map((c) => <option key={c.value} value={c.value}>{c.label}</option>)}
             </select>
           </label>
           {channel === 'excel' && (
           <label className="md:col-span-3 space-y-1">
             <span className="text-[11px] font-medium text-slate-600">Excel şablonu</span>
-            <select className={inputCls} value={source?.id ?? 'bartu'} onChange={(e) => setSourceId(e.target.value)}>
+            <select className={inputCls} value={source?.id ?? 'bartu'} onChange={(e) => { setSourceId(e.target.value); setAlias({}); }}>
               {(sources.length ? sources : [{ id: 'bartu', title: 'Kavi Soft', note: '', headers: {} }]).map((s) => (
                 <option key={s.id} value={s.id}>{s.title}</option>
               ))}
@@ -545,7 +910,7 @@ export const DataImportPage: React.FC<DataImportPageProps> = () => {
           {channel === 'excel' && (
           <div className="md:col-span-4 flex flex-wrap gap-2">
             <a
-              href={importTemplateUrl(kind, source?.id ?? 'bartu', fields.filter((f) => f.required || picked.has(f.key)).map((f) => f.key))}
+              href={importTemplateUrl(kind, source?.id ?? 'bartu', templateFields.map((f) => f.key))}
               className="inline-flex items-center gap-1.5 px-3 h-8 text-[12px] font-semibold text-emerald-700 bg-emerald-50 hover:bg-emerald-100 rounded-md"
             >
               <Download className="w-3.5 h-3.5" />
@@ -558,12 +923,12 @@ export const DataImportPage: React.FC<DataImportPageProps> = () => {
               className="inline-flex items-center gap-1.5 px-3 h-8 text-[12px] font-semibold text-blue-700 bg-blue-50 hover:bg-blue-100 rounded-md disabled:opacity-50"
             >
               <Upload className="w-3.5 h-3.5" />
-              Dosya Seç
+              {kind === 'account-voucher' ? 'Dosya / Yevmiye' : 'Dosya Seç'}
             </button>
             <input
               ref={fileRef}
               type="file"
-              accept=".xlsx,.csv,.txt,.xml,.zip"
+              accept={kind === 'account-voucher' ? '.xlsx,.csv,.txt,.xml,.zip' : '.xlsx,.csv,.txt'}
               className="hidden"
               onChange={(e) => void onFile(e.target.files?.[0])}
             />
@@ -573,7 +938,7 @@ export const DataImportPage: React.FC<DataImportPageProps> = () => {
         {channel !== 'excel' && (
           <div className="space-y-2 rounded border border-sky-200 bg-white/70 p-2">
             <p className="text-[11px] text-slate-600">
-              Logo veya Mikro veritabanına bağlanıp kendi SELECT sorgunuzu yazın. REST için JSON listesinin adresini verin. Gelen başlıkları Kavi Soft alanına eşleyin.
+              Kendi SELECT sorgunuzu yazın. Kolon sırası şablondaki 1, 2, 3 sırasıdır. Başlığı şablondaki adla verirseniz (AS) kendiliğinden bağlanır.
             </p>
             {(channel === '1' || channel === '2') && (
               <div className="grid grid-cols-2 md:grid-cols-4 gap-2">
@@ -627,20 +992,66 @@ export const DataImportPage: React.FC<DataImportPageProps> = () => {
                 <textarea className={`${inputCls} h-20 font-mono py-1`} spellCheck={false} value={link.sql ?? ''} placeholder="SELECT kod, unvan FROM ..." onChange={(e) => setLink({ ...link, sql: e.target.value })} />
               </label>
             )}
-            <div className="flex flex-wrap gap-2">
+            {sheet && sheet.headers.length > 0 && (
+              <div className="space-y-1">
+                <span className="text-[11px] font-medium text-slate-600">Kolon başlıkları</span>
+                <ul className="flex flex-wrap gap-1">
+                  {sheet.headers.map((h) => (
+                    <li key={h} className="rounded border border-slate-200 bg-slate-50 px-1.5 py-0.5 font-mono text-[11px] text-slate-700">{h}</li>
+                  ))}
+                </ul>
+              </div>
+            )}
+            {channel !== '3' && (
+              <label className="block text-[11px]">Aktarımdan sonra
+                <textarea
+                  className={`${inputCls} h-20 font-mono py-1`}
+                  spellCheck={false}
+                  value={afterSql}
+                  placeholder={'UPDATE dbo.Kaynak SET Aktarildi = 1, HedefId = @KayitId WHERE EvrakNo = @BelgeNo'}
+                  onChange={(e) => setAfterSql(e.target.value)}
+                />
+                <span className="mt-0.5 block text-slate-500">
+                  Her başarılı kayıttan sonra kaynakta çalışır. @KayitId oluşan kayıt no, @BelgeNo belge no, @FisNo fiş no, @Kod kart veya fiş kodu. Kaynak kolon adı da yazılır: @StokKodu.
+                </span>
+              </label>
+            )}
+            <div className="flex flex-wrap items-center gap-2">
+              <button type="button" disabled={busy} onClick={() => void testLink()} className="rounded border border-emerald-300 bg-emerald-50 px-2 h-8 text-[12px] font-semibold text-emerald-800 disabled:opacity-50">Bağlantıyı kontrol et</button>
+              {linkTest && (
+                <span className={`text-[11px] ${linkTest.ok ? 'text-emerald-700' : 'text-red-600'}`}>{linkTest.message}</span>
+              )}
               <button type="button" disabled={busy} onClick={() => void pullColumns()} className="rounded border border-sky-300 bg-white px-2 h-8 text-[12px] text-sky-800 disabled:opacity-50">Başlıkları al</button>
               <button type="button" disabled={busy} onClick={() => void pullRows()} className="rounded border border-sky-300 bg-white px-2 h-8 text-[12px] text-sky-800 disabled:opacity-50">Veriyi çek</button>
+              {channel !== '3' && <button
+                type="button"
+                className="rounded border border-slate-300 bg-white px-2 h-8 text-[12px] text-slate-700 disabled:opacity-50"
+                onClick={() => {
+                  if ((link.sql ?? '').trim()) {
+                    setInfo('SELECT dolu. Kolonları şablon sırasına göre yazın ya da başlıkları aldıktan sonra listeden bağlayın.');
+                    return;
+                  }
+                  const lines = templateFields.map((f) => `  '' AS [${sourceName(f)}]`);
+                  setLink({ ...link, sql: `SELECT\n${lines.join(',\n')}\nFROM ` });
+                }}
+              >
+                Şablon sırasını SQL’e yaz
+              </button>}
             </div>
           </div>
         )}
         <div className="grid grid-cols-1 md:grid-cols-12 gap-2 items-end">
-          <label className="md:col-span-4 block text-[11px]">Profil adı
-            <input className={inputCls} value={profileTitle} placeholder="Logo cari aktarımı" onChange={(e) => setProfileTitle(e.target.value)} />
+          <label className="md:col-span-4 block text-[11px]">Aktarım adı
+            <input className={inputCls} value={profileTitle} placeholder="Cari kart aktarımı" onChange={(e) => setProfileTitle(e.target.value)} />
           </label>
           <label className="md:col-span-2 block text-[11px]">Aralık (dk)
             <input className={inputCls} type="number" min={5} value={intervalMin} placeholder="elle" onChange={(e) => setIntervalMin(e.target.value)} />
           </label>
-          <button type="button" disabled={busy || channel === 'excel'} onClick={() => void saveProfile()} className="md:col-span-3 h-8 rounded bg-amber-600 text-white text-[12px] font-semibold disabled:opacity-50">Sürece kaydet</button>
+          <label className="md:col-span-2 inline-flex items-center gap-2 h-8 text-[12px] text-slate-700 dark:text-slate-200">
+            <input type="checkbox" className="accent-blue-600" checked={keepLog} onChange={(e) => setKeepLog(e.target.checked)} />
+            Log takibi
+          </label>
+          <button type="button" disabled={busy || channel === 'excel'} onClick={() => void saveProfile()} className="md:col-span-3 h-8 rounded bg-amber-600 text-white text-[12px] font-semibold disabled:opacity-50">Sürece bağla ve kaydet</button>
         </div>
 
         {sheet && (
@@ -665,34 +1076,15 @@ export const DataImportPage: React.FC<DataImportPageProps> = () => {
 
       {sheet && target && sheet.headers.length > 0 && (
         <section className="rounded-md border border-slate-200 dark:border-slate-700 p-3 space-y-2">
-          <h3 className="text-[12px] font-semibold text-slate-700 dark:text-slate-200">Alan eşlemesi</h3>
-          <p className="text-[12px] text-slate-600">Kaynak başlığını Kavi Soft alanına bağlayın. Boş bırakılan kolon aktarılmaz.</p>
           {missingRequired.length > 0 && (
-            <p className="text-[12px] text-red-700">Zorunlu alan eşlenmedi: {missingRequired.map((f) => f.label).join(', ')}</p>
+            <p className="text-[12px] text-red-700">Zorunlu başlık bağlanmadı: {missingRequired.map((f) => headerOf(f)).join(', ')}</p>
           )}
           {duplicateFields.length > 0 && (
             <p className="text-[12px] text-red-700">Aynı Kavi Soft alanına birden fazla kolon bağlandı.</p>
           )}
           {templateOk && (
-            <p className="text-[12px] text-emerald-700">{assigned.length} kolon eşleşti · {sheet.rows.length} satır</p>
+            <p className="text-[12px] text-emerald-700">{assigned.length} kolon bağlandı · {sheet.rows.length} satır</p>
           )}
-          <div className="max-h-48 overflow-auto rounded border border-slate-200">
-            {sheet.headers.map((header) => (
-              <label key={header} className="flex items-center gap-2 px-2 py-1 text-[12px] border-b border-slate-100 last:border-0">
-                <span className="font-mono flex-1 min-w-0 truncate">{header}</span>
-                <select
-                  className="h-7 max-w-[220px] rounded border border-slate-300 bg-white text-[11px]"
-                  value={colMap[header] ?? ''}
-                  onChange={(e) => setColMap((prev) => ({ ...prev, [header]: e.target.value }))}
-                >
-                  <option value="">— aktarma —</option>
-                  {fields.map((f) => (
-                    <option key={f.key} value={f.key}>{f.label}{f.required ? ' *' : ''}</option>
-                  ))}
-                </select>
-              </label>
-            ))}
-          </div>
 
           {mappedFields.length > 0 && previewRows.length > 0 && (
             <div className="overflow-auto rounded border border-slate-200 dark:border-slate-700">
@@ -799,31 +1191,6 @@ export const DataImportPage: React.FC<DataImportPageProps> = () => {
                     );
                   })
                 )}
-              </tbody>
-            </table>
-          </div>
-        </section>
-      )}
-
-      {profiles.length > 0 && (
-        <section className="space-y-1.5">
-          <h3 className="text-[12px] font-semibold text-slate-700 dark:text-slate-200">Kayıtlı aktarımlar</h3>
-          <div className="rounded-md border border-slate-200 overflow-auto">
-            <table className="w-full border-collapse text-left text-[12px]">
-              <tbody>
-                {profiles.map((p) => (
-                  <tr key={p.importProfileID} className="border-t border-slate-100">
-                    <td className="px-2 py-1">{p.title}</td>
-                    <td className="px-2 py-1 text-slate-500">{KIND_LABEL[p.kind] ?? p.kind}</td>
-                    <td className="px-2 py-1 text-slate-500">{p.intervalMinutes ? `${p.intervalMinutes} dk` : 'elle'}{p.processDefID ? ` · süreç ${p.processDefID}` : ''}</td>
-                    <td className="px-2 py-1 text-slate-500">{p.lastStatus}</td>
-                    <td className="px-2 py-1 text-right whitespace-nowrap">
-                      <button type="button" className="text-blue-700 hover:underline mr-2" onClick={() => openProfile(p)}>Aç</button>
-                      <button type="button" className="text-blue-700 hover:underline mr-2" onClick={() => void runImportProfile(p.importProfileID, true).then((r) => setInfo(`Kontrol: ${r.inserted} yeni · ${r.failed} hata`)).catch((e) => setError(e instanceof Error ? e.message : 'Çalışmadı'))}>Kontrol</button>
-                      <button type="button" className="text-red-600 hover:underline" onClick={() => void deleteImportProfile(p.importProfileID).then(() => setProfiles((prev) => prev.filter((x) => x.importProfileID !== p.importProfileID)))}>Sil</button>
-                    </td>
-                  </tr>
-                ))}
               </tbody>
             </table>
           </div>

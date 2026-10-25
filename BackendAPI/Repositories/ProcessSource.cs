@@ -1,6 +1,7 @@
 using System.Data.Common;
 using System.Text;
 using System.Text.Json;
+using Dapper;
 using Microsoft.Data.SqlClient;
 using MySqlConnector;
 
@@ -121,6 +122,14 @@ internal static class ProcessSource
             : $"SELECT TOP (0) * FROM ({sql}) AS scan_q";
         await using var reader = await cmd.ExecuteReaderAsync(ct);
         return NamesOf(reader);
+    }
+
+    /// <summary>Dış SQL kaynağında parametreli komut. Bağlantı burada açılıp kapanır.</summary>
+    public static async Task<int> ExecuteAsync(ProcessSourceRequest req, string sql, object args, CancellationToken ct)
+    {
+        await using var conn = OpenExternal(req, withDatabase: true);
+        await conn.OpenAsync(ct);
+        return await conn.ExecuteAsync(new CommandDefinition(sql, args, commandTimeout: 60, cancellationToken: ct));
     }
 
     private static DbConnection OpenExternal(ProcessSourceRequest req, bool withDatabase)

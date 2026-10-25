@@ -49,6 +49,14 @@ public sealed class ImportApplyRequest
     public bool CreateMissingCards { get; set; }
     public string? FileName { get; set; }
     public string? ImportedBy { get; set; }
+    /** Başarılı kayıttan sonra kaynakta çalışacak UPDATE */
+    public string? AfterSql { get; set; }
+    public ProcessSourceRequest? Source { get; set; }
+    /** Kaynak kolon değerleri. __row ile aktarım satırına bağlanır. */
+    public List<Dictionary<string, string?>>? SourceRows { get; set; }
+    /** false ise SYS_ImportLog yazılmaz. */
+    public bool WriteLog { get; set; } = true;
+    public int? ProfileId { get; set; }
 }
 
 public sealed class ImportRowResult
@@ -59,6 +67,8 @@ public sealed class ImportRowResult
     public string Action { get; set; } = "";
     public string? Message { get; set; }
     public int? RecordId { get; set; }
+    /** Fişte birleşen kaynak satırları. Boşsa yalnız RowNo. */
+    public List<int>? LineNos { get; set; }
 }
 
 public sealed class ImportApplyResult
@@ -71,6 +81,9 @@ public sealed class ImportApplyResult
     public int Failed { get; set; }
     /** Ayrıntı listesi kısaltıldı; sayılar tamdır */
     public bool RowsTruncated { get; set; }
+    public int AfterUpdated { get; set; }
+    public int AfterFailed { get; set; }
+    public string? AfterError { get; set; }
     public List<ImportRowResult> Rows { get; set; } = new();
 }
 
@@ -774,15 +787,20 @@ public sealed partial class ImportRepository
     {
         var exists = await _db.ExecuteScalarAsync<int?>(new CommandDefinition(
             "SELECT OBJECT_ID(N'dbo.SYS_ImportLog', N'U')", cancellationToken: ct));
-        if (exists is null) return;
+        if (exists is null || !req.WriteLog) return;
 
         var errors = res.Rows.Where(r => r.Action == "error").Take(500)
             .Select(r => new { r.RowNo, r.Code, r.Message });
-        await _db.ExecuteAsync(new CommandDefinition(
-            @"INSERT INTO dbo.SYS_ImportLog
+        var hasProfile = await _db.ExecuteScalarAsync<int?>(new CommandDefinition(
+            "SELECT COL_LENGTH(N'dbo.SYS_ImportLog', N'ImportProfileID')", cancellationToken: ct));
+        var sql = hasProfile is > 0
+            ? @"INSERT INTO dbo.SYS_ImportLog
+                (Kind, TableName, FileName, Mode, TotalRows, Inserted, Updated, Skipped, Failed, ErrorsJson, ImportedBy, ImportedAt, ImportProfileID)
+              VALUES (@Kind, @TableName, @FileName, @Mode, @Total, @Inserted, @Updated, @Skipped, @Failed, @ErrorsJson, @ImportedBy, SYSUTCDATETIME(), @ProfileId)"
+            : @"INSERT INTO dbo.SYS_ImportLog
                 (Kind, TableName, FileName, Mode, TotalRows, Inserted, Updated, Skipped, Failed, ErrorsJson, ImportedBy, ImportedAt)
-              VALUES (@Kind, @TableName, @FileName, @Mode, @Total, @Inserted, @Updated, @Skipped, @Failed, @ErrorsJson, @ImportedBy, SYSUTCDATETIME())",
-            new
+              VALUES (@Kind, @TableName, @FileName, @Mode, @Total, @Inserted, @Updated, @Skipped, @Failed, @ErrorsJson, @ImportedBy, SYSUTCDATETIME())";
+        await _db.ExecuteAsync(new CommandDefinition(sql, new
             {
                 def.Kind,
                 def.TableName,
@@ -795,6 +813,7 @@ public sealed partial class ImportRepository
                 res.Failed,
                 ErrorsJson = JsonSerializer.Serialize(errors),
                 ImportedBy = Trunc(req.ImportedBy, 100),
+                req.ProfileId,
             },
             cancellationToken: ct));
     }
