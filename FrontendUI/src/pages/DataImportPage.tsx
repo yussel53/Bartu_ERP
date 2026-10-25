@@ -103,7 +103,7 @@ const emptySource = (): ImportSourceRequest => ({
   body: '',
 });
 
-/** Başlık adını Bartu alanına önerir. Kullanıcı eşlemeyi değiştirebilir. */
+/** Başlık adını Kavi Soft alanına önerir. Kullanıcı eşlemeyi değiştirebilir. */
 function autoMap(headers: string[], fields: ImportFieldDef[], source: ImportSourceDef | null, kind: string): Record<string, string> {
   const by = new Map<string, string>();
   for (const f of fields) {
@@ -263,7 +263,7 @@ export const DataImportPage: React.FC<DataImportPageProps> = () => {
       const headers = await fetchImportSourceColumns(sourceRequest());
       savedMap.current = null;
       setSheet({ fileName: channel === '3' ? 'API' : 'SQL', sheetName: '', headers, rows: [], truncated: false });
-      setInfo(`${headers.length} kolon başlığı alındı. Bartu alanıyla eşleştirin, sonra veriyi çekin.`);
+      setInfo(`${headers.length} kolon başlığı alındı. Kavi Soft alanıyla eşleştirin, sonra veriyi çekin.`);
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Kolonlar okunamadı');
     } finally {
@@ -386,7 +386,7 @@ export const DataImportPage: React.FC<DataImportPageProps> = () => {
         <div>
           <h2 className="text-[14px] font-semibold text-slate-800 dark:text-slate-100">Veri Aktarımı</h2>
           <p className="text-[11px] text-slate-500">
-            Excel, SQL veya API kaynağından kart ve fiş aktarın. Alanları siz seçer, başlıkları Bartu alanına eşlersiniz. Aralık yazılırsa süreç zamanında kendisi çalışır.
+            Excel, SQL veya API kaynağından kart ve fiş aktarın. Alanları siz seçer, başlıkları Kavi Soft alanına eşlersiniz. Aralık yazılırsa süreç zamanında kendisi çalışır.
           </p>
         </div>
       </div>
@@ -494,7 +494,7 @@ export const DataImportPage: React.FC<DataImportPageProps> = () => {
           <label className="md:col-span-3 space-y-1">
             <span className="text-[11px] font-medium text-slate-600">Excel şablonu</span>
             <select className={inputCls} value={source?.id ?? 'bartu'} onChange={(e) => setSourceId(e.target.value)}>
-              {(sources.length ? sources : [{ id: 'bartu', title: 'Bartu', note: '', headers: {} }]).map((s) => (
+              {(sources.length ? sources : [{ id: 'bartu', title: 'Kavi Soft', note: '', headers: {} }]).map((s) => (
                 <option key={s.id} value={s.id}>{s.title}</option>
               ))}
             </select>
@@ -573,7 +573,7 @@ export const DataImportPage: React.FC<DataImportPageProps> = () => {
         {channel !== 'excel' && (
           <div className="space-y-2 rounded border border-sky-200 bg-white/70 p-2">
             <p className="text-[11px] text-slate-600">
-              Logo veya Mikro veritabanına bağlanıp kendi SELECT sorgunuzu yazın. REST için JSON listesinin adresini verin. Gelen başlıkları Bartu alanına eşleyin.
+              Logo veya Mikro veritabanına bağlanıp kendi SELECT sorgunuzu yazın. REST için JSON listesinin adresini verin. Gelen başlıkları Kavi Soft alanına eşleyin.
             </p>
             {(channel === '1' || channel === '2') && (
               <div className="grid grid-cols-2 md:grid-cols-4 gap-2">
@@ -666,12 +666,12 @@ export const DataImportPage: React.FC<DataImportPageProps> = () => {
       {sheet && target && sheet.headers.length > 0 && (
         <section className="rounded-md border border-slate-200 dark:border-slate-700 p-3 space-y-2">
           <h3 className="text-[12px] font-semibold text-slate-700 dark:text-slate-200">Alan eşlemesi</h3>
-          <p className="text-[12px] text-slate-600">Kaynak başlığını Bartu alanına bağlayın. Boş bırakılan kolon aktarılmaz.</p>
+          <p className="text-[12px] text-slate-600">Kaynak başlığını Kavi Soft alanına bağlayın. Boş bırakılan kolon aktarılmaz.</p>
           {missingRequired.length > 0 && (
             <p className="text-[12px] text-red-700">Zorunlu alan eşlenmedi: {missingRequired.map((f) => f.label).join(', ')}</p>
           )}
           {duplicateFields.length > 0 && (
-            <p className="text-[12px] text-red-700">Aynı Bartu alanına birden fazla kolon bağlandı.</p>
+            <p className="text-[12px] text-red-700">Aynı Kavi Soft alanına birden fazla kolon bağlandı.</p>
           )}
           {templateOk && (
             <p className="text-[12px] text-emerald-700">{assigned.length} kolon eşleşti · {sheet.rows.length} satır</p>

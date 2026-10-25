@@ -244,7 +244,7 @@ export const AppShell: React.FC<AppShellProps> = ({ currentPath, onNavigate, chi
       >
         <div className="flex items-center justify-between mb-2 px-1.5 py-1 shrink-0 border-b border-slate-100 dark:border-slate-800">
           <div>
-            <div className="text-[13px] font-bold tracking-tight text-slate-900 dark:text-white">KaviSoft</div>
+            <div className="text-[13px] font-bold tracking-tight text-slate-900 dark:text-white">Kavi Soft</div>
             <div className="text-[9px] text-slate-500 font-medium">Kurumsal Yönetim</div>
           </div>
           <button type="button" className="lg:hidden p-1" onClick={() => setMobileOpen(false)}>
@@ -380,7 +380,7 @@ export const AppShell: React.FC<AppShellProps> = ({ currentPath, onNavigate, chi
           <button type="button" onClick={() => setMobileOpen(true)} className="p-1.5 rounded hover:bg-slate-100">
             <Menu className="w-4 h-4" />
           </button>
-          <span className="text-sm font-semibold text-slate-800 dark:text-white flex-1">KaviSoft</span>
+          <span className="text-sm font-semibold text-slate-800 dark:text-white flex-1">Kavi Soft</span>
           <button
             type="button"
             onClick={() => exitApp()}

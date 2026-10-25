@@ -673,7 +673,7 @@ export const APP_MODULES: AppModule[] = [
             formCode: 'SalesOrderForm',
             documentTypeFilter: OrderType.Satis,
             listColumns: docCols,
-            sampleRows: [{ id: 1, no: 'SS-001', date: '20.09.2026', customer: 'ABC Ticaret', type: 'Satış', total: '48.500,00', status: 'Açık', companyId: '1', company: 'Bartu Ticaret', workplaceId: '1', workplace: 'Merkez', whouseId: '1', whouse: 'Merkez Depo', authCode: 'SAT' }],
+            sampleRows: [{ id: 1, no: 'SS-001', date: '20.09.2026', customer: 'ABC Ticaret', type: 'Satış', total: '48.500,00', status: 'Açık', companyId: '1', company: 'Kavi Soft Ticaret', workplaceId: '1', workplace: 'Merkez', whouseId: '1', whouse: 'Merkez Depo', authCode: 'SAT' }],
           }),
           screen({
             id: 'satis-irsaliye',
@@ -684,9 +684,9 @@ export const APP_MODULES: AppModule[] = [
             documentTypeFilter: DispatchType.Satis,
             listColumns: cols(['no', 'No'], ['date', 'Tarih'], ['customer', 'Cari'], ['warehouse', 'Depo'], ['status', 'Durum']),
             sampleRows: [
-              { id: 1, no: 'SI-014', date: '22.09.2026', customer: 'ABC Ticaret', warehouse: 'Merkez', status: 'Açık', companyId: '1', company: 'Bartu Ticaret', workplaceId: '1', workplace: 'Merkez', whouseId: '1', whouse: 'Merkez Depo', authCode: 'SAT' },
-              { id: 2, no: 'SI-020', date: '23.09.2026', customer: 'XYZ Ltd.', warehouse: 'Şube', status: 'Açık', companyId: '1', company: 'Bartu Ticaret', workplaceId: '2', workplace: 'Şube Kadıköy', whouseId: '2', whouse: 'Şube Depo', authCode: 'SAT' },
-              { id: 3, no: 'SI-AN1', date: '24.09.2026', customer: 'Ankara Müşteri', warehouse: 'Ankara', status: 'Açık', companyId: '2', company: 'Bartu Anadolu', workplaceId: '3', workplace: 'Ankara', whouseId: '3', whouse: 'Ankara Depo', authCode: 'SAT' },
+              { id: 1, no: 'SI-014', date: '22.09.2026', customer: 'ABC Ticaret', warehouse: 'Merkez', status: 'Açık', companyId: '1', company: 'Kavi Soft Ticaret', workplaceId: '1', workplace: 'Merkez', whouseId: '1', whouse: 'Merkez Depo', authCode: 'SAT' },
+              { id: 2, no: 'SI-020', date: '23.09.2026', customer: 'XYZ Ltd.', warehouse: 'Şube', status: 'Açık', companyId: '1', company: 'Kavi Soft Ticaret', workplaceId: '2', workplace: 'Şube Kadıköy', whouseId: '2', whouse: 'Şube Depo', authCode: 'SAT' },
+              { id: 3, no: 'SI-AN1', date: '24.09.2026', customer: 'Ankara Müşteri', warehouse: 'Ankara', status: 'Açık', companyId: '2', company: 'Kavi Soft Anadolu', workplaceId: '3', workplace: 'Ankara', whouseId: '3', whouse: 'Ankara Depo', authCode: 'SAT' },
             ],
           }),
           screen({
@@ -697,10 +697,10 @@ export const APP_MODULES: AppModule[] = [
             formCode: 'SalesInvoiceForm',
             listColumns: docCols,
             sampleRows: [
-              { id: 1, no: 'SF-088', date: '23.09.2026', customer: 'ABC Ticaret', type: 'Satış', total: '58.200,00', status: 'Onaylı', authCode: 'SAT', companyId: '1', company: 'Bartu Ticaret', workplaceId: '1', workplace: 'Merkez', whouseId: '1', whouse: 'Merkez Depo' },
-              { id: 2, no: 'SIF-003', date: '24.09.2026', customer: 'XYZ Ltd.', type: 'Satış İade', total: '1.200,00', status: 'Taslak', authCode: 'SAT', companyId: '1', company: 'Bartu Ticaret', workplaceId: '2', workplace: 'Şube Kadıköy', whouseId: '2', whouse: 'Şube Depo' },
-              { id: 3, no: 'SF-099', date: '24.09.2026', customer: 'Gizli Cari', type: 'Satış', total: '9.000,00', status: 'Açık', authCode: 'GIZLI', companyId: '1', company: 'Bartu Ticaret', workplaceId: '1', workplace: 'Merkez', whouseId: '1', whouse: 'Merkez Depo' },
-              { id: 4, no: 'SF-AN1', date: '24.09.2026', customer: 'Ankara Müşteri', type: 'Satış', total: '4.500,00', status: 'Açık', authCode: 'SAT', companyId: '2', company: 'Bartu Anadolu', workplaceId: '3', workplace: 'Ankara', whouseId: '3', whouse: 'Ankara Depo' },
+              { id: 1, no: 'SF-088', date: '23.09.2026', customer: 'ABC Ticaret', type: 'Satış', total: '58.200,00', status: 'Onaylı', authCode: 'SAT', companyId: '1', company: 'Kavi Soft Ticaret', workplaceId: '1', workplace: 'Merkez', whouseId: '1', whouse: 'Merkez Depo' },
+              { id: 2, no: 'SIF-003', date: '24.09.2026', customer: 'XYZ Ltd.', type: 'Satış İade', total: '1.200,00', status: 'Taslak', authCode: 'SAT', companyId: '1', company: 'Kavi Soft Ticaret', workplaceId: '2', workplace: 'Şube Kadıköy', whouseId: '2', whouse: 'Şube Depo' },
+              { id: 3, no: 'SF-099', date: '24.09.2026', customer: 'Gizli Cari', type: 'Satış', total: '9.000,00', status: 'Açık', authCode: 'GIZLI', companyId: '1', company: 'Kavi Soft Ticaret', workplaceId: '1', workplace: 'Merkez', whouseId: '1', whouse: 'Merkez Depo' },
+              { id: 4, no: 'SF-AN1', date: '24.09.2026', customer: 'Ankara Müşteri', type: 'Satış', total: '4.500,00', status: 'Açık', authCode: 'SAT', companyId: '2', company: 'Kavi Soft Anadolu', workplaceId: '3', workplace: 'Ankara', whouseId: '3', whouse: 'Ankara Depo' },
             ],
           }),
         ],
@@ -1735,8 +1735,8 @@ export const APP_MODULES: AppModule[] = [
             formCode: 'CompanyForm',
             listColumns: cols(['code', 'Kod'], ['title', 'Ünvan'], ['taxNr', 'VKN'], ['status', 'Durum']),
             sampleRows: [
-              { id: 1, code: '01', title: 'Bartu Ticaret A.Ş.', taxNr: '1111111111', status: 'Aktif' },
-              { id: 2, code: '02', title: 'Bartu Anadolu Ltd.', taxNr: '2222222222', status: 'Aktif' },
+              { id: 1, code: '01', title: 'Kavi Soft Ticaret A.Ş.', taxNr: '1111111111', status: 'Aktif' },
+              { id: 2, code: '02', title: 'Kavi Soft Anadolu Ltd.', taxNr: '2222222222', status: 'Aktif' },
             ],
           }),
           screen({

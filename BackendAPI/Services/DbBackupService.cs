@@ -75,7 +75,7 @@ SELECT @d;");
             var safeReason = new string((reason ?? "elle").Where(char.IsLetterOrDigit).Take(20).ToArray());
             var file = Path.Combine(folder, $"{Prefix}{db}_{DateTime.Now:yyyyMMdd_HHmmss}_{safeReason}.bak");
             var sql = $"BACKUP DATABASE [{db.Replace("]", "]]")}] TO DISK = @file WITH COPY_ONLY, INIT, NAME = @name";
-            await cn.ExecuteAsync(new CommandDefinition(sql, new { file, name = $"Bartu ERP — {reason}" },
+            await cn.ExecuteAsync(new CommandDefinition(sql, new { file, name = $"Kavi Soft — {reason}" },
                 commandTimeout: 1800, cancellationToken: ct));
             Prune(folder, db);
             _log.LogInformation("Veritabanı yedeği alındı: {File}", file);

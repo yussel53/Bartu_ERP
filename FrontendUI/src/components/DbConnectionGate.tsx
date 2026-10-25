@@ -108,7 +108,7 @@ export const DbConnectionGate: React.FC<Props> = ({ children }) => {
         <div className="w-full max-w-lg space-y-3">
           <div className="flex items-center justify-between gap-2">
             <div>
-              <div className="text-[14px] font-semibold text-slate-800">KaviSoft</div>
+              <div className="text-[14px] font-semibold text-slate-800">Kavi Soft</div>
               <div className="text-[11px] text-slate-500">Veritabanı bağlantısı</div>
             </div>
             <ExitAppButton />

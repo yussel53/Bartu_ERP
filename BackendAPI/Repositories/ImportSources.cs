@@ -17,14 +17,14 @@ public static class ImportSources
         new()
         {
             Id = "bartu",
-            Title = "Bartu",
-            Note = "Bartu kolon adları. Şablonu indirip aynı başlıklarla doldurun.",
+            Title = "Kavi Soft",
+            Note = "Kavi Soft kolon adları. Şablonu indirip aynı başlıklarla doldurun.",
         },
         new()
         {
             Id = "logo",
             Title = "Logo",
-            Note = "Logo Tiger / Go Excel kolon adları. Fiş ve fatura tipi hücresine Bartu’daki adı da yazabilirsiniz (Alınan Hizmet, Virman Fişi, Gelen Havale).",
+            Note = "Logo Tiger / Go Excel kolon adları. Fiş ve fatura tipi hücresine Kavi Soft adını da yazabilirsiniz (Alınan Hizmet, Virman Fişi, Gelen Havale).",
             Headers = new(StringComparer.OrdinalIgnoreCase)
             {
                 ["product"] = Map(

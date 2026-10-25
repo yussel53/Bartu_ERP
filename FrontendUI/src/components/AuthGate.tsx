@@ -76,7 +76,7 @@ const LoginForm: React.FC<{
           {setup ? <ShieldCheck className="w-5 h-5" /> : <LogIn className="w-5 h-5" />}
         </div>
         <div>
-          <div className="text-[15px] font-semibold text-slate-800">KaviSoft</div>
+          <div className="text-[15px] font-semibold text-slate-800">Kavi Soft</div>
           <div className="text-[11px] text-slate-500">
             {setup ? 'İlk kurulum — yönetici şifresi belirleyin' : expired ? 'Oturum süresi doldu — tekrar giriş yapın' : 'Giriş'}
           </div>

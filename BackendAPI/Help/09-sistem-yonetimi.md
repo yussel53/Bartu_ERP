@@ -30,6 +30,6 @@ Elle indirme ve geçmiş günler için de kullanılır.
 
 ## Birden çok veritabanı
 
-Aynı SQL sunucusunda birden çok Bartu veritabanı çalışabilir. Girişte yazılan veritabanı geçerli bir Bartu veritabanı
+Aynı SQL sunucusunda birden çok Kavi Soft veritabanı çalışabilir. Girişte yazılan veritabanı geçerli bir Kavi Soft veritabanı
 olmalıdır; başka programların veritabanları ve sistem veritabanları kabul edilmez. İstenirse sunucu ayarında izin verilen
 veritabanları listesi tanımlanır (`Tenancy:AllowedDatabases`).
