@@ -1,4 +1,4 @@
--- 111: E-Devlet — gelen TİCARİ faturaya KABUL / RED yanıtı ve harici itiraz / iptal kaydı
+-- 20261020231600: E-Devlet — gelen TİCARİ faturaya KABUL / RED yanıtı ve harici itiraz / iptal kaydı
 -- EGovDocument: uygulama yanıtı (e-Logo CREATEAPPLICATIONRESPONSE) — gönderim canlı adreste kilitli.
 -- EGovDocumentObjection: 8 günlük süre dışında ya da GİB sistemi dışında yapılan itiraz / iptaller
 --   (KEP · NOTER; ayrıca GİB portalı). Gelen ve giden belgede tutulur.
