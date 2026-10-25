@@ -73,12 +73,12 @@ gh pr create --base main
 
 ## 4. Veritabanı scriptleri (SqlUpdates)
 
-`.cursor/rules/sql-updates.mdc` kuralları aynen geçerli (numaralı, idempotent, uygulanmış script değiştirilmez). Paralel çalışma için ek kurallar:
+`.cursor/rules/sql-updates.mdc` kuralları aynen geçerli (sıralı, idempotent, uygulanmış script değiştirilmez). Paralel çalışma için ek kurallar:
 
-1. **Dosya adına modül öneki koyun:** `NN_egov_xxx.sql`, `NN_crm_xxx.sql`, `NN_fin_xxx.sql`. Böylece kimin scripti olduğu ve çakışma kolayca görülür.
-2. **Numara, PR birleştirilmeden hemen önce kesinleşir.** PR'ı açarken ve birleştirmeden önce `main`'i çekin. Numaranız alınmışsa birleştirilmemiş olan taraf kendi scriptini bir sonraki boş numaraya taşır.
+1. **Yeni scriptin adı zaman damgasıyla başlar:** `yyyyMMddHHmmss_<modul>_<konu>.sql` — scriptin yazıldığı an (yıl ay gün saat dakika saniye), ör. `20261025201630_egov_xxx.sql`, `20261025203000_fin_xxx.sql`. Modül öneki kimin scripti olduğunu gösterir.
+2. **Numara beklemek / kaydırmak gerekmez.** Zaman damgası iki geliştiricide çakışmaz ve eski `NN_` scriptlerin hepsinden büyüktür; Veritabanı Güncelleme scriptleri baştaki sayıya göre sırayla uygular. Mevcut `NN_` scriptler olduğu gibi kalır.
 3. **`main`'e girmiş bir scriptin adı asla değiştirilmez.** Uygulanan scriptler `SYS_DbUpdates.ScriptName` alanında **dosya adıyla** izlenir; ad değişirse script tüm veritabanlarında tekrar çalışır.
-4. Bir scripti düzeltmek gerekiyorsa yeni bir `NN_` scripti açın.
+4. Bir scripti düzeltmek gerekiyorsa yeni bir zaman damgalı script açın.
 5. Scriptler idempotent olsun (`IF OBJECT_ID(...) IS NULL`, `IF COL_LENGTH(...) IS NULL`). Paralel geliştirmede script sırası değişebilir; script başka bir PR'ın tablosuna bağlıysa bunu PR'da belirtin.
 
 ## 5. Commit mesajları
@@ -99,7 +99,7 @@ PR açmadan önce:
 - [ ] Backend derleniyor: `dotnet build BackendAPI` → **0 hata**
 - [ ] Frontend tip kontrolü yeni hata eklemiyor: `cd FrontendUI && npx tsc -b` (bkz. not)
 - [ ] Değişiklik yerelde uygulama açılarak denendi
-- [ ] Şema değiştiyse `SqlUpdates/NN_<modul>_xxx.sql` eklendi ve boş/test DB'de çalıştı
+- [ ] Şema değiştiyse `SqlUpdates/yyyyMMddHHmmss_<modul>_xxx.sql` eklendi ve boş/test DB'de çalıştı
 - [ ] Ortak dosya değiştiyse PR açıklamasında belirtildi
 - [ ] Gizli bilgi yok (bkz. Bölüm 7)
 - [ ] GitHub **CI yeşil** (`.github/workflows/ci.yml`: backend build, `tsc -b` + vite build, SqlUpdates adı/numara tekrarı ve main'deki scriptin değişmemesi). CI kırmızıyken PR birleştirilmez.

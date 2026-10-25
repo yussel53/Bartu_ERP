@@ -1,24 +1,24 @@
 ---
-description: Yeni tablo / şema değişikliği için numaralı SqlUpdates script zorunlu
+description: Yeni tablo / şema değişikliği için zaman damgalı SqlUpdates script zorunlu
 alwaysApply: true
 ---
 
 # Veritabanı güncelleme kuralı
 
-Yeni tablo, kolon, index veya şema değişikliği eklendiğinde **mutlaka** `SqlUpdates/` altına numaralı script yaz:
+Yeni tablo, kolon, index veya şema değişikliği eklendiğinde **mutlaka** `SqlUpdates/` altına zaman damgalı script yaz:
 
 ```
-SqlUpdates/NN_kisa_aciklama.sql
+SqlUpdates/yyyyMMddHHmmss_modul_kisa_aciklama.sql
 ```
 
-Örnek: `07_invoice_line_udf.sql`, `08_sys_audit_log.sql`
+Örnek: `20261025201630_egov_send_setting.sql`, `20261025203000_fin_budget_line.sql`. Eski scriptler `NN_` (ör. `07_invoice_line_udf.sql`) olarak kalır.
 
 ## Kurallar
 
-1. Dosya adı: iki (veya daha fazla) haneli sıra + alt çizgi + snake_case + `.sql` → `01_xxx.sql`
+1. Dosya adı: scriptin yazıldığı anın zaman damgası (14 hane: yıl ay gün saat dakika saniye) + alt çizgi + snake_case + `.sql`
 2. Script **idempotent** olsun (`IF OBJECT_ID ... IS NULL`, `COL_LENGTH ... IS NULL`)
 3. `GO` batch ayırıcıları kullanılabilir; API `GO` ile böler
-4. Sıra numarası mevcut en yüksek `NN` + 1 olsun; araya sıkıştırma
+4. Sıra numarası beklenmez / kaydırılmaz: damga çakışmaz ve eski `NN_` scriptlerin hepsinden büyüktür (Veritabanı Güncelleme sayısal sıraya göre uygular)
 5. `Create_DB.sql` / `SYS_Tables_And_UDF.sql` tek başına yetmez — canlı DB için `SqlUpdates` şart
 6. Yeni tablo/ekran eklenirken Sistem Yönetimi → **Veritabanı Güncelleme** ekranında görünecek şekilde script klasöre konur (UI `api/db-updates` ile listeler)
 7. İlk script `01_sys_db_updates.sql` takip tablosunu (`SYS_DbUpdates`) oluşturur; bozulmamalı
@@ -26,5 +26,5 @@ SqlUpdates/NN_kisa_aciklama.sql
 ## Yasak
 
 - Sadece kodda tablo varsayıp SQL script atlamak
-- Numarasız / tarihli rastgele dosya adları (`new_table.sql`, `update.sql`)
-- Uygulanmış scripti içeriğini değiştirerek yeniden yazmak (yeni `NN_` aç)
+- Sırasız rastgele dosya adları (`new_table.sql`, `update.sql`) ya da biçimi bozuk zaman damgası
+- Uygulanmış scripti içeriğini değiştirerek yeniden yazmak (yeni zaman damgalı script aç)

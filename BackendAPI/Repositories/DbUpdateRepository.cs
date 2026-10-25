@@ -10,7 +10,8 @@ public sealed class DbUpdateScriptInfo
 {
     public string ScriptName { get; set; } = "";
     public string Title { get; set; } = "";
-    public int Sequence { get; set; }
+    /// <summary>Dosya adının baştaki sayısı: eski NN_ (93) ya da zaman damgası yyyyMMddHHmmss (20261025201630)</summary>
+    public long Sequence { get; set; }
     public bool Applied { get; set; }
     public DateTime? AppliedAt { get; set; }
     public string? Message { get; set; }
@@ -76,7 +77,8 @@ public sealed class DbUpdateRepository
 
         var files = Directory.GetFiles(folder, "*.sql")
             .Select(f => new FileInfo(f))
-            .OrderBy(f => f.Name, StringComparer.OrdinalIgnoreCase)
+            .OrderBy(f => ParseSequence(f.Name))
+            .ThenBy(f => f.Name, StringComparer.OrdinalIgnoreCase)
             .ToList();
 
         HashSet<string> applied = new(StringComparer.OrdinalIgnoreCase);
@@ -203,10 +205,11 @@ public sealed class DbUpdateRepository
         return Path.Combine(GetFolderPath(), scriptName);
     }
 
-    private static int ParseSequence(string fileName)
+    /// <summary>Numarasız dosyalar en sona</summary>
+    private static long ParseSequence(string fileName)
     {
         var m = Regex.Match(fileName, @"^(\d+)");
-        return m.Success && int.TryParse(m.Groups[1].Value, out var n) ? n : 9999;
+        return m.Success && long.TryParse(m.Groups[1].Value, out var n) ? n : long.MaxValue;
     }
 
     private static IEnumerable<string> SplitGoBatches(string sql)
