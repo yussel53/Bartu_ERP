@@ -100,8 +100,8 @@ function AppRoutes() {
   } else {
     const moduleMeta = findModuleByPath(modules, segments[0]);
 
-    // Modül kökü (#/satis) veya grup kökü (#/satis/hareketler) → özet dashboard
-    const isModuleRoot = Boolean(moduleMeta && segments.length === 1 && !mode);
+    // Modül kökü (#/satis) veya grup kökü (#/satis/hareketler) → özet dashboard; açılış ekranı tanımlı modülde o ekran
+    const isModuleRoot = Boolean(moduleMeta && segments.length === 1 && !mode && !moduleMeta.landingScreen);
     const groupForOverview =
       moduleMeta && segments.length === 2 && !mode
         ? moduleMeta.groups.find((g) => g.key === segments[1])

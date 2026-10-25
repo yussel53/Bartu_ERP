@@ -74,6 +74,11 @@ export function findScreenInModule(
     }
   }
 
+  // Modül kökü: açılış ekranı (grup sekmesi seçili görünmez)
+  if (module.landingScreen && (path === module.path || path === module.landingScreen.path)) {
+    return { group: { key: '' as MenuGroup['key'], title: module.landingScreen.title, screens: [] }, screen: module.landingScreen, parent: null };
+  }
+
   const groupKey = path.split('/')[1];
   const group =
     module.groups.find((g) => g.key === groupKey && g.screens.length > 0) ||
@@ -139,7 +144,10 @@ export const ModuleWorkspace: React.FC<ModuleWorkspaceProps> = ({
       return <CurrencyRatesPage onBack={() => onNavigate(module.path)} />;
     }
     if (activeScreen.isEGovDesignTemplates) {
-      return <EGovDesignTemplatesPage onBack={() => onNavigate(module.path)} />;
+      return <EGovDesignTemplatesPage mode="rules" onBack={() => onNavigate(module.path)} />;
+    }
+    if (activeScreen.isEGovDesignTool) {
+      return <EGovDesignTemplatesPage mode="designs" onBack={() => onNavigate(module.path)} />;
     }
     if (activeScreen.isStockCosting) {
       return <StockCostingPage onBack={() => onNavigate(module.path)} />;
@@ -347,6 +355,7 @@ export const ModuleWorkspace: React.FC<ModuleWorkspaceProps> = ({
 
       <div className="rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 overflow-hidden">
         {/* Ekran sekmeleri + alt sekmeler aynı bantta */}
+        {(screenTabs.length > 0 || childStrip) && (
         <div className="px-2.5 py-1.5 border-b border-slate-100 dark:border-slate-800 bg-slate-50/70 dark:bg-slate-800/30 space-y-1">
           <FormTabs
             variant="pill"
@@ -381,6 +390,7 @@ export const ModuleWorkspace: React.FC<ModuleWorkspaceProps> = ({
             />
           )}
         </div>
+        )}
 
         <div className="p-2.5 sm:p-3">{renderBody()}</div>
       </div>

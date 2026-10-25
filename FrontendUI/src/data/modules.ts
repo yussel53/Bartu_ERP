@@ -1105,6 +1105,13 @@ export const APP_MODULES: AppModule[] = [
     title: 'E-Devlet',
     subtitle: 'EGovDocument · ELedger · e-Fatura / e-Arşiv / e-İrsaliye / e-Defter',
     icon: 'landmark',
+    landingScreen: {
+      id: 'ebelge-konsolu',
+      path: 'edevlet',
+      title: 'e-Belge Konsolu',
+      subtitle: 'Gelen / giden / bekleyen e-Fatura · e-Arşiv · e-İrsaliye özeti ve grafikleri',
+      isEGovConsole: true,
+    },
     groups: [
       {
         key: 'e-fatura',
@@ -1413,9 +1420,9 @@ export const APP_MODULES: AppModule[] = [
         screens: [
           {
             id: 'egov-tasarim-sablonlari',
-            path: 'edevlet/tanimlar/tasarim-sablonlari',
-            title: 'Tasarım Şablonları',
-            subtitle: 'EGovDesignRule · EGovXsltDesign · belge türüne göre XSLT tasarım seçimi',
+            path: 'edevlet/tanimlar/ebelge-sablonlari',
+            title: 'e-Belge Şablonları',
+            subtitle: 'EGovDesignRule · belge türü / cari / iş yeri … için hangi XSLT tasarımının kullanılacağı',
             isEGovDesignTemplates: true,
           },
           {
@@ -1442,16 +1449,22 @@ export const APP_MODULES: AppModule[] = [
         ],
       },
       {
+        key: 'tasarimlar',
+        title: 'Tasarımlar',
+        screens: [
+          {
+            id: 'egov-tasarim-araci',
+            path: 'edevlet/tasarimlar/tasarim-araci',
+            title: 'Tasarım Aracı',
+            subtitle: 'EGovXsltDesign · XSLT tasarım yükleme, değiştirme ve örnek belgeyle önizleme',
+            isEGovDesignTool: true,
+          },
+        ],
+      },
+      {
         key: 'islemler',
         title: 'İşlemler',
         screens: [
-          {
-            id: 'ebelge-konsolu',
-            path: 'edevlet/islemler/ebelge-konsolu',
-            title: 'e-Belge Konsolu',
-            subtitle: 'Gelen / giden / bekleyen e-Fatura · e-Arşiv · e-İrsaliye özeti ve grafikleri',
-            isEGovConsole: true,
-          },
           {
             id: 'elogo-belge-cek',
             path: 'edevlet/islemler/elogo-belge-cek',
