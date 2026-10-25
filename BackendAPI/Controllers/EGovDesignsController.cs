@@ -50,6 +50,33 @@ public sealed class EGovDesignsController : ControllerBase
         return Ok(new { success = true, id, message = $"«{name}» yüklendi." });
     }
 
+    /// <summary>GİB standart görünümlerini (e-Fatura, e-Arşiv, e-İrsaliye) kütüphaneye ekler; aynısı varsa atlar</summary>
+    [HttpPost("standard")]
+    public async Task<IActionResult> LoadStandard(CancellationToken ct)
+    {
+        if (!await _repo.ReadyAsync(ct)) return BadRequest(new { message = EGovDesignRepository.MissingTableMessage });
+        var added = new List<string>();
+        var skipped = new List<string>();
+        foreach (var item in EGovStandardDesigns.Items)
+        {
+            var content = EGovStandardDesigns.Read(item.File);
+            var hash = EGovXsltService.Sha256Hex(content);
+            if (await _repo.ExistsAsync(hash, item.DocGroup, ct))
+            {
+                skipped.Add(item.Title);
+                continue;
+            }
+            if (EGovXsltService.Validate(content) is { } error)
+                return BadRequest(new { message = $"{item.Title}: {error}" });
+            await _repo.CreateDesignAsync(item.Title, item.File, content, hash, EGovStandardDesigns.Notes, item.DocGroup, ct);
+            added.Add(item.Title);
+        }
+        var message = added.Count > 0
+            ? $"Yüklendi: {string.Join(", ", added)}." + (skipped.Count > 0 ? $" Zaten vardı: {string.Join(", ", skipped)}." : "")
+            : "Standart şablonların hepsi zaten yüklü.";
+        return Ok(new { success = true, added = added.Count, skipped = skipped.Count, message });
+    }
+
     [HttpPut("{id:int}")]
     public async Task<IActionResult> Update(int id, [FromBody] EGovDesignUpdateDto dto, CancellationToken ct)
     {

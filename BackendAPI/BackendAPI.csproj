@@ -23,6 +23,13 @@
     <Content Remove="Help\*.md" />
   </ItemGroup>
 
+  <!-- E-Devlet: GİB standart XSLT görünümleri (Tasarım Aracı → Standart şablonları yükle) -->
+  <ItemGroup>
+    <EmbeddedResource Include="EGovStandart\*.xslt" LogicalName="EGovStandart/%(Filename)%(Extension)" />
+    <None Remove="EGovStandart\*.xslt" />
+    <Content Remove="EGovStandart\*.xslt" />
+  </ItemGroup>
+
   <!-- Sürüm bilgisine git commit'i ekle (InformationalVersion 1.0.0+abc1234 → api/system/info); git yoksa atlanır -->
   <Target Name="BartuSourceRevision" BeforeTargets="InitializeSourceControlInformation;GetAssemblyVersion;GenerateAssemblyInfo" Condition="'$(SourceRevisionId)' == ''">
     <Exec Command="git rev-parse --short HEAD" ConsoleToMSBuild="true" IgnoreExitCode="true" StandardOutputImportance="low" StandardErrorImportance="low" EchoOff="true">

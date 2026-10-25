@@ -19,6 +19,7 @@ import {
   egovDesignGroupLabel,
   egovDocTypeGroup,
   guessEGovDesignGroup,
+  loadStandardEGovDesigns,
 } from '../api/egovDesignApi';
 import {
   EGovDesignDocTypes,
@@ -237,6 +238,14 @@ export const EGovDesignTemplatesPage: React.FC<{ onBack: () => void }> = ({ onBa
     }
   };
 
+  const loadStandard = async () => {
+    const ok = await appConfirm(
+      'GİB standart görünümleri (e-Fatura, e-Arşiv, e-İrsaliye) tasarım kütüphanesine eklensin mi? Zaten yüklü olanlar atlanır; mevcut şablonlarınız değişmez.',
+      { okLabel: 'Yükle' },
+    );
+    if (ok) await run(() => loadStandardEGovDesigns());
+  };
+
   const saveDesignEdit = async () => {
     if (!designEdit) return;
     const ok = await run(() =>
@@ -424,7 +433,16 @@ export const EGovDesignTemplatesPage: React.FC<{ onBack: () => void }> = ({ onBa
               <button type="button" disabled={busy || !ready || !file} onClick={() => void upload()} className={btnPrimary}>
                 <Upload className="w-3.5 h-3.5" /> Yükle
               </button>
-              <button type="button" onClick={() => void load()} className="ml-auto inline-flex items-center gap-1 text-[11px] text-slate-600 hover:text-slate-900">
+              <button
+                type="button"
+                disabled={busy || !ready}
+                onClick={() => void loadStandard()}
+                title="GİB UBL-TR paketindeki standart e-Fatura / e-Arşiv / e-İrsaliye görünümlerini ekler"
+                className="ml-auto inline-flex items-center gap-1 h-7 px-2.5 text-[12px] font-medium rounded-sm border border-slate-300 bg-white text-slate-700 hover:bg-slate-50 disabled:opacity-40"
+              >
+                <Download className="w-3.5 h-3.5" /> Standart şablonları yükle
+              </button>
+              <button type="button" onClick={() => void load()} className="inline-flex items-center gap-1 text-[11px] text-slate-600 hover:text-slate-900">
                 <RefreshCw className={`w-3 h-3 ${loading ? 'animate-spin' : ''}`} /> Yenile
               </button>
             </div>

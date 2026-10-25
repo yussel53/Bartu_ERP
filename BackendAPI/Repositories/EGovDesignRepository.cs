@@ -210,6 +210,15 @@ public sealed class EGovDesignRepository
             new { title, fileName, content, hash, notes, docGroup }, cancellationToken: ct));
     }
 
+    /// <summary>Aynı içerik (SHA-256) aynı grupta zaten var mı — standart tasarımlar ikinci kez eklenmesin</summary>
+    public async Task<bool> ExistsAsync(string hash, string docGroup, CancellationToken ct = default)
+    {
+        Open();
+        return await _db.ExecuteScalarAsync<int>(new CommandDefinition(
+            "SELECT COUNT(*) FROM dbo.EGovXsltDesign WHERE ContentHash = @hash AND DocGroup = @docGroup",
+            new { hash, docGroup }, cancellationToken: ct)) > 0;
+    }
+
     /// <summary>Grup değişince tasarımı kullanan başka gruptaki şablon varsa engel mesajı</summary>
     public async Task<string?> DocGroupConflictAsync(int id, string docGroup, CancellationToken ct = default)
     {

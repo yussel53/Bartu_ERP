@@ -94,6 +94,11 @@ export function uploadEGovDesign(file: File, title?: string, docGroup?: string):
   return sendForm('/api/egov/designs', form, 'Tasarım yüklenemedi');
 }
 
+/** GİB standart görünümlerini (e-Fatura, e-Arşiv, e-İrsaliye) kütüphaneye ekler; aynısı varsa atlar */
+export function loadStandardEGovDesigns(): Promise<Result & { added?: number; skipped?: number }> {
+  return apiJson('/api/egov/designs/standard', { method: 'POST' });
+}
+
 export function replaceEGovDesignContent(id: number, file: File): Promise<Result> {
   const form = new FormData();
   form.append('file', file);
