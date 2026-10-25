@@ -2,17 +2,28 @@ import React from 'react';
 import { FileSpreadsheet, Download, Upload, Eye, CheckCircle2, Package, Users, BookOpen, X } from 'lucide-react';
 import {
   applyImport,
+  deleteImportProfile,
+  fetchImportFields,
   fetchImportHistory,
+  fetchImportProfiles,
+  fetchImportSourceColumns,
+  fetchImportSourceRows,
   fetchImportSources,
   fetchImportTargets,
   importTemplateUrl,
   parseImportFile,
+  runImportProfile,
+  saveImportProfile,
   sourceHeader,
   type ImportApplyResult,
+  type ImportFieldDef,
   type ImportKind,
   type ImportLogRow,
+  type ImportMapItem,
   type ImportMode,
+  type ImportProfile,
   type ImportSourceDef,
+  type ImportSourceRequest,
   type ImportTargetDef,
   type ParsedSheet,
 } from '../api/importApi';
@@ -65,23 +76,52 @@ const inputCls =
 /** Başlık karşılaştırma: yalnızca büyük/küçük harf ve baş/son boşluk farkı yok sayılır */
 const norm = (s: string) => s.trim().toLocaleLowerCase('tr-TR');
 
-type TemplateCheck = { mapping: Record<string, number>; missing: string[]; extra: string[]; duplicate: string[] };
+const CHANNELS = [
+  { value: 'excel', label: 'Excel / CSV' },
+  { value: '0', label: 'Bu veritabanı (SELECT)' },
+  { value: '1', label: 'SQL Server (Logo, Mikro…)' },
+  { value: '2', label: 'MySQL' },
+  { value: '3', label: 'REST API' },
+] as const;
 
-/** Dosya başlıkları şablonla birebir aynı olmalı — eksik / fazla / tekrar eden kolon kabul edilmez */
-function checkTemplate(target: ImportTargetDef, headers: string[], source: ImportSourceDef | null): TemplateCheck {
-  const mapping: Record<string, number> = {};
-  const byLabel = new Map(target.fields.map((f) => [norm(sourceHeader(source, target.kind, f)), f]));
-  const extra: string[] = [];
-  const duplicate: string[] = [];
-  headers.forEach((h, i) => {
-    if (!h.trim()) return;
-    const f = byLabel.get(norm(h));
-    if (!f) extra.push(h);
-    else if (mapping[f.key] !== undefined) duplicate.push(h);
-    else mapping[f.key] = i;
-  });
-  const missing = target.fields.filter((f) => mapping[f.key] === undefined).map((f) => sourceHeader(source, target.kind, f));
-  return { mapping, missing, extra, duplicate };
+type Channel = (typeof CHANNELS)[number]['value'];
+
+const emptySource = (): ImportSourceRequest => ({
+  sourceType: 0,
+  sql: '',
+  server: '',
+  port: '',
+  database: '',
+  user: '',
+  password: '',
+  windowsAuth: false,
+  trustCertificate: true,
+  apiUrl: '',
+  apiMethod: 'GET',
+  apiHeaders: '',
+  jsonPath: '',
+  body: '',
+});
+
+/** Başlık adını Bartu alanına önerir. Kullanıcı eşlemeyi değiştirebilir. */
+function autoMap(headers: string[], fields: ImportFieldDef[], source: ImportSourceDef | null, kind: string): Record<string, string> {
+  const by = new Map<string, string>();
+  for (const f of fields) {
+    for (const name of [sourceHeader(source, kind, f), f.label, f.key, ...(f.aliases ?? [])]) {
+      const key = norm(name);
+      if (key && !by.has(key)) by.set(key, f.key);
+    }
+  }
+  const used = new Set<string>();
+  const map: Record<string, string> = {};
+  for (const h of headers) {
+    const key = by.get(norm(h));
+    if (key && !used.has(key)) {
+      map[h] = key;
+      used.add(key);
+    } else map[h] = '';
+  }
+  return map;
 }
 
 const fmtTime = (v: string) => new Date(v.endsWith('Z') ? v : `${v}Z`).toLocaleString('tr-TR');
@@ -91,6 +131,16 @@ export const DataImportPage: React.FC<DataImportPageProps> = () => {
   const [sources, setSources] = React.useState<ImportSourceDef[]>([]);
   const [sourceId, setSourceId] = React.useState('bartu');
   const [kind, setKind] = React.useState<ImportKind>('product');
+  const [catalog, setCatalog] = React.useState<ImportFieldDef[]>([]);
+  const [picked, setPicked] = React.useState<Set<string>>(new Set());
+  const [channel, setChannel] = React.useState<Channel>('excel');
+  const [link, setLink] = React.useState<ImportSourceRequest>(emptySource);
+  const [colMap, setColMap] = React.useState<Record<string, string>>({});
+  const [profileId, setProfileId] = React.useState(0);
+  const [profileTitle, setProfileTitle] = React.useState('');
+  const [intervalMin, setIntervalMin] = React.useState('');
+  const [profiles, setProfiles] = React.useState<ImportProfile[]>([]);
+  const savedMap = React.useRef<ImportMapItem[] | null>(null);
   const [productType, setProductType] = React.useState(1);
   const [accountPrefixParent, setAccountPrefixParent] = React.useState(true);
   const [createMissingCards, setCreateMissingCards] = React.useState(false);
@@ -106,6 +156,21 @@ export const DataImportPage: React.FC<DataImportPageProps> = () => {
 
   const target = targets.find((t) => t.kind === kind) ?? null;
   const source = sources.find((s) => s.id === sourceId) ?? sources[0] ?? null;
+  const fields = catalog.length ? catalog : (target?.fields ?? []);
+
+  React.useEffect(() => {
+    let cancel = false;
+    fetchImportFields(kind)
+      .then((rows) => { if (!cancel) setCatalog(rows); })
+      .catch(() => { if (!cancel) setCatalog([]); });
+    return () => { cancel = true; };
+  }, [kind]);
+
+  React.useEffect(() => {
+    const list = catalog.length ? catalog : (target?.fields ?? []);
+    if (!list.length) return;
+    setPicked(new Set(list.filter((f) => f.required || f.defaultOn !== false).map((f) => f.key)));
+  }, [kind, catalog, target]);
 
   const loadHistory = React.useCallback(async () => {
     try {
@@ -122,20 +187,35 @@ export const DataImportPage: React.FC<DataImportPageProps> = () => {
     fetchImportSources()
       .then(setSources)
       .catch(() => setSources([]));
+    fetchImportProfiles().then(setProfiles).catch(() => setProfiles([]));
     void loadHistory();
   }, [loadHistory]);
 
-  const check = React.useMemo(
-    () => (target && sheet ? checkTemplate(target, sheet.headers, source) : null),
-    [target, sheet, source],
-  );
-  const mapping = check?.mapping ?? {};
-  const templateOk = Boolean(check && !check.missing.length && !check.extra.length && !check.duplicate.length);
+  React.useEffect(() => {
+    if (!sheet) {
+      setColMap((prev) => (Object.keys(prev).length ? {} : prev));
+      return;
+    }
+    const list = catalog.length ? catalog : (target?.fields ?? []);
+    const map = autoMap(sheet.headers, list, channel === 'excel' ? source : null, kind);
+    if (savedMap.current) {
+      for (const item of savedMap.current) {
+        if (sheet.headers.includes(item.header)) map[item.header] = item.field;
+      }
+      savedMap.current = null;
+    }
+    setColMap(map);
+  }, [sheet, catalog, target, source, kind, channel]);
+
+  const assigned = Object.values(colMap).filter(Boolean);
+  const duplicateFields = [...new Set(assigned.filter((key, i) => assigned.indexOf(key) !== i))];
+  const missingRequired = fields.filter((f) => f.required && !assigned.includes(f.key));
+  const templateOk = Boolean(sheet && sheet.rows.length > 0 && missingRequired.length === 0 && duplicateFields.length === 0);
 
   React.useEffect(() => {
     setResult(null);
     setInfo(null);
-  }, [target, sheet, mode, productType, accountPrefixParent, createMissingCards, sourceId]);
+  }, [target, sheet, mode, productType, accountPrefixParent, createMissingCards, sourceId, picked]);
 
   const onFile = async (file: File | undefined) => {
     if (!file) return;
@@ -158,16 +238,99 @@ export const DataImportPage: React.FC<DataImportPageProps> = () => {
     sheet.rows.forEach((cells, i) => {
       const rec: Record<string, string> = { __row: String(i + 2) };
       let any = false;
-      for (const f of target.fields) {
-        const col = mapping[f.key];
-        if (col === undefined || col < 0) continue;
+      sheet.headers.forEach((header, col) => {
+        const key = colMap[header];
+        if (!key) return;
         const v = (cells[col] ?? '').trim();
-        if (v) any = true;
-        rec[f.key] = v;
-      }
+        if (!v) return;
+        any = true;
+        rec[key] = v;
+      });
       if (any) out.push(rec);
     });
     return out;
+  };
+
+  const sourceRequest = (): ImportSourceRequest => ({
+    ...link,
+    sourceType: Number(channel),
+  });
+
+  const pullColumns = async () => {
+    setBusy(true);
+    setError(null);
+    try {
+      const headers = await fetchImportSourceColumns(sourceRequest());
+      savedMap.current = null;
+      setSheet({ fileName: channel === '3' ? 'API' : 'SQL', sheetName: '', headers, rows: [], truncated: false });
+      setInfo(`${headers.length} kolon başlığı alındı. Bartu alanıyla eşleştirin, sonra veriyi çekin.`);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'Kolonlar okunamadı');
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const pullRows = async () => {
+    setBusy(true);
+    setError(null);
+    try {
+      const data = await fetchImportSourceRows(sourceRequest());
+      setSheet({ fileName: channel === '3' ? 'API' : 'SQL', sheetName: '', headers: data.headers, rows: data.rows, truncated: false });
+      setInfo(`${data.rows.length} satır geldi.`);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'Veri okunamadı');
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const saveProfile = async () => {
+    if (channel === 'excel') {
+      setError('Zamanlama SQL veya API kaynağı ile kaydedilir. Excel dosyası elle yüklenir.');
+      return;
+    }
+    setBusy(true);
+    setError(null);
+    try {
+      const saved = await saveImportProfile({
+        importProfileID: profileId,
+        title: profileTitle.trim() || (target?.title ?? 'Aktarım'),
+        kind,
+        sourceKind: Number(channel),
+        source: sourceRequest(),
+        map: Object.entries(colMap).filter(([, field]) => field).map(([header, field]) => ({ header, field })),
+        mode,
+        createMissingCards,
+        productType: kind === 'product' ? productType : null,
+        intervalMinutes: intervalMin.trim() ? Number(intervalMin) : null,
+        isActive: true,
+      });
+      setProfileId(saved.importProfileID);
+      setProfileTitle(saved.title);
+      const when = saved.intervalMinutes ? `her ${saved.intervalMinutes} dk` : 'yalnız elle';
+      setInfo(`Profil kaydedildi (${when}). Süreç no: ${saved.processDefID ?? '—'}`);
+      setProfiles(await fetchImportProfiles());
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'Profil kaydedilemedi');
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const openProfile = (p: ImportProfile) => {
+    setKind(p.kind);
+    setChannel(String(p.sourceKind) as Channel);
+    setLink({ ...emptySource(), ...p.source, password: '' });
+    setProfileId(p.importProfileID);
+    setProfileTitle(p.title);
+    setIntervalMin(p.intervalMinutes ? String(p.intervalMinutes) : '');
+    setMode(p.mode);
+    setCreateMissingCards(p.createMissingCards);
+    if (p.productType) setProductType(p.productType);
+    savedMap.current = p.map;
+    setSheet(null);
+    setInfo(p.lastStatus ? `Son çalışma: ${p.lastStatus}` : 'Profil açıldı. Başlıkları alıp eşlemeyi kontrol edin.');
   };
 
   const run = async (dryRun: boolean) => {
@@ -212,7 +375,8 @@ export const DataImportPage: React.FC<DataImportPageProps> = () => {
   };
 
   const previewRows = sheet ? sheet.rows.slice(0, 5) : [];
-  const mappedFields = target && templateOk ? target.fields : [];
+  const mappedFields = fields.filter((f) => Object.values(colMap).includes(f.key));
+  const colOf = (key: string) => sheet ? sheet.headers.findIndex((h) => colMap[h] === key) : -1;
   const resultRows = result ? (onlyProblems ? result.rows.filter((r) => r.action === 'error' || r.message) : result.rows) : [];
 
   return (
@@ -222,7 +386,7 @@ export const DataImportPage: React.FC<DataImportPageProps> = () => {
         <div>
           <h2 className="text-[14px] font-semibold text-slate-800 dark:text-slate-100">Veri Aktarımı</h2>
           <p className="text-[11px] text-slate-500">
-            Excel, CSV veya e-Defter yevmiye dosyasından kart ve fiş aktarın. Aynı belge numarası tek fişte birleşir.
+            Excel, SQL veya API kaynağından kart ve fiş aktarın. Alanları siz seçer, başlıkları Bartu alanına eşlersiniz. Aralık yazılırsa süreç zamanında kendisi çalışır.
           </p>
         </div>
       </div>
@@ -236,7 +400,7 @@ export const DataImportPage: React.FC<DataImportPageProps> = () => {
               <button
                 key={k}
                 type="button"
-                onClick={() => setKind(k)}
+                onClick={() => { setKind(k); setCatalog([]); setSheet(null); setProfileId(0); }}
                 className={`inline-flex items-center gap-1.5 px-3 h-8 text-[12px] font-semibold rounded-md border ${
                   active
                     ? 'bg-blue-600 border-blue-600 text-white'
@@ -262,34 +426,80 @@ export const DataImportPage: React.FC<DataImportPageProps> = () => {
           </ul>
         )}
         {target && (
-          <div className="flex flex-wrap gap-1">
-            <span className="text-[11px] font-medium text-slate-600 mr-1">Şablon kolonları:</span>
-            {target.fields.map((f) => (
-              <span
-                key={f.key}
-                title={[f.hint, f.options ? `Değerler: ${Object.keys(f.options).join(', ')}` : ''].filter(Boolean).join(' · ') || undefined}
-                className={`px-1.5 py-0.5 rounded text-[11px] border ${
-                  f.required
-                    ? 'border-red-200 bg-red-50 text-red-700'
-                    : 'border-slate-200 bg-white dark:bg-slate-900 text-slate-600'
-                }`}
+          <div className="space-y-1">
+            <div className="flex flex-wrap items-center gap-2">
+              <span className="text-[11px] font-medium text-slate-600">Aktarılacak alanlar</span>
+              <span className="text-[11px] text-slate-400">{fields.filter((f) => f.required || picked.has(f.key)).length}/{fields.length}</span>
+              <button
+                type="button"
+                className="text-[11px] text-blue-700 hover:underline"
+                onClick={() => setPicked(new Set(fields.map((f) => f.key)))}
               >
-                {sourceHeader(source, kind, f)}
-                {f.required && ' *'}
-              </span>
-            ))}
+                Tümünü seç
+              </button>
+              <button
+                type="button"
+                className="text-[11px] text-blue-700 hover:underline"
+                onClick={() => setPicked(new Set(fields.filter((f) => f.required).map((f) => f.key)))}
+              >
+                Yalnız zorunlu
+              </button>
+            </div>
+            <div className="flex flex-wrap gap-1">
+              {fields.map((f) => {
+                const on = f.required || picked.has(f.key);
+                return (
+                  <label
+                    key={f.key}
+                    title={[f.hint, f.options ? `Değerler: ${Object.keys(f.options).join(', ')}` : ''].filter(Boolean).join(' · ') || undefined}
+                    className={`inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[11px] border cursor-pointer ${
+                      f.required
+                        ? 'border-red-200 bg-red-50 text-red-700'
+                        : on
+                          ? 'border-blue-200 bg-blue-50 text-blue-800'
+                          : 'border-slate-200 bg-white dark:bg-slate-900 text-slate-500'
+                    }`}
+                  >
+                    <input
+                      type="checkbox"
+                      className="accent-blue-600"
+                      checked={on}
+                      disabled={f.required}
+                      onChange={(e) => {
+                        setPicked((prev) => {
+                          const next = new Set(prev);
+                          if (e.target.checked) next.add(f.key);
+                          else next.delete(f.key);
+                          return next;
+                        });
+                      }}
+                    />
+                    {sourceHeader(source, kind, f)}
+                    {f.required && ' *'}
+                  </label>
+                );
+              })}
+            </div>
           </div>
         )}
 
         <div className="grid grid-cols-1 md:grid-cols-12 gap-3 items-end">
+          <label className="md:col-span-4 space-y-1">
+            <span className="text-[11px] font-medium text-slate-600">Kaynak</span>
+            <select className={inputCls} value={channel} onChange={(e) => { setChannel(e.target.value as Channel); setSheet(null); }}>
+              {CHANNELS.map((c) => <option key={c.value} value={c.value}>{c.label}</option>)}
+            </select>
+          </label>
+          {channel === 'excel' && (
           <label className="md:col-span-3 space-y-1">
-            <span className="text-[11px] font-medium text-slate-600">Kaynak şablon</span>
+            <span className="text-[11px] font-medium text-slate-600">Excel şablonu</span>
             <select className={inputCls} value={source?.id ?? 'bartu'} onChange={(e) => setSourceId(e.target.value)}>
               {(sources.length ? sources : [{ id: 'bartu', title: 'Bartu', note: '', headers: {} }]).map((s) => (
                 <option key={s.id} value={s.id}>{s.title}</option>
               ))}
             </select>
           </label>
+          )}
           {kind === 'product' && (
             <label className="md:col-span-3 space-y-1">
               <span className="text-[11px] font-medium text-slate-600">Kart Tipi</span>
@@ -332,9 +542,10 @@ export const DataImportPage: React.FC<DataImportPageProps> = () => {
               ))}
             </select>
           </label>
+          {channel === 'excel' && (
           <div className="md:col-span-4 flex flex-wrap gap-2">
             <a
-              href={importTemplateUrl(kind, source?.id ?? 'bartu')}
+              href={importTemplateUrl(kind, source?.id ?? 'bartu', fields.filter((f) => f.required || picked.has(f.key)).map((f) => f.key))}
               className="inline-flex items-center gap-1.5 px-3 h-8 text-[12px] font-semibold text-emerald-700 bg-emerald-50 hover:bg-emerald-100 rounded-md"
             >
               <Download className="w-3.5 h-3.5" />
@@ -357,6 +568,79 @@ export const DataImportPage: React.FC<DataImportPageProps> = () => {
               onChange={(e) => void onFile(e.target.files?.[0])}
             />
           </div>
+          )}
+        </div>
+        {channel !== 'excel' && (
+          <div className="space-y-2 rounded border border-sky-200 bg-white/70 p-2">
+            <p className="text-[11px] text-slate-600">
+              Logo veya Mikro veritabanına bağlanıp kendi SELECT sorgunuzu yazın. REST için JSON listesinin adresini verin. Gelen başlıkları Bartu alanına eşleyin.
+            </p>
+            {(channel === '1' || channel === '2') && (
+              <div className="grid grid-cols-2 md:grid-cols-4 gap-2">
+                <label className="block text-[11px] col-span-2">Sunucu
+                  <input className={inputCls} value={link.server ?? ''} onChange={(e) => setLink({ ...link, server: e.target.value })} placeholder={channel === '2' ? 'mysql.site' : 'sunucu\\SQLEXPRESS'} />
+                </label>
+                <label className="block text-[11px]">Port
+                  <input className={inputCls} value={link.port ?? ''} onChange={(e) => setLink({ ...link, port: e.target.value })} placeholder={channel === '2' ? '3306' : ''} />
+                </label>
+                <label className="block text-[11px]">Veritabanı
+                  <input className={inputCls} value={link.database ?? ''} onChange={(e) => setLink({ ...link, database: e.target.value })} />
+                </label>
+                {channel === '1' && (
+                  <label className="col-span-2 flex items-center gap-2 text-[11px]">
+                    <input type="checkbox" checked={link.windowsAuth === true} onChange={(e) => setLink({ ...link, windowsAuth: e.target.checked })} />
+                    Windows kimliği
+                  </label>
+                )}
+                {!(channel === '1' && link.windowsAuth) && (
+                  <>
+                    <label className="block text-[11px]">Kullanıcı
+                      <input className={inputCls} value={link.user ?? ''} autoComplete="off" onChange={(e) => setLink({ ...link, user: e.target.value })} />
+                    </label>
+                    <label className="block text-[11px]">Şifre
+                      <input type="password" className={inputCls} value={link.password ?? ''} autoComplete="new-password" placeholder={profileId ? 'boşsa kayıtlı şifre durur' : ''} onChange={(e) => setLink({ ...link, password: e.target.value })} />
+                    </label>
+                  </>
+                )}
+              </div>
+            )}
+            {channel === '3' ? (
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
+                <label className="block text-[11px]">Yöntem
+                  <select className={inputCls} value={link.apiMethod || 'GET'} onChange={(e) => setLink({ ...link, apiMethod: e.target.value })}>
+                    <option value="GET">GET</option>
+                    <option value="POST">POST</option>
+                  </select>
+                </label>
+                <label className="block text-[11px]">Kayıt listesi yolu
+                  <input className={inputCls} value={link.jsonPath ?? ''} placeholder="data.items" onChange={(e) => setLink({ ...link, jsonPath: e.target.value })} />
+                </label>
+                <label className="block text-[11px] md:col-span-2">Adres
+                  <input className={inputCls} value={link.apiUrl ?? ''} placeholder="https://site.com/api/kayitlar" onChange={(e) => setLink({ ...link, apiUrl: e.target.value })} />
+                </label>
+                <label className="block text-[11px] md:col-span-2">Başlıklar
+                  <textarea className={`${inputCls} h-16 font-mono py-1`} value={link.apiHeaders ?? ''} placeholder={'Authorization: Bearer …'} onChange={(e) => setLink({ ...link, apiHeaders: e.target.value })} />
+                </label>
+              </div>
+            ) : (
+              <label className="block text-[11px]">SELECT
+                <textarea className={`${inputCls} h-20 font-mono py-1`} spellCheck={false} value={link.sql ?? ''} placeholder="SELECT kod, unvan FROM ..." onChange={(e) => setLink({ ...link, sql: e.target.value })} />
+              </label>
+            )}
+            <div className="flex flex-wrap gap-2">
+              <button type="button" disabled={busy} onClick={() => void pullColumns()} className="rounded border border-sky-300 bg-white px-2 h-8 text-[12px] text-sky-800 disabled:opacity-50">Başlıkları al</button>
+              <button type="button" disabled={busy} onClick={() => void pullRows()} className="rounded border border-sky-300 bg-white px-2 h-8 text-[12px] text-sky-800 disabled:opacity-50">Veriyi çek</button>
+            </div>
+          </div>
+        )}
+        <div className="grid grid-cols-1 md:grid-cols-12 gap-2 items-end">
+          <label className="md:col-span-4 block text-[11px]">Profil adı
+            <input className={inputCls} value={profileTitle} placeholder="Logo cari aktarımı" onChange={(e) => setProfileTitle(e.target.value)} />
+          </label>
+          <label className="md:col-span-2 block text-[11px]">Aralık (dk)
+            <input className={inputCls} type="number" min={5} value={intervalMin} placeholder="elle" onChange={(e) => setIntervalMin(e.target.value)} />
+          </label>
+          <button type="button" disabled={busy || channel === 'excel'} onClick={() => void saveProfile()} className="md:col-span-3 h-8 rounded bg-amber-600 text-white text-[12px] font-semibold disabled:opacity-50">Sürece kaydet</button>
         </div>
 
         {sheet && (
@@ -379,25 +663,36 @@ export const DataImportPage: React.FC<DataImportPageProps> = () => {
         {error && <div className="text-[12px] text-red-600">{error}</div>}
       </section>
 
-      {sheet && target && (
+      {sheet && target && sheet.headers.length > 0 && (
         <section className="rounded-md border border-slate-200 dark:border-slate-700 p-3 space-y-2">
-          <h3 className="text-[12px] font-semibold text-slate-700 dark:text-slate-200">Şablon Kontrolü</h3>
-          {templateOk ? (
-            <p className="text-[12px] text-emerald-700">
-              Dosya {source?.title ?? 'Bartu'} şablonuna uygun — {target.fields.length} kolon eşleşti.
-            </p>
-          ) : (
-            check && (
-              <div className="rounded border border-red-200 bg-red-50 dark:bg-red-950/30 p-2 text-[12px] text-red-700 space-y-0.5">
-                <p className="font-semibold">
-                  Dosya şablona uymuyor. Lütfen “Şablon İndir” ile aldığınız Excel’i kolonlarını değiştirmeden doldurun.
-                </p>
-                {check.missing.length > 0 && <p>Eksik kolon: {check.missing.join(', ')}</p>}
-                {check.extra.length > 0 && <p>Şablonda olmayan kolon: {check.extra.join(', ')}</p>}
-                {check.duplicate.length > 0 && <p>Tekrar eden kolon: {check.duplicate.join(', ')}</p>}
-              </div>
-            )
+          <h3 className="text-[12px] font-semibold text-slate-700 dark:text-slate-200">Alan eşlemesi</h3>
+          <p className="text-[12px] text-slate-600">Kaynak başlığını Bartu alanına bağlayın. Boş bırakılan kolon aktarılmaz.</p>
+          {missingRequired.length > 0 && (
+            <p className="text-[12px] text-red-700">Zorunlu alan eşlenmedi: {missingRequired.map((f) => f.label).join(', ')}</p>
           )}
+          {duplicateFields.length > 0 && (
+            <p className="text-[12px] text-red-700">Aynı Bartu alanına birden fazla kolon bağlandı.</p>
+          )}
+          {templateOk && (
+            <p className="text-[12px] text-emerald-700">{assigned.length} kolon eşleşti · {sheet.rows.length} satır</p>
+          )}
+          <div className="max-h-48 overflow-auto rounded border border-slate-200">
+            {sheet.headers.map((header) => (
+              <label key={header} className="flex items-center gap-2 px-2 py-1 text-[12px] border-b border-slate-100 last:border-0">
+                <span className="font-mono flex-1 min-w-0 truncate">{header}</span>
+                <select
+                  className="h-7 max-w-[220px] rounded border border-slate-300 bg-white text-[11px]"
+                  value={colMap[header] ?? ''}
+                  onChange={(e) => setColMap((prev) => ({ ...prev, [header]: e.target.value }))}
+                >
+                  <option value="">— aktarma —</option>
+                  {fields.map((f) => (
+                    <option key={f.key} value={f.key}>{f.label}{f.required ? ' *' : ''}</option>
+                  ))}
+                </select>
+              </label>
+            ))}
+          </div>
 
           {mappedFields.length > 0 && previewRows.length > 0 && (
             <div className="overflow-auto rounded border border-slate-200 dark:border-slate-700">
@@ -418,7 +713,7 @@ export const DataImportPage: React.FC<DataImportPageProps> = () => {
                       <td className="px-2 py-1 text-slate-400 tabular-nums">{i + 2}</td>
                       {mappedFields.map((f) => (
                         <td key={f.key} className="px-2 py-1 whitespace-nowrap">
-                          {cells[mapping[f.key]] ?? ''}
+                          {cells[colOf(f.key)] ?? ''}
                         </td>
                       ))}
                     </tr>
@@ -504,6 +799,31 @@ export const DataImportPage: React.FC<DataImportPageProps> = () => {
                     );
                   })
                 )}
+              </tbody>
+            </table>
+          </div>
+        </section>
+      )}
+
+      {profiles.length > 0 && (
+        <section className="space-y-1.5">
+          <h3 className="text-[12px] font-semibold text-slate-700 dark:text-slate-200">Kayıtlı aktarımlar</h3>
+          <div className="rounded-md border border-slate-200 overflow-auto">
+            <table className="w-full border-collapse text-left text-[12px]">
+              <tbody>
+                {profiles.map((p) => (
+                  <tr key={p.importProfileID} className="border-t border-slate-100">
+                    <td className="px-2 py-1">{p.title}</td>
+                    <td className="px-2 py-1 text-slate-500">{KIND_LABEL[p.kind] ?? p.kind}</td>
+                    <td className="px-2 py-1 text-slate-500">{p.intervalMinutes ? `${p.intervalMinutes} dk` : 'elle'}{p.processDefID ? ` · süreç ${p.processDefID}` : ''}</td>
+                    <td className="px-2 py-1 text-slate-500">{p.lastStatus}</td>
+                    <td className="px-2 py-1 text-right whitespace-nowrap">
+                      <button type="button" className="text-blue-700 hover:underline mr-2" onClick={() => openProfile(p)}>Aç</button>
+                      <button type="button" className="text-blue-700 hover:underline mr-2" onClick={() => void runImportProfile(p.importProfileID, true).then((r) => setInfo(`Kontrol: ${r.inserted} yeni · ${r.failed} hata`)).catch((e) => setError(e instanceof Error ? e.message : 'Çalışmadı'))}>Kontrol</button>
+                      <button type="button" className="text-red-600 hover:underline" onClick={() => void deleteImportProfile(p.importProfileID).then(() => setProfiles((prev) => prev.filter((x) => x.importProfileID !== p.importProfileID)))}>Sil</button>
+                    </td>
+                  </tr>
+                ))}
               </tbody>
             </table>
           </div>

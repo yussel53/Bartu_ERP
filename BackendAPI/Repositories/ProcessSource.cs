@@ -70,12 +70,13 @@ internal static class ProcessSource
         return result;
     }
 
-    public static async Task<List<Dictionary<string, object?>>> RowsAsync(ProcessSourceRequest req, CancellationToken ct)
+    /// <param name="take">null ise satır sınırı yok (aktarım). Süreç önizlemesi 200 kullanır.</param>
+    public static async Task<List<Dictionary<string, object?>>> RowsAsync(ProcessSourceRequest req, CancellationToken ct, int? take = 200)
     {
         if (req.SourceType == 3)
         {
             var rows = new List<Dictionary<string, object?>>();
-            foreach (var row in await RestRowsAsync(req, ct))
+            foreach (var row in await RestRowsAsync(req, ct, take))
                 rows.Add(row.ToDictionary(kv => kv.Key, kv => (object?)kv.Value, StringComparer.OrdinalIgnoreCase));
             return rows;
         }
@@ -85,14 +86,14 @@ internal static class ProcessSource
         await using var conn = OpenExternal(req, withDatabase: true);
         await conn.OpenAsync(ct);
         await using var cmd = conn.CreateCommand();
-        cmd.CommandTimeout = 60;
+        cmd.CommandTimeout = take is null ? 180 : 60;
         cmd.CommandText = req.SourceType == 2
-            ? $"SELECT * FROM ({sql}) AS scan_q LIMIT 200"
-            : $"SELECT TOP (200) * FROM ({sql}) AS scan_q";
+            ? (take is null ? $"SELECT * FROM ({sql}) AS scan_q" : $"SELECT * FROM ({sql}) AS scan_q LIMIT {take.Value}")
+            : (take is null ? $"SELECT * FROM ({sql}) AS scan_q" : $"SELECT TOP ({take.Value}) * FROM ({sql}) AS scan_q");
         await using var reader = await cmd.ExecuteReaderAsync(ct);
         var names = NamesOf(reader);
         var list = new List<Dictionary<string, object?>>();
-        while (list.Count < 200 && await reader.ReadAsync(ct))
+        while ((take is null || list.Count < take.Value) && await reader.ReadAsync(ct))
         {
             var row = new Dictionary<string, object?>(StringComparer.OrdinalIgnoreCase);
             for (var i = 0; i < names.Count && i < reader.FieldCount; i++)
@@ -191,7 +192,7 @@ internal static class ProcessSource
 
     private static async Task<IReadOnlyList<string>> RestColumnsAsync(ProcessSourceRequest req, CancellationToken ct)
     {
-        var rows = await RestRowsAsync(req, ct);
+        var rows = await RestRowsAsync(req, ct, 20);
         var names = new List<string>();
         var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         foreach (var row in rows)
@@ -203,16 +204,19 @@ internal static class ProcessSource
         return names;
     }
 
-    private static async Task<List<Dictionary<string, string?>>> RestRowsAsync(ProcessSourceRequest req, CancellationToken ct)
+    private static async Task<List<Dictionary<string, string?>>> RestRowsAsync(ProcessSourceRequest req, CancellationToken ct, int? take)
     {
         using var resp = await SendRestAsync(req, ct);
-        var body = await ReadLimitedAsync(resp, ct);
+        var body = await ReadLimitedAsync(resp, ct, take is null ? 20_000_000 : 1_000_000);
         if (!resp.IsSuccessStatusCode)
             throw new InvalidOperationException($"API hata döndü: {(int)resp.StatusCode}. {(body.Length > 240 ? body[..240] : body)}");
         using var doc = JsonDocument.Parse(body);
         var node = Walk(doc.RootElement, req.JsonPath);
         var rows = new List<Dictionary<string, string?>>();
-        var items = node.ValueKind == JsonValueKind.Array ? node.EnumerateArray().Take(200) : new[] { node };
+        IEnumerable<JsonElement> items = node.ValueKind == JsonValueKind.Array
+            ? node.EnumerateArray()
+            : new[] { node };
+        if (take is int n) items = items.Take(n);
         foreach (var item in items)
         {
             var row = new Dictionary<string, string?>(StringComparer.OrdinalIgnoreCase);
@@ -244,7 +248,7 @@ internal static class ProcessSource
         return await Http.SendAsync(msg, ct);
     }
 
-    private static async Task<string> ReadLimitedAsync(HttpResponseMessage resp, CancellationToken ct)
+    private static async Task<string> ReadLimitedAsync(HttpResponseMessage resp, CancellationToken ct, int maxBytes)
     {
         await using var stream = await resp.Content.ReadAsStreamAsync(ct);
         using var mem = new MemoryStream();
@@ -252,7 +256,7 @@ internal static class ProcessSource
         int n;
         while ((n = await stream.ReadAsync(buf, ct)) > 0)
         {
-            if (mem.Length + n > 1_000_000)
+            if (mem.Length + n > maxBytes)
                 throw new InvalidOperationException("API yanıtı çok büyük.");
             mem.Write(buf, 0, n);
         }

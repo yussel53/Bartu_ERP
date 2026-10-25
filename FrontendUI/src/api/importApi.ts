@@ -20,6 +20,8 @@ export type ImportFieldDef = {
   sample?: string | null;
   additional: boolean;
   special: boolean;
+  /** false ise şablon seçicisinde baştan kapalı */
+  defaultOn?: boolean;
 };
 
 export type ImportTargetDef = {
@@ -119,7 +121,67 @@ export const applyImport = (kind: ImportKind, req: ImportApplyRequest) =>
     body: JSON.stringify(req),
   });
 
-export const importTemplateUrl = (kind: ImportKind, source = 'bartu') =>
-  `${API_BASE}/api/import/${kind}/template?source=${encodeURIComponent(source)}`;
+export const importTemplateUrl = (kind: ImportKind, source = 'bartu', fields?: string[]) => {
+  const q = new URLSearchParams({ source });
+  if (fields && fields.length) q.set('fields', fields.join(','));
+  return `${API_BASE}/api/import/${kind}/template?${q.toString()}`;
+};
 
 export const fetchImportHistory = (take = 30) => apiJson<ImportLogRow[]>(`/api/import/history?take=${take}`);
+
+export const fetchImportFields = (kind: ImportKind) => apiJson<ImportFieldDef[]>(`/api/import/${kind}/fields`);
+
+export type ImportMapItem = { header: string; field: string };
+
+export type ImportSourceRequest = {
+  sourceType: number;
+  sql?: string;
+  server?: string;
+  port?: string;
+  database?: string;
+  user?: string;
+  password?: string;
+  windowsAuth?: boolean;
+  trustCertificate?: boolean;
+  apiUrl?: string;
+  apiMethod?: string;
+  apiHeaders?: string;
+  jsonPath?: string;
+  body?: string;
+};
+
+export type ImportProfile = {
+  importProfileID: number;
+  title: string;
+  kind: ImportKind;
+  sourceKind: number;
+  source: ImportSourceRequest;
+  map: ImportMapItem[];
+  mode: ImportMode;
+  createMissingCards: boolean;
+  productType?: number | null;
+  intervalMinutes?: number | null;
+  isActive: boolean;
+  processDefID?: number | null;
+  lastRunAt?: string | null;
+  nextRunAt?: string | null;
+  lastStatus?: string | null;
+  hasPassword?: boolean;
+};
+
+export const fetchImportProfiles = () => apiJson<ImportProfile[]>('/api/import/profiles');
+
+export const saveImportProfile = (body: Partial<ImportProfile> & { title: string; kind: ImportKind; sourceKind: number }) =>
+  apiJson<ImportProfile>('/api/import/profiles', { method: 'POST', body: JSON.stringify(body) });
+
+export const deleteImportProfile = (id: number) =>
+  apiJson<{ ok: boolean }>(`/api/import/profiles/${id}`, { method: 'DELETE' });
+
+export const runImportProfile = (id: number, dryRun: boolean) =>
+  apiJson<ImportApplyResult>(`/api/import/profiles/${id}/run?dryRun=${dryRun}`, { method: 'POST', body: '{}' });
+
+export const fetchImportSourceColumns = (body: ImportSourceRequest) =>
+  apiJson<string[]>('/api/import/source/columns', { method: 'POST', body: JSON.stringify(body) });
+
+export const fetchImportSourceRows = (body: ImportSourceRequest) =>
+  apiJson<{ headers: string[]; rows: string[][] }>('/api/import/source/rows', { method: 'POST', body: JSON.stringify(body) });

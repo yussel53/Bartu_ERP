@@ -14,7 +14,7 @@ public sealed partial class ImportRepository
         Notes =
         {
             "Aynı fatura no + fatura türü satırları tek faturada birleşir.",
-            "Cari kodu ve malzeme/hizmet kodu kartlarda yoksa «Kartı yoksa oluştur» ile açılır.",
+            "«Kartı yoksa oluştur» her aktarımda kartı yazar. Kod çakışırsa «kart var» der ve fişe devam eder.",
             "Birim fiyat boşsa tutar ÷ miktar kullanılır. Aktarılan fatura onaylı kaydedilir.",
             "Kontrol ve kayıt fiş bazındadır.",
         },
@@ -100,7 +100,7 @@ public sealed partial class ImportRepository
         {
             "Aynı fiş no tek mahsupta birleşir. Borç toplamı alacak toplamına eşit olmalıdır.",
             "e-Defter yevmiye XML veya yevmiye zip dosyası da bu şablona çevrilir.",
-            "Hesap kodu planda yoksa «Kartı yoksa oluştur» ile detay hesap açılır. Noktalı kodun üst hesabı da yoksa o da açılır.",
+            "«Kartı yoksa oluştur» hesap kodunu yazar. Kod çakışırsa «kart var» der. Noktalı kodun üst hesabı da aynı kuraldadır.",
         },
         Fields =
         [
@@ -236,7 +236,7 @@ public sealed partial class ImportRepository
                 continue;
             }
 
-            var cardNote = opened.Count == 0 ? null : (req.DryRun ? "Oluşturulacak kartlar: " : "Açılan kartlar: ") + string.Join(", ", opened.Distinct());
+            var cardNote = CardNote(req.DryRun, opened, cards.Existing);
             var header = HeaderOf(def, first, headerCustomer, headerBank, headerWhouse, saveLines);
             var res = new ImportRowResult { RowNo = first.RowNo, Code = no, Action = found ? "update" : "insert", RecordId = found ? id : null, Message = cardNote };
             if (!req.DryRun)
@@ -304,7 +304,22 @@ public sealed partial class ImportRepository
                 header["EEntryComment"] = Str(row, "Description");
                 break;
         }
+        var known = new HashSet<string>(def.Fields.Select(f => f.Key), StringComparer.OrdinalIgnoreCase);
+        foreach (var kv in row.Values)
+        {
+            if (known.Contains(kv.Key) || kv.Key.StartsWith("L_", StringComparison.OrdinalIgnoreCase)) continue;
+            header.TryAdd(kv.Key, kv.Value);
+        }
         return header;
+    }
+
+    private static void CopyLineExtras(ParsedRow row, Dictionary<string, object?> line)
+    {
+        foreach (var kv in row.Values)
+        {
+            if (!kv.Key.StartsWith("L_", StringComparison.OrdinalIgnoreCase) || kv.Key.Length < 3) continue;
+            line.TryAdd(kv.Key[2..], kv.Value);
+        }
     }
 
     private async Task<Dictionary<string, object?>> InvoiceLineAsync(
@@ -323,7 +338,7 @@ public sealed partial class ImportRepository
         var net = qty * price - discount;
         var tax = rate == 0 ? 0 : Math.Round(net * rate / 100m, 2, MidpointRounding.AwayFromZero);
         var productType = Str(row, "InvoiceType") == "5" ? 3 : 1;
-        return new Dictionary<string, object?>
+        var line = new Dictionary<string, object?>
         {
             ["ProductCardID"] = await EnsureProductAsync(cards, Str(row, "ProductCode"), TitleOf(row, Str(row, "ProductCode")), productType, opened, ct),
             ["Quantity"] = qty,
@@ -335,16 +350,22 @@ public sealed partial class ImportRepository
             ["NetTotal"] = net + tax,
             ["Description1"] = Str(row, "LineDescription"),
         };
+        CopyLineExtras(row, line);
+        return line;
     }
 
-    private async Task<Dictionary<string, object?>> CustomerLineAsync(ParsedRow row, CardMaker cards, List<string> opened, CancellationToken ct) =>
-        new()
+    private async Task<Dictionary<string, object?>> CustomerLineAsync(ParsedRow row, CardMaker cards, List<string> opened, CancellationToken ct)
+    {
+        var line = new Dictionary<string, object?>
         {
             ["CustomerID"] = await EnsureCustomerAsync(cards, Str(row, "CustomerCode"), TitleOf(row, Str(row, "CustomerCode")), opened, ct),
             ["Amount"] = MoneyOf(row),
             ["Description"] = Str(row, "LineDescription"),
             ["DueDate"] = NullIfEmpty(Str(row, "DueDate")),
         };
+        CopyLineExtras(row, line);
+        return line;
+    }
 
     private async Task<Dictionary<string, object?>> BankLineAsync(ParsedRow row, CardMaker cards, List<string> opened, CancellationToken ct)
     {
@@ -358,6 +379,7 @@ public sealed partial class ImportRepository
         if (cari.Length > 0) line["CustomerID"] = await EnsureCustomerAsync(cards, cari, TitleOf(row, cari), opened, ct);
         var counter = Str(row, "CounterAccountCode");
         if (counter.Length > 0) line["BankAccountCardID"] = await EnsureBankAccountAsync(cards, counter, opened, ct);
+        CopyLineExtras(row, line);
         return line;
     }
 
@@ -365,17 +387,19 @@ public sealed partial class ImportRepository
     {
         var debit = DecOf(row, "Debit");
         var credit = DecOf(row, "Credit");
-        return new Dictionary<string, object?>
+        var line = new Dictionary<string, object?>
         {
             ["AccountCardID"] = await EnsureAccountAsync(cards, Str(row, "AccountCode"), leaf: true, opened, ct),
             ["Debit"] = debit,
             ["Credit"] = credit,
             ["Description"] = Str(row, "LineDescription"),
         };
+        CopyLineExtras(row, line);
+        return line;
     }
 
     private async Task<int> EnsureCustomerAsync(CardMaker cards, string code, string title, List<string> opened, CancellationToken ct) =>
-        await EnsureCardAsync(cards, cards.Customers, code, "Cari", opened, async () =>
+        await EnsureCardAsync(cards, cards.Customers, code, "Cari", "CustomerCard", "CustomerCardID", opened, ct, async () =>
         {
             var (ok, id, msg) = await _records.SaveAsync("CustomerCard", "CustomerCardID", new RecordSaveRequest
             {
@@ -396,7 +420,7 @@ public sealed partial class ImportRepository
         });
 
     private async Task<int> EnsureProductAsync(CardMaker cards, string code, string title, int productType, List<string> opened, CancellationToken ct) =>
-        await EnsureCardAsync(cards, cards.Products, code, productType == 3 ? "Hizmet" : "Malzeme", opened, async () =>
+        await EnsureCardAsync(cards, cards.Products, code, productType == 3 ? "Hizmet" : "Malzeme", "ProductCard", "ProductCardID", opened, ct, async () =>
         {
             var (ok, id, msg) = await _records.SaveAsync("ProductCard", "ProductCardID", new RecordSaveRequest
             {
@@ -418,12 +442,16 @@ public sealed partial class ImportRepository
 
     private async Task<int> EnsureAccountAsync(CardMaker cards, string code, bool leaf, List<string> opened, CancellationToken ct)
     {
-        if (cards.Accounts.TryGetValue(code, out var have)) return have;
+        if (cards.Accounts.TryGetValue(code, out var have))
+        {
+            if (cards.Create) cards.NoteExisting("Hesap", code);
+            return have;
+        }
         if (!cards.Create) throw new InvalidOperationException($"Hesap yok: {code}");
         int? parent = null;
         var dot = code.LastIndexOf('.');
         if (dot > 0) parent = await EnsureAccountAsync(cards, code[..dot], leaf: false, opened, ct);
-        return await EnsureCardAsync(cards, cards.Accounts, code, "Hesap", opened, async () =>
+        return await EnsureCardAsync(cards, cards.Accounts, code, "Hesap", "AccountCard", "AccountCardID", opened, ct, async () =>
         {
             var (ok, id, msg) = await _records.SaveAsync("AccountCard", "AccountCardID", new RecordSaveRequest
             {
@@ -445,7 +473,7 @@ public sealed partial class ImportRepository
     private async Task<int> EnsureBankAccountAsync(CardMaker cards, string code, List<string> opened, CancellationToken ct)
     {
         var bankId = await TransferBankIdAsync(cards, opened, ct);
-        return await EnsureCardAsync(cards, cards.Banks, code, "Banka hesabı", opened, async () =>
+        return await EnsureCardAsync(cards, cards.Banks, code, "Banka hesabı", "BankAccountCard", "BankAccountCardID", opened, ct, async () =>
         {
             var (ok, id, msg) = await _records.SaveAsync("BankAccountCard", "BankAccountCardID", new RecordSaveRequest
             {
@@ -470,6 +498,7 @@ public sealed partial class ImportRepository
         if (id is > 0)
         {
             cards.TransferBankId = id;
+            if (cards.Create) cards.NoteExisting("Banka", "AKTARIM");
             return id.Value;
         }
         if (!cards.Create) throw new InvalidOperationException("Banka kartı yok");
@@ -488,27 +517,81 @@ public sealed partial class ImportRepository
                 ["IsActive"] = true,
             },
         }, ct);
+        if (!ok && IsCodeConflict(msg))
+        {
+            var found = await FindCodeIdAsync("BankCard", "BankCardID", "Code", "AKTARIM", ct);
+            if (found is int have)
+            {
+                opened.Remove("Banka AKTARIM");
+                cards.TransferBankId = have;
+                cards.NoteExisting("Banka", "AKTARIM");
+                return have;
+            }
+        }
         if (!ok) throw new InvalidOperationException(msg);
         cards.TransferBankId = saved;
         return saved;
     }
 
-    private static async Task<int> EnsureCardAsync(
-        CardMaker cards, Dictionary<string, int> map, string code, string label, List<string> opened, Func<Task<int>> insert)
+    private async Task<int> EnsureCardAsync(
+        CardMaker cards, Dictionary<string, int> map, string code, string label,
+        string table, string idCol, List<string> opened, CancellationToken ct, Func<Task<int>> insert)
     {
         if (code.Length == 0) throw new InvalidOperationException($"{label} boş");
-        if (map.TryGetValue(code, out var id)) return id;
+        if (map.TryGetValue(code, out var id))
+        {
+            if (cards.Create) cards.NoteExisting(label, code);
+            return id;
+        }
         if (!cards.Create) throw new InvalidOperationException($"{label} yok: {code}");
-        opened.Add($"{label} {code}");
+        var mark = $"{label} {code}";
+        opened.Add(mark);
         if (cards.Dry)
         {
             id = --cards.Fake;
             map[code] = id;
             return id;
         }
-        id = await insert();
+        try
+        {
+            id = await insert();
+        }
+        catch (InvalidOperationException ex) when (IsCodeConflict(ex.Message))
+        {
+            opened.Remove(mark);
+            var found = await FindCodeIdAsync(table, idCol, "Code", code, ct);
+            if (found is not int have) throw;
+            map[code] = have;
+            cards.NoteExisting(label, code);
+            return have;
+        }
         map[code] = id;
         return id;
+    }
+
+    private async Task<int?> FindCodeIdAsync(string table, string idCol, string codeCol, string code, CancellationToken ct) =>
+        await _db.ExecuteScalarAsync<int?>(new CommandDefinition(
+            $"SELECT TOP 1 [{idCol}] FROM dbo.[{table}] WHERE [{codeCol}] = @code",
+            new { code }, cancellationToken: ct));
+
+    private static bool IsCodeConflict(string? message)
+    {
+        if (string.IsNullOrWhiteSpace(message)) return false;
+        var n = message.ToLowerInvariant();
+        return n.Contains("duplicate") || n.Contains("unique") || n.Contains("2627") || n.Contains("2601")
+            || n.Contains("yinelen") || n.Contains("benzersiz") || n.Contains("çakış") || n.Contains("cakis");
+    }
+
+    private static string? CardNote(bool dry, List<string> opened, IEnumerable<string> existing)
+    {
+        var parts = new List<string>();
+        var made = opened.Distinct(StringComparer.OrdinalIgnoreCase).ToList();
+        var have = existing.Distinct(StringComparer.OrdinalIgnoreCase).ToList();
+        if (made.Count > 0)
+            parts.Add((dry ? "Oluşturulacak kartlar: " : "Açılan kartlar: ") + string.Join(", ", made));
+        if (have.Count > 0)
+            parts.Add("Kart var: " + string.Join(", ", have));
+        return parts.Count == 0 ? null : string.Join(" · ", parts);
     }
 
     private static string TitleOf(ParsedRow row, string code)
@@ -528,6 +611,8 @@ public sealed partial class ImportRepository
         public int? LastWhouse;
         public int? LastBank;
         public int? TransferBankId;
+        public HashSet<string> Existing = new(StringComparer.OrdinalIgnoreCase);
+        public void NoteExisting(string label, string code) => Existing.Add($"{label} {code}");
         public Dictionary<string, int> Customers = new(StringComparer.OrdinalIgnoreCase);
         public Dictionary<string, int> Products = new(StringComparer.OrdinalIgnoreCase);
         public Dictionary<string, int> Accounts = new(StringComparer.OrdinalIgnoreCase);

@@ -88,6 +88,8 @@ builder.Services.AddScoped<ModuleOverviewRepository>();
 builder.Services.AddScoped<ProductPricesRepository>();
 builder.Services.AddScoped<JournalNumberingRepository>();
 builder.Services.AddScoped<ImportRepository>();
+builder.Services.AddScoped<ImportProfileService>();
+builder.Services.AddHostedService<ImportProfileJob>();
 builder.Services.AddScoped<ExtraFieldsRepository>();
 builder.Services.AddScoped<ProcessRepository>();
 builder.Services.AddScoped<CrmRepository>();

@@ -21,6 +21,8 @@ public sealed class ImportFieldDef
     public bool Additional { get; init; }
     /** Kolon değil — import mantığı ayrıca işler (üst hesap kodu, barkod, adres) */
     public bool Special { get; init; }
+    /** Şablon seçicisinde baştan işaretli. Zorunlu alanlar her zaman gelir. */
+    public bool DefaultOn { get; init; } = true;
 }
 
 public sealed class ImportTargetDef
@@ -75,6 +77,8 @@ public sealed class ImportApplyResult
 public sealed partial class ImportRepository
 {
     private const string RowNoKey = "__row";
+    private static readonly System.Text.RegularExpressions.Regex ExtraKey =
+        new(@"^[A-Za-z_][A-Za-z0-9_]{0,80}$", System.Text.RegularExpressions.RegexOptions.Compiled);
 
     private readonly IDbConnection _db;
     private readonly RecordsRepository _records;
@@ -149,7 +153,8 @@ public sealed partial class ImportRepository
             {
                 "Kod eşleşirse cari güncellenir, yoksa yeni cari + Merkez adres açılır.",
                 "Vergi tipi boşsa VKN 10 hane → Tüzel, TCKN 11 hane → Gerçek.",
-                "Mevcut caride adres yalnızca hiç adres yoksa eklenir.",
+                "Mevcut caride adres ve yetkili yalnızca hiç yoksa eklenir.",
+                "Şablon alanlarından istediğiniz kolonları seçin. Zorunlu kolonlar her şablonda durur.",
             },
             Fields =
             {
@@ -182,6 +187,20 @@ public sealed partial class ImportRepository
                 new() { Key = "Addr_Town", Label = "İlçe", Special = true, Sample = "Kadıköy", Aliases = new[] { "ilce", "town" } },
                 new() { Key = "Addr_District", Label = "Mahalle", Special = true, Aliases = new[] { "mahalle", "semt" } },
                 new() { Key = "Addr_Address", Label = "Adres", Special = true, Aliases = new[] { "adres", "acik adres", "address" } },
+                new() { Key = "Addr_Type", Label = "Adres Tipi", Type = "enum", Special = true, DefaultOn = false, Sample = "Merkez",
+                        Options = new() { ["Merkez"] = "1", ["Sevkiyat"] = "2", ["Sevkiyat Adresi"] = "2", ["Fatura"] = "3", ["Fatura Adresi"] = "3", ["Diğer"] = "4" },
+                        Aliases = new[] { "adres tipi", "adres turu" }, Hint = "Boşsa Merkez" },
+                new() { Key = "Addr_Name", Label = "Adres Adı", Special = true, DefaultOn = false, Sample = "Merkez", Aliases = new[] { "adres adi" } },
+                new() { Key = "Addr_Code", Label = "Adres Kodu", Special = true, DefaultOn = false, Aliases = new[] { "adres kodu" } },
+                new() { Key = "Addr_PostLabel", Label = "e-Fatura Gelen (PK)", Special = true, DefaultOn = false, Aliases = new[] { "pk", "posta kutusu" } },
+                new() { Key = "Addr_SenderLabel", Label = "e-Fatura Giden (GB)", Special = true, DefaultOn = false, Aliases = new[] { "gb", "gonderici birim" } },
+                new() { Key = "Addr_EinvoiceEmail", Label = "e-Fatura E-posta", Special = true, DefaultOn = false },
+                new() { Key = "Addr_TaxOffice", Label = "Adres Vergi Dairesi", Special = true, DefaultOn = false },
+                new() { Key = "Contact_Name", Label = "Yetkili Ad Soyad", Special = true, DefaultOn = false, Sample = "Ayşe Yılmaz" },
+                new() { Key = "Contact_Title", Label = "Yetkili Ünvan", Special = true, DefaultOn = false, Sample = "Muhasebe" },
+                new() { Key = "Contact_Phone", Label = "Yetkili Telefon", Special = true, DefaultOn = false },
+                new() { Key = "Contact_Email", Label = "Yetkili E-posta", Special = true, DefaultOn = false },
+                new() { Key = "RiskLimit", Label = "Risk Limiti", Type = "decimal", DefaultOn = false, Sample = "100000" },
                 new() { Key = "Active", Label = "Aktif", Type = "bool", Options = BoolOptions,
                         Aliases = new[] { "aktif", "durum", "active" }, Hint = "Boşsa Evet" },
                 new() { Key = "SalesModuleCheck", Label = "Satış", Type = "bool", Options = BoolOptions, Aliases = new[] { "satis" } },
@@ -229,6 +248,100 @@ public sealed partial class ImportRepository
 
     public static ImportTargetDef? GetTarget(string kind) =>
         Targets.FirstOrDefault(t => t.Kind.Equals(kind, StringComparison.OrdinalIgnoreCase));
+
+    private static string? LineTable(string kind) => kind switch
+    {
+        "invoice" => "ProductTrans",
+        "customer-voucher" => "CustomerTrans",
+        "bank-voucher" => "BankTrans",
+        "account-voucher" => "AccountTrans",
+        _ => null,
+    };
+
+    /// <summary>Şablon alanları + hedefin yazılabilir kolonları + ek alanlar (U_).</summary>
+    public async Task<List<ImportFieldDef>> CatalogAsync(string kind, CancellationToken ct = default)
+    {
+        var def = GetTarget(kind) ?? throw new InvalidOperationException($"Bilinmeyen içe aktarım türü: {kind}");
+        if (_db.State != ConnectionState.Open) _db.Open();
+        var list = def.Fields.ToList();
+        var used = new HashSet<string>(list.Select(f => f.Key), StringComparer.OrdinalIgnoreCase);
+        var labels = await ExtraLabelsAsync(ct);
+        foreach (var col in await WritableColumnsAsync(def.TableName, ct))
+            AddColumn(list, used, labels, def.TableName, col, line: false);
+        var line = LineTable(def.Kind);
+        if (line != null)
+        {
+            foreach (var col in await WritableColumnsAsync(line, ct))
+                AddColumn(list, used, labels, line, col, line: true);
+        }
+        return list;
+    }
+
+    private async Task<Dictionary<string, string>> ExtraLabelsAsync(CancellationToken ct)
+    {
+        var map = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+        var exists = await _db.ExecuteScalarAsync<int?>(new CommandDefinition(
+            "SELECT OBJECT_ID(N'dbo.SYS_ExtraFields', N'U')", cancellationToken: ct));
+        if (exists is null) return map;
+        var rows = await _db.QueryAsync<(string TableName, string FieldName, string Label)>(new CommandDefinition(
+            "SELECT TableName, FieldName, Label FROM dbo.SYS_ExtraFields WHERE IsActive = 1",
+            cancellationToken: ct));
+        foreach (var r in rows)
+        {
+            if (string.IsNullOrWhiteSpace(r.FieldName) || string.IsNullOrWhiteSpace(r.Label)) continue;
+            map[$"{r.TableName}.{r.FieldName}"] = r.Label.Trim();
+        }
+        return map;
+    }
+
+    private async Task<List<(string Name, string TypeName)>> WritableColumnsAsync(string table, CancellationToken ct)
+    {
+        var exists = await _db.ExecuteScalarAsync<int?>(new CommandDefinition(
+            "SELECT OBJECT_ID(@t, N'U')", new { t = $"dbo.{table}" }, cancellationToken: ct));
+        if (exists is null) return new();
+        var rows = await _db.QueryAsync<(string Name, string TypeName)>(new CommandDefinition(
+            @"SELECT c.name, ty.name
+              FROM sys.columns c
+              JOIN sys.types ty ON c.user_type_id = ty.user_type_id
+              WHERE c.object_id = OBJECT_ID(@t)
+                AND c.is_identity = 0
+                AND c.is_computed = 0
+                AND ty.name NOT IN (N'varbinary', N'image', N'xml', N'timestamp', N'rowversion', N'geography', N'hierarchyid', N'sql_variant')
+              ORDER BY c.column_id",
+            new { t = $"dbo.{table}" }, cancellationToken: ct));
+        return rows.ToList();
+    }
+
+    private static void AddColumn(
+        List<ImportFieldDef> list, HashSet<string> used, Dictionary<string, string> labels,
+        string table, (string Name, string TypeName) col, bool line)
+    {
+        if (string.IsNullOrWhiteSpace(col.Name)) return;
+        if (col.Name.Equals("AdditionalFields", StringComparison.OrdinalIgnoreCase)) return;
+        var key = line ? "L_" + col.Name : col.Name;
+        if (!used.Add(key)) return;
+        if (line && used.Contains(col.Name)) return;
+        labels.TryGetValue($"{table}.{col.Name}", out var extraLabel);
+        var additional = col.Name.StartsWith("U_", StringComparison.OrdinalIgnoreCase);
+        list.Add(new ImportFieldDef
+        {
+            Key = key,
+            Label = line
+                ? "Satır · " + (extraLabel ?? col.Name)
+                : (extraLabel ?? col.Name),
+            Type = col.TypeName.ToLowerInvariant() switch
+            {
+                "bit" => "bool",
+                "tinyint" or "smallint" or "int" or "bigint" => "int",
+                "decimal" or "numeric" or "float" or "real" or "money" or "smallmoney" => "decimal",
+                "date" or "datetime" or "datetime2" or "smalldatetime" => "date",
+                _ => "text",
+            },
+            Additional = additional,
+            DefaultOn = false,
+            Hint = line ? "Satır kolonu" : additional ? "Ek alan" : "Tablo kolonu",
+        });
+    }
 
     // ── Uygula / ön izleme ──────────────────────────────────────────────────
 
@@ -379,6 +492,14 @@ public sealed partial class ImportRepository
                 else row.Errors.Add(err!);
             }
 
+            var known = new HashSet<string>(def.Fields.Select(f => f.Key), StringComparer.OrdinalIgnoreCase) { RowNoKey };
+            foreach (var kv in raw)
+            {
+                if (known.Contains(kv.Key) || string.IsNullOrWhiteSpace(kv.Value)) continue;
+                if (!ExtraKey.IsMatch(kv.Key)) continue;
+                row.Values[kv.Key] = kv.Value.Trim();
+            }
+
             row.Code = row.Values.TryGetValue("Code", out var c) ? c?.ToString()?.Trim() ?? "" : "";
             if (row.Code.Length > 50) row.Errors.Add("Kod 50 karakterden uzun");
             list.Add(row);
@@ -439,6 +560,13 @@ public sealed partial class ImportRepository
             if (f.Special || !row.Values.TryGetValue(f.Key, out var v)) continue;
             if (f.Additional) add[f.Key] = v;
             else std[f.Key] = v;
+        }
+        var known = new HashSet<string>(def.Fields.Select(f => f.Key), StringComparer.OrdinalIgnoreCase);
+        foreach (var kv in row.Values)
+        {
+            if (known.Contains(kv.Key) || kv.Key.StartsWith("L_", StringComparison.OrdinalIgnoreCase)) continue;
+            if (kv.Key.StartsWith("U_", StringComparison.OrdinalIgnoreCase)) add[kv.Key] = kv.Value;
+            else std[kv.Key] = kv.Value;
         }
 
         var save = new RecordSaveRequest { RecordId = recordId, StandardFields = std };
@@ -509,27 +637,54 @@ public sealed partial class ImportRepository
                     new { id = recordId }, cancellationToken: ct));
                 if (isNew || (hasAddr && addrCount == 0))
                 {
-                    string? V(string k) => row.Values.TryGetValue(k, out var o) ? o?.ToString() : null;
-                    save.Addresses = new List<Dictionary<string, object?>>
+                    string? V(string k) => row.Values.TryGetValue(k, out var o) && o != null && o.ToString()!.Length > 0 ? o.ToString() : null;
+                    var addr = new Dictionary<string, object?>
                     {
-                        new()
-                        {
-                            ["AdressType"] = 1,
-                            ["IsDefault"] = true,
-                            ["Active"] = true,
-                            ["Title"] = "Merkez",
-                            ["Country"] = V("Addr_Country") ?? "Türkiye",
-                            ["City"] = V("Addr_City"),
-                            ["Town"] = V("Addr_Town"),
-                            ["Dictrict"] = V("Addr_District"),
-                            ["Adress"] = V("Addr_Address"),
-                            ["TaxNr"] = std.TryGetValue("TaxNr", out var t) ? t : null,
-                        },
+                        ["AdressType"] = row.Values.TryGetValue("Addr_Type", out var at) && at != null ? at : 1,
+                        ["IsDefault"] = true,
+                        ["Active"] = true,
+                        ["Title"] = V("Addr_Name") ?? "Merkez",
+                        ["Country"] = V("Addr_Country") ?? "Türkiye",
+                        ["City"] = V("Addr_City"),
+                        ["Town"] = V("Addr_Town"),
+                        ["Dictrict"] = V("Addr_District"),
+                        ["Adress"] = V("Addr_Address"),
+                        ["TaxNr"] = std.TryGetValue("TaxNr", out var t) ? t : null,
                     };
+                    if (V("Addr_Code") is string ac) addr["AdressCode"] = ac;
+                    if (V("Addr_PostLabel") is string pk) addr["PostLabel"] = pk;
+                    if (V("Addr_SenderLabel") is string gb) addr["SenderLabel"] = gb;
+                    if (V("Addr_EinvoiceEmail") is string em) addr["EinvoiceEmailAdress"] = em;
+                    if (V("Addr_TaxOffice") is string vo) addr["TaxOffice"] = vo;
+                    save.Addresses = new List<Dictionary<string, object?>> { addr };
                 }
                 else if (hasAddr)
                 {
                     warnings.Add("Caride adres var — adres güncellenmedi");
+                }
+
+                var contactName = row.Values.TryGetValue("Contact_Name", out var cn) ? cn?.ToString()?.Trim() : null;
+                if (!string.IsNullOrWhiteSpace(contactName))
+                {
+                    var contactCount = isNew ? 0 : await _db.ExecuteScalarAsync<int>(new CommandDefinition(
+                        "SELECT COUNT(1) FROM dbo.CustomerContact WHERE CustomerCardID = @id",
+                        new { id = recordId }, cancellationToken: ct));
+                    if (isNew || contactCount == 0)
+                    {
+                        string? C(string k) => row.Values.TryGetValue(k, out var o) && o != null && o.ToString()!.Length > 0 ? o.ToString() : null;
+                        save.Contacts = new List<Dictionary<string, object?>>
+                        {
+                            new()
+                            {
+                                ["Name"] = contactName,
+                                ["ContactTitle"] = C("Contact_Title"),
+                                ["Phone"] = C("Contact_Phone"),
+                                ["Email"] = C("Contact_Email"),
+                                ["IsDefault"] = true,
+                            },
+                        };
+                    }
+                    else warnings.Add("Caride yetkili var — yetkili güncellenmedi");
                 }
                 break;
 

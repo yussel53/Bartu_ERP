@@ -11,11 +11,13 @@ namespace BartuERP.Backend.Controllers;
 public sealed class ImportController : ControllerBase
 {
     private readonly ImportRepository _repo;
+    private readonly ImportProfileService _profiles;
     private readonly IDbConnection _db;
 
-    public ImportController(ImportRepository repo, IDbConnection db)
+    public ImportController(ImportRepository repo, ImportProfileService profiles, IDbConnection db)
     {
         _repo = repo;
+        _profiles = profiles;
         _db = db;
     }
 
@@ -68,14 +70,83 @@ public sealed class ImportController : ControllerBase
         }
     }
 
+    [HttpGet("{kind}/fields")]
+    public async Task<IActionResult> Fields(string kind, CancellationToken ct)
+    {
+        if (ImportRepository.GetTarget(kind) == null) return NotFound(new { message = $"Bilinmeyen tür: {kind}" });
+        try
+        {
+            return Ok(await _repo.CatalogAsync(kind, ct));
+        }
+        catch (Exception ex)
+        {
+            return StatusCode(500, new { message = ex.Message });
+        }
+    }
+
+    [HttpGet("profiles")]
+    public async Task<IActionResult> Profiles(CancellationToken ct)
+    {
+        try { return Ok(await _profiles.ListAsync(ct)); }
+        catch (Exception ex) { return StatusCode(500, new { message = ex.Message }); }
+    }
+
+    [HttpPost("profiles")]
+    public async Task<IActionResult> SaveProfile([FromBody] ImportProfileDto dto, CancellationToken ct)
+    {
+        try { return Ok(await _profiles.SaveAsync(dto, ct)); }
+        catch (InvalidOperationException ex) { return BadRequest(new { message = ex.Message }); }
+        catch (Exception ex) { return StatusCode(500, new { message = ex.Message }); }
+    }
+
+    [HttpDelete("profiles/{id:int}")]
+    public async Task<IActionResult> DeleteProfile(int id, CancellationToken ct)
+    {
+        try
+        {
+            await _profiles.DeleteAsync(id, ct);
+            return Ok(new { ok = true });
+        }
+        catch (Exception ex) { return StatusCode(500, new { message = ex.Message }); }
+    }
+
+    [HttpPost("profiles/{id:int}/run")]
+    public async Task<IActionResult> RunProfile(int id, [FromQuery] bool dryRun, CancellationToken ct)
+    {
+        try { return Ok(await _profiles.RunAsync(id, dryRun, ct)); }
+        catch (InvalidOperationException ex) { return BadRequest(new { message = ex.Message }); }
+        catch (Exception ex) { return StatusCode(500, new { message = ex.Message }); }
+    }
+
+    [HttpPost("source/columns")]
+    public async Task<IActionResult> SourceColumns([FromBody] ProcessSourceRequest req, CancellationToken ct)
+    {
+        try { return Ok(await _profiles.ColumnsAsync(req, ct)); }
+        catch (InvalidOperationException ex) { return BadRequest(new { message = ex.Message }); }
+        catch (Exception ex) { return BadRequest(new { message = ex.Message }); }
+    }
+
+    [HttpPost("source/rows")]
+    public async Task<IActionResult> SourceRows([FromBody] ProcessSourceRequest req, CancellationToken ct)
+    {
+        try { return Ok(await _profiles.PullAsync(req, ct)); }
+        catch (InvalidOperationException ex) { return BadRequest(new { message = ex.Message }); }
+        catch (Exception ex) { return BadRequest(new { message = ex.Message }); }
+    }
+
     [HttpGet("{kind}/template")]
-    public IActionResult Template(string kind, [FromQuery] string? source)
+    public async Task<IActionResult> Template(string kind, [FromQuery] string? source, [FromQuery] string? fields, CancellationToken ct)
     {
         var def = ImportRepository.GetTarget(kind);
         if (def == null) return NotFound(new { message = $"Bilinmeyen tür: {kind}" });
         var profile = ImportSources.Find(source) ?? ImportSources.All[0];
-        var headers = def.Fields.Select(f => ImportSources.Header(profile, def.Kind, f)).ToList();
-        var sample = def.Fields.Select(f => f.Sample).ToList();
+        HashSet<string>? picked = null;
+        if (!string.IsNullOrWhiteSpace(fields))
+            picked = new HashSet<string>(fields.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries), StringComparer.OrdinalIgnoreCase);
+        var catalog = await _repo.CatalogAsync(kind, ct);
+        var use = catalog.Where(f => f.Required || (picked == null ? f.DefaultOn : picked.Contains(f.Key))).ToList();
+        var headers = use.Select(f => ImportSources.Header(profile, def.Kind, f)).ToList();
+        var sample = use.Select(f => f.Sample).ToList();
         var sheet = def.Title.Length > 31 ? def.Title[..31] : def.Title;
         var bytes = SpreadsheetWriter.Write(sheet, headers, new[] { sample });
         var suffix = profile.Id == "bartu" ? "" : $"_{profile.Id}";
