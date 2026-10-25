@@ -38,6 +38,38 @@ public static class EGovDesignCodes
         [8] = "Ambar Kodu",
     };
 
+    /// <summary>Tasarımın belge grubu: şablon eklenirken yalnız aynı gruptaki tasarımlar seçilebilir</summary>
+    public static readonly IReadOnlyDictionary<string, string> DocGroups = new Dictionary<string, string>
+    {
+        ["EFATURA"] = "e-Fatura",
+        ["EARSIV"] = "e-Arşiv",
+        ["EIRSALIYE"] = "e-İrsaliye",
+        ["EMM"] = "e-Müstahsil Makbuzu",
+        ["ESMM"] = "e-Serbest Meslek Makbuzu",
+    };
+
+    /// <summary>Şablon belge türü → tasarım grubu</summary>
+    public static string DocGroup(short docType) => docType switch
+    {
+        3 or 4 or 12 or 13 => "EARSIV",
+        5 or 6 or 10 => "EIRSALIYE",
+        7 => "EMM",
+        8 => "ESMM",
+        _ => "EFATURA",
+    };
+
+    /// <summary>Yüklenen tasarımın grubu (seçilmediyse): DespatchAdvice → e-İrsaliye; adında «arşiv» → e-Arşiv; yoksa e-Fatura</summary>
+    public static string GuessDocGroup(string? name, string xslt)
+    {
+        if (xslt.Contains("schema:xsd:DespatchAdvice-2", StringComparison.Ordinal)) return "EIRSALIYE";
+        var n = (name ?? "").ToLowerInvariant();
+        if (n.Contains("arsiv") || n.Contains("arşiv")) return "EARSIV";
+        if (n.Contains("irsaliye")) return "EIRSALIYE";
+        if (n.Contains("mustahsil") || n.Contains("müstahsil")) return "EMM";
+        if (n.Contains("smm") || n.Contains("serbest")) return "ESMM";
+        return "EFATURA";
+    }
+
     /// <summary>Önizleme örneği: irsaliye türleri DespatchAdvice, e-Arşiv türleri EARSIVFATURA, diğerleri Invoice.</summary>
     public static string SampleKind(short docType) => docType switch
     {
@@ -56,6 +88,8 @@ public sealed class EGovDesignRow
     public string? ContentHash { get; set; }
     public bool IsActive { get; set; }
     public string? Notes { get; set; }
+    /// <summary>EFATURA · EARSIV · EIRSALIYE · EMM · ESMM</summary>
+    public string? DocGroup { get; set; }
     public int RuleCount { get; set; }
     public DateTime CreatedAt { get; set; }
     public DateTime? UpdatedAt { get; set; }
@@ -149,7 +183,7 @@ public sealed class EGovDesignRepository
         Open();
         return (await _db.QueryAsync<EGovDesignRow>(new CommandDefinition(
             @"SELECT d.EGovXsltDesignID, d.Title, d.FileName, LEN(d.XsltContent) AS ContentLength, d.ContentHash,
-                     d.IsActive, d.Notes, d.CreatedAt, d.UpdatedAt,
+                     d.IsActive, d.Notes, d.DocGroup, d.CreatedAt, d.UpdatedAt,
                      (SELECT COUNT(*) FROM dbo.EGovDesignRule r WHERE r.EGovXsltDesignID = d.EGovXsltDesignID) AS RuleCount
               FROM dbo.EGovXsltDesign d
               ORDER BY d.IsActive DESC, d.Title",
@@ -165,24 +199,37 @@ public sealed class EGovDesignRepository
             new { id }, cancellationToken: ct));
     }
 
-    public async Task<int> CreateDesignAsync(string title, string? fileName, string content, string hash, string? notes, CancellationToken ct = default)
+    public async Task<int> CreateDesignAsync(string title, string? fileName, string content, string hash, string? notes, string docGroup,
+        CancellationToken ct = default)
     {
         Open();
         return await _db.ExecuteScalarAsync<int>(new CommandDefinition(
-            @"INSERT INTO dbo.EGovXsltDesign (Title, FileName, XsltContent, ContentHash, Notes)
-              VALUES (@title, @fileName, @content, @hash, @notes);
+            @"INSERT INTO dbo.EGovXsltDesign (Title, FileName, XsltContent, ContentHash, Notes, DocGroup)
+              VALUES (@title, @fileName, @content, @hash, @notes, @docGroup);
               SELECT CAST(SCOPE_IDENTITY() AS int);",
-            new { title, fileName, content, hash, notes }, cancellationToken: ct));
+            new { title, fileName, content, hash, notes, docGroup }, cancellationToken: ct));
     }
 
-    public async Task<bool> UpdateDesignAsync(int id, string title, bool isActive, string? notes, CancellationToken ct = default)
+    /// <summary>Grup değişince tasarımı kullanan başka gruptaki şablon varsa engel mesajı</summary>
+    public async Task<string?> DocGroupConflictAsync(int id, string docGroup, CancellationToken ct = default)
+    {
+        Open();
+        var types = await _db.QueryAsync<short>(new CommandDefinition(
+            "SELECT DISTINCT DocType FROM dbo.EGovDesignRule WHERE EGovXsltDesignID = @id", new { id }, cancellationToken: ct));
+        var bad = types.Where(t => EGovDesignCodes.DocGroup(t) != docGroup).ToList();
+        if (bad.Count == 0) return null;
+        var names = string.Join(", ", bad.Select(t => EGovDesignCodes.DocTypes.TryGetValue(t, out var n) ? n : t.ToString()));
+        return $"Tasarım {names} şablonlarında kullanılıyor; belge grubu {EGovDesignCodes.DocGroups[docGroup]} yapılamaz.";
+    }
+
+    public async Task<bool> UpdateDesignAsync(int id, string title, bool isActive, string? notes, string? docGroup, CancellationToken ct = default)
     {
         Open();
         return await _db.ExecuteAsync(new CommandDefinition(
             @"UPDATE dbo.EGovXsltDesign
-              SET Title = @title, IsActive = @isActive, Notes = @notes, UpdatedAt = SYSDATETIME()
+              SET Title = @title, IsActive = @isActive, Notes = @notes, DocGroup = COALESCE(@docGroup, DocGroup), UpdatedAt = SYSDATETIME()
               WHERE EGovXsltDesignID = @id",
-            new { id, title, isActive, notes }, cancellationToken: ct)) > 0;
+            new { id, title, isActive, notes, docGroup }, cancellationToken: ct)) > 0;
     }
 
     public async Task<bool> ReplaceContentAsync(int id, string? fileName, string content, string hash, CancellationToken ct = default)
@@ -243,10 +290,15 @@ public sealed class EGovDesignRepository
         if (r.Priority is < 1 or > 99) return "Öncelik 1-99 arasında olmalı.";
 
         Open();
-        var designOk = await _db.ExecuteScalarAsync<int>(new CommandDefinition(
-            "SELECT COUNT(*) FROM dbo.EGovXsltDesign WHERE EGovXsltDesignID = @id",
+        var design = await _db.QueryFirstOrDefaultAsync<(int Id, string? DocGroup, string Title)>(new CommandDefinition(
+            "SELECT EGovXsltDesignID, DocGroup, Title FROM dbo.EGovXsltDesign WHERE EGovXsltDesignID = @id",
             new { id = r.EGovXsltDesignID }, cancellationToken: ct));
-        if (designOk == 0) return "Tasarım seçin.";
+        if (design.Id == 0) return "Tasarım seçin.";
+        // Yalnız şablonun belge türüne ait tasarım (ör. e-Fatura şablonunda e-İrsaliye tasarımı seçilemez)
+        var want = EGovDesignCodes.DocGroup(r.DocType);
+        if (design.DocGroup != null && design.DocGroup != want)
+            return $"«{design.Title}» bir {EGovDesignCodes.DocGroups.GetValueOrDefault(design.DocGroup, design.DocGroup)} tasarımı; "
+                   + $"{EGovDesignCodes.DocTypes[r.DocType]} şablonunda yalnız {EGovDesignCodes.DocGroups[want]} tasarımları seçilebilir.";
 
         var dup = await _db.ExecuteScalarAsync<int>(new CommandDefinition(
             @"SELECT COUNT(*) FROM dbo.EGovDesignRule

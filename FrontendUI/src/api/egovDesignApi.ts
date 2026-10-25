@@ -8,6 +8,8 @@ export interface EGovDesignRow {
   contentHash?: string | null;
   isActive: boolean;
   notes?: string | null;
+  /** EFATURA · EARSIV · EIRSALIYE · EMM · ESMM */
+  docGroup?: string | null;
   ruleCount: number;
   createdAt: string;
   updatedAt?: string | null;
@@ -38,6 +40,36 @@ export interface EGovDesignRuleInput {
   isActive: boolean;
 }
 
+/** Tasarımın belge grubu — şablon eklenirken yalnız şablonun türüne ait tasarımlar seçilir */
+export const EGOV_DESIGN_GROUPS: { value: string; label: string }[] = [
+  { value: 'EFATURA', label: 'e-Fatura' },
+  { value: 'EARSIV', label: 'e-Arşiv' },
+  { value: 'EIRSALIYE', label: 'e-İrsaliye' },
+  { value: 'EMM', label: 'e-Müstahsil Makbuzu' },
+  { value: 'ESMM', label: 'e-Serbest Meslek Makbuzu' },
+];
+
+export const egovDesignGroupLabel = (g?: string | null) => EGOV_DESIGN_GROUPS.find((x) => x.value === g)?.label ?? '—';
+
+/** Şablon belge türü → tasarım grubu (sunucudaki EGovDesignCodes.DocGroup ile aynı) */
+export function egovDocTypeGroup(docType: number): string {
+  if ([3, 4, 12, 13].includes(docType)) return 'EARSIV';
+  if ([5, 6, 10].includes(docType)) return 'EIRSALIYE';
+  if (docType === 7) return 'EMM';
+  if (docType === 8) return 'ESMM';
+  return 'EFATURA';
+}
+
+/** Dosya / tasarım adından grup tahmini (yüklemede öndeğer) */
+export function guessEGovDesignGroup(name: string): string {
+  const n = name.toLocaleLowerCase('tr-TR');
+  if (n.includes('arsiv') || n.includes('arşiv')) return 'EARSIV';
+  if (n.includes('irsaliye')) return 'EIRSALIYE';
+  if (n.includes('mustahsil') || n.includes('müstahsil')) return 'EMM';
+  if (n.includes('smm') || n.includes('serbest')) return 'ESMM';
+  return 'EFATURA';
+}
+
 type Listed<T> = { ready: boolean; message?: string; rows: T[] };
 type Result = { success: boolean; message?: string; id?: number };
 
@@ -54,10 +86,11 @@ export function listEGovDesigns(): Promise<Listed<EGovDesignRow>> {
   return apiJson('/api/egov/designs');
 }
 
-export function uploadEGovDesign(file: File, title?: string): Promise<Result> {
+export function uploadEGovDesign(file: File, title?: string, docGroup?: string): Promise<Result> {
   const form = new FormData();
   form.append('file', file);
   if (title?.trim()) form.append('title', title.trim());
+  if (docGroup) form.append('docGroup', docGroup);
   return sendForm('/api/egov/designs', form, 'Tasarım yüklenemedi');
 }
 
@@ -67,7 +100,10 @@ export function replaceEGovDesignContent(id: number, file: File): Promise<Result
   return sendForm(`/api/egov/designs/${id}/content`, form, 'XSLT değiştirilemedi');
 }
 
-export function updateEGovDesign(id: number, body: { title: string; isActive: boolean; notes?: string | null }): Promise<Result> {
+export function updateEGovDesign(
+  id: number,
+  body: { title: string; isActive: boolean; notes?: string | null; docGroup?: string | null },
+): Promise<Result> {
   return apiJson(`/api/egov/designs/${id}`, { method: 'PUT', body: JSON.stringify(body) });
 }
 
