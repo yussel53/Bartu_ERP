@@ -3,13 +3,16 @@ import { FileSpreadsheet, Download, Upload, Eye, CheckCircle2, Package, Users, B
 import {
   applyImport,
   fetchImportHistory,
+  fetchImportSources,
   fetchImportTargets,
   importTemplateUrl,
   parseImportFile,
+  sourceHeader,
   type ImportApplyResult,
   type ImportKind,
   type ImportLogRow,
   type ImportMode,
+  type ImportSourceDef,
   type ImportTargetDef,
   type ParsedSheet,
 } from '../api/importApi';
@@ -20,17 +23,28 @@ interface DataImportPageProps {
   onBack?: () => void;
 }
 
-const KIND_ICON: Record<ImportKind, React.ComponentType<{ className?: string }>> = {
+const KIND_ICON: Record<string, React.ComponentType<{ className?: string }>> = {
   product: Package,
   customer: Users,
   account: BookOpen,
+  invoice: FileSpreadsheet,
+  'customer-voucher': Users,
+  'bank-voucher': FileSpreadsheet,
+  'account-voucher': BookOpen,
 };
 
-const KIND_LABEL: Record<ImportKind, string> = {
+const KIND_LABEL: Record<string, string> = {
   product: 'Malzeme / Hizmet',
   customer: 'Cari Kart',
   account: 'Hesap Kodu',
+  invoice: 'Fatura',
+  'customer-voucher': 'Cari Fiş',
+  'bank-voucher': 'Banka Fişi',
+  'account-voucher': 'Muhasebe Fişi',
 };
+
+const voucherKind = (kind: string) =>
+  kind === 'invoice' || kind === 'customer-voucher' || kind === 'bank-voucher' || kind === 'account-voucher';
 
 const MODE_LABEL: Record<ImportMode, string> = {
   upsert: 'Ekle + Güncelle',
@@ -54,9 +68,9 @@ const norm = (s: string) => s.trim().toLocaleLowerCase('tr-TR');
 type TemplateCheck = { mapping: Record<string, number>; missing: string[]; extra: string[]; duplicate: string[] };
 
 /** Dosya başlıkları şablonla birebir aynı olmalı — eksik / fazla / tekrar eden kolon kabul edilmez */
-function checkTemplate(target: ImportTargetDef, headers: string[]): TemplateCheck {
+function checkTemplate(target: ImportTargetDef, headers: string[], source: ImportSourceDef | null): TemplateCheck {
   const mapping: Record<string, number> = {};
-  const byLabel = new Map(target.fields.map((f) => [norm(f.label), f]));
+  const byLabel = new Map(target.fields.map((f) => [norm(sourceHeader(source, target.kind, f)), f]));
   const extra: string[] = [];
   const duplicate: string[] = [];
   headers.forEach((h, i) => {
@@ -66,7 +80,7 @@ function checkTemplate(target: ImportTargetDef, headers: string[]): TemplateChec
     else if (mapping[f.key] !== undefined) duplicate.push(h);
     else mapping[f.key] = i;
   });
-  const missing = target.fields.filter((f) => mapping[f.key] === undefined).map((f) => f.label);
+  const missing = target.fields.filter((f) => mapping[f.key] === undefined).map((f) => sourceHeader(source, target.kind, f));
   return { mapping, missing, extra, duplicate };
 }
 
@@ -74,9 +88,12 @@ const fmtTime = (v: string) => new Date(v.endsWith('Z') ? v : `${v}Z`).toLocaleS
 
 export const DataImportPage: React.FC<DataImportPageProps> = () => {
   const [targets, setTargets] = React.useState<ImportTargetDef[]>([]);
+  const [sources, setSources] = React.useState<ImportSourceDef[]>([]);
+  const [sourceId, setSourceId] = React.useState('bartu');
   const [kind, setKind] = React.useState<ImportKind>('product');
   const [productType, setProductType] = React.useState(1);
   const [accountPrefixParent, setAccountPrefixParent] = React.useState(true);
+  const [createMissingCards, setCreateMissingCards] = React.useState(false);
   const [mode, setMode] = React.useState<ImportMode>('upsert');
   const [sheet, setSheet] = React.useState<ParsedSheet | null>(null);
   const [result, setResult] = React.useState<ImportApplyResult | null>(null);
@@ -88,6 +105,7 @@ export const DataImportPage: React.FC<DataImportPageProps> = () => {
   const fileRef = React.useRef<HTMLInputElement>(null);
 
   const target = targets.find((t) => t.kind === kind) ?? null;
+  const source = sources.find((s) => s.id === sourceId) ?? sources[0] ?? null;
 
   const loadHistory = React.useCallback(async () => {
     try {
@@ -101,12 +119,15 @@ export const DataImportPage: React.FC<DataImportPageProps> = () => {
     fetchImportTargets()
       .then(setTargets)
       .catch((e) => setError(e instanceof Error ? e.message : 'Aktarım türleri alınamadı'));
+    fetchImportSources()
+      .then(setSources)
+      .catch(() => setSources([]));
     void loadHistory();
   }, [loadHistory]);
 
   const check = React.useMemo(
-    () => (target && sheet ? checkTemplate(target, sheet.headers) : null),
-    [target, sheet],
+    () => (target && sheet ? checkTemplate(target, sheet.headers, source) : null),
+    [target, sheet, source],
   );
   const mapping = check?.mapping ?? {};
   const templateOk = Boolean(check && !check.missing.length && !check.extra.length && !check.duplicate.length);
@@ -114,7 +135,7 @@ export const DataImportPage: React.FC<DataImportPageProps> = () => {
   React.useEffect(() => {
     setResult(null);
     setInfo(null);
-  }, [target, sheet, mode, productType, accountPrefixParent]);
+  }, [target, sheet, mode, productType, accountPrefixParent, createMissingCards, sourceId]);
 
   const onFile = async (file: File | undefined) => {
     if (!file) return;
@@ -157,7 +178,10 @@ export const DataImportPage: React.FC<DataImportPageProps> = () => {
       return;
     }
     if (!dryRun) {
-      const msg = `${rows.length} satır ${target.title} tablosuna aktarılacak (${MODE_LABEL[mode]}). Onaylıyor musunuz?`;
+      const voucher = voucherKind(kind);
+      const msg = voucher
+        ? `${rows.length} satır ${target.title} olarak fişlere bölünüp kaydedilecek (${MODE_LABEL[mode]}). Onaylıyor musunuz?`
+        : `${rows.length} satır ${target.title} tablosuna aktarılacak (${MODE_LABEL[mode]}). Onaylıyor musunuz?`;
       if (!await appConfirm(msg)) return;
     }
     setBusy(true);
@@ -170,13 +194,15 @@ export const DataImportPage: React.FC<DataImportPageProps> = () => {
         dryRun,
         productType: kind === 'product' ? productType : undefined,
         accountPrefixParent: kind === 'account' ? accountPrefixParent : undefined,
+        createMissingCards: voucherKind(kind) ? createMissingCards : undefined,
         fileName: sheet.fileName,
         importedBy: String(getCurrentUserId() ?? ''),
       });
       setResult(r);
       setOnlyProblems(r.failed > 0);
       const summary = `${r.inserted} yeni · ${r.updated} güncelleme · ${r.skipped} atlanan · ${r.failed} hata`;
-      setInfo(dryRun ? `Kontrol tamamlandı: ${summary}` : `Aktarım tamamlandı: ${summary}`);
+      const cut = r.rowsTruncated ? ' · listede yalnız hatalar var, sayılar tamdır' : '';
+      setInfo((dryRun ? `Kontrol tamamlandı: ${summary}` : `Aktarım tamamlandı: ${summary}`) + cut);
       if (!dryRun) void loadHistory();
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Aktarım başarısız');
@@ -196,16 +222,15 @@ export const DataImportPage: React.FC<DataImportPageProps> = () => {
         <div>
           <h2 className="text-[14px] font-semibold text-slate-800 dark:text-slate-100">Veri Aktarımı</h2>
           <p className="text-[11px] text-slate-500">
-            Excel (.xlsx) veya CSV dosyasından malzeme, cari ve muhasebe hesap kartlarını içeri aktarın. Kod eşleşmesine göre
-            yeni kart açılır veya mevcut kart güncellenir.
+            Excel, CSV veya e-Defter yevmiye dosyasından kart ve fiş aktarın. Aynı belge numarası tek fişte birleşir.
           </p>
         </div>
       </div>
 
       <section className="rounded-md border border-slate-200 dark:border-slate-700 bg-slate-50/60 dark:bg-slate-800/30 p-3 space-y-3">
         <div className="flex flex-wrap gap-2">
-          {(['product', 'customer', 'account'] as ImportKind[]).map((k) => {
-            const Icon = KIND_ICON[k];
+          {(targets.length ? targets.map((t) => t.kind) : (['product', 'customer', 'account'] as ImportKind[])).map((k) => {
+            const Icon = KIND_ICON[k] ?? FileSpreadsheet;
             const active = k === kind;
             return (
               <button
@@ -219,7 +244,7 @@ export const DataImportPage: React.FC<DataImportPageProps> = () => {
                 }`}
               >
                 <Icon className="w-3.5 h-3.5" />
-                {KIND_LABEL[k]}
+                {KIND_LABEL[k] ?? targets.find((t) => t.kind === k)?.title ?? k}
               </button>
             );
           })}
@@ -233,6 +258,7 @@ export const DataImportPage: React.FC<DataImportPageProps> = () => {
             {target.notes.map((n) => (
               <li key={n}>{n}</li>
             ))}
+            {source?.note && <li>{source.note}</li>}
           </ul>
         )}
         {target && (
@@ -248,7 +274,7 @@ export const DataImportPage: React.FC<DataImportPageProps> = () => {
                     : 'border-slate-200 bg-white dark:bg-slate-900 text-slate-600'
                 }`}
               >
-                {f.label}
+                {sourceHeader(source, kind, f)}
                 {f.required && ' *'}
               </span>
             ))}
@@ -256,6 +282,14 @@ export const DataImportPage: React.FC<DataImportPageProps> = () => {
         )}
 
         <div className="grid grid-cols-1 md:grid-cols-12 gap-3 items-end">
+          <label className="md:col-span-3 space-y-1">
+            <span className="text-[11px] font-medium text-slate-600">Kaynak şablon</span>
+            <select className={inputCls} value={source?.id ?? 'bartu'} onChange={(e) => setSourceId(e.target.value)}>
+              {(sources.length ? sources : [{ id: 'bartu', title: 'Bartu', note: '', headers: {} }]).map((s) => (
+                <option key={s.id} value={s.id}>{s.title}</option>
+              ))}
+            </select>
+          </label>
           {kind === 'product' && (
             <label className="md:col-span-3 space-y-1">
               <span className="text-[11px] font-medium text-slate-600">Kart Tipi</span>
@@ -264,6 +298,17 @@ export const DataImportPage: React.FC<DataImportPageProps> = () => {
                 <option value={2}>2 — Verilen Hizmet</option>
                 <option value={3}>3 — Alınan Hizmet</option>
               </select>
+            </label>
+          )}
+          {voucherKind(kind) && (
+            <label className="md:col-span-5 inline-flex items-center gap-2 h-8 text-[12px] text-slate-700 dark:text-slate-200">
+              <input
+                type="checkbox"
+                className="accent-blue-600"
+                checked={createMissingCards}
+                onChange={(e) => setCreateMissingCards(e.target.checked)}
+              />
+              Kartı yoksa oluştur (cari, malzeme/hizmet, hesap, banka hesabı)
             </label>
           )}
           {kind === 'account' && (
@@ -289,11 +334,11 @@ export const DataImportPage: React.FC<DataImportPageProps> = () => {
           </label>
           <div className="md:col-span-4 flex flex-wrap gap-2">
             <a
-              href={importTemplateUrl(kind)}
+              href={importTemplateUrl(kind, source?.id ?? 'bartu')}
               className="inline-flex items-center gap-1.5 px-3 h-8 text-[12px] font-semibold text-emerald-700 bg-emerald-50 hover:bg-emerald-100 rounded-md"
             >
               <Download className="w-3.5 h-3.5" />
-              Şablon İndir
+              {source && source.id !== 'bartu' ? `${source.title} Şablonu` : 'Şablon İndir'}
             </a>
             <button
               type="button"
@@ -307,7 +352,7 @@ export const DataImportPage: React.FC<DataImportPageProps> = () => {
             <input
               ref={fileRef}
               type="file"
-              accept=".xlsx,.csv,.txt"
+              accept=".xlsx,.csv,.txt,.xml,.zip"
               className="hidden"
               onChange={(e) => void onFile(e.target.files?.[0])}
             />
@@ -320,7 +365,6 @@ export const DataImportPage: React.FC<DataImportPageProps> = () => {
             <span className="font-medium">{sheet.fileName}</span>
             <span className="text-slate-500">
               {sheet.sheetName ? `· ${sheet.sheetName} ` : ''}· {sheet.rows.length} satır · {sheet.headers.length} kolon
-              {sheet.truncated ? ' · ilk 20.000 satır alındı' : ''}
             </span>
             <button
               type="button"
@@ -339,7 +383,9 @@ export const DataImportPage: React.FC<DataImportPageProps> = () => {
         <section className="rounded-md border border-slate-200 dark:border-slate-700 p-3 space-y-2">
           <h3 className="text-[12px] font-semibold text-slate-700 dark:text-slate-200">Şablon Kontrolü</h3>
           {templateOk ? (
-            <p className="text-[12px] text-emerald-700">Dosya şablona uygun — {target.fields.length} kolon eşleşti.</p>
+            <p className="text-[12px] text-emerald-700">
+              Dosya {source?.title ?? 'Bartu'} şablonuna uygun — {target.fields.length} kolon eşleşti.
+            </p>
           ) : (
             check && (
               <div className="rounded border border-red-200 bg-red-50 dark:bg-red-950/30 p-2 text-[12px] text-red-700 space-y-0.5">

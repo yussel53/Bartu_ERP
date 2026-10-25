@@ -152,6 +152,19 @@ public sealed class ProcessController : ControllerBase
         }
     }
 
+    [HttpPost("bank/columns")]
+    public async Task<IActionResult> BankColumns([FromBody] ProcessBank.Request body, CancellationToken ct)
+    {
+        try
+        {
+            return Ok(new { columns = await _repo.DescribeBankAsync(body, ct) });
+        }
+        catch (Exception ex)
+        {
+            return BadRequest(new { message = ex.Message });
+        }
+    }
+
     [HttpPost("scan")]
     public async Task<IActionResult> Scan([FromQuery] int? defId, CancellationToken ct)
     {

@@ -457,8 +457,28 @@ public sealed class ProcessRepository
         {
             ScanPlan? plan;
             List<IDictionary<string, object?>> rows;
-            var external = ExternalOf(def);
-            if (external != null)
+            var bankStep = def.Steps.FirstOrDefault(s =>
+                string.Equals(s.NodeType, "BankFetch", StringComparison.OrdinalIgnoreCase));
+            var external = bankStep is null ? ExternalOf(def) : null;
+            if (bankStep != null)
+            {
+                plan = ReadPlan(bankStep.ConfigJson);
+                try
+                {
+                    var req = JsonSerializer.Deserialize<ProcessBank.Request>(bankStep.ConfigJson ?? "{}",
+                        new JsonSerializerOptions { PropertyNameCaseInsensitive = true }) ?? new ProcessBank.Request();
+                    var pull = await ProcessBank.PullAsync(_db, req, ct);
+                    rows = pull.Rows.Cast<IDictionary<string, object?>>().ToList();
+                    foreach (var message in pull.Messages)
+                        result.Messages.Add($"{def.Code}: {message}");
+                }
+                catch (Exception ex)
+                {
+                    result.Messages.Add($"{def.Code}: {ex.Message}");
+                    continue;
+                }
+            }
+            else if (external != null)
             {
                 plan = external.Plan;
                 try
@@ -523,6 +543,12 @@ public sealed class ProcessRepository
             }
         }
         return result;
+    }
+
+    public Task<IReadOnlyList<string>> DescribeBankAsync(ProcessBank.Request req, CancellationToken ct)
+    {
+        EnsureOpen();
+        return ProcessBank.ColumnsAsync(_db, req, ct);
     }
 
     public async Task<IReadOnlyList<string>> DescribeSelectAsync(string sql, CancellationToken ct)

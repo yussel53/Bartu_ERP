@@ -292,10 +292,16 @@ internal static class ProcessSource
                     Flatten(p.Value, string.IsNullOrEmpty(prefix) ? p.Name : prefix + "." + p.Name, row);
                 break;
             case JsonValueKind.Array:
-                row[string.IsNullOrEmpty(prefix) ? "deger" : prefix] = null;
                 break;
             default:
-                row[string.IsNullOrEmpty(prefix) ? "deger" : prefix] = null;
+                row[string.IsNullOrEmpty(prefix) ? "deger" : prefix] = el.ValueKind switch
+                {
+                    JsonValueKind.String => el.GetString(),
+                    JsonValueKind.True => "true",
+                    JsonValueKind.False => "false",
+                    JsonValueKind.Null => null,
+                    _ => el.GetRawText(),
+                };
                 break;
         }
     }

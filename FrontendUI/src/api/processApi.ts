@@ -128,6 +128,14 @@ export async function previewProcessSource(cfg: Record<string, unknown>): Promis
   return data.columns ?? [];
 }
 
+export async function previewBankColumns(cfg: { bankAccountCardId?: number; gun?: number; jsonPath?: string }): Promise<string[]> {
+  const data = await apiJson<{ columns?: string[] }>('/api/process/bank/columns', {
+    method: 'POST',
+    body: JSON.stringify(cfg),
+  });
+  return data.columns ?? [];
+}
+
 export async function describeProcessSelect(sql: string): Promise<string[]> {
   const data = await apiJson<{ columns?: string[] }>('/api/process/columns', {
     method: 'POST',

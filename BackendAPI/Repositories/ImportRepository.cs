@@ -43,6 +43,8 @@ public sealed class ImportApplyRequest
     public int? ProductType { get; set; }
     /** Hesap: noktasız kodda üst hesap = en uzun önek kod (1 ← 10 ← 100) */
     public bool AccountPrefixParent { get; set; } = true;
+    /** Fiş aktarımı: bulunamayan cari, malzeme, hesap ve banka hesabını aç */
+    public bool CreateMissingCards { get; set; }
     public string? FileName { get; set; }
     public string? ImportedBy { get; set; }
 }
@@ -65,10 +67,12 @@ public sealed class ImportApplyResult
     public int Updated { get; set; }
     public int Skipped { get; set; }
     public int Failed { get; set; }
+    /** Ayrıntı listesi kısaltıldı; sayılar tamdır */
+    public bool RowsTruncated { get; set; }
     public List<ImportRowResult> Rows { get; set; } = new();
 }
 
-public sealed class ImportRepository
+public sealed partial class ImportRepository
 {
     private const string RowNoKey = "__row";
 
@@ -217,6 +221,10 @@ public sealed class ImportRepository
                 new() { Key = "DefaultRate", Label = "Kur", Type = "int", Aliases = new[] { "kur", "rate" } },
             },
         },
+        InvoiceTarget(),
+        CustomerVoucherTarget(),
+        BankVoucherTarget(),
+        AccountVoucherTarget(),
     };
 
     public static ImportTargetDef? GetTarget(string kind) =>
@@ -242,6 +250,13 @@ public sealed class ImportRepository
     {
         var def = GetTarget(kind) ?? throw new InvalidOperationException($"Bilinmeyen içe aktarım türü: {kind}");
         if (_db.State != ConnectionState.Open) _db.Open();
+
+        if (def.Kind is "invoice" or "customer-voucher" or "bank-voucher" or "account-voucher")
+        {
+            var voucher = await ApplyVouchersAsync(def, req, ct);
+            if (!req.DryRun) await WriteLogAsync(def, req, voucher, ct);
+            return voucher;
+        }
 
         var mode = (req.Mode ?? "upsert").Trim().ToLowerInvariant();
         var productType = req.ProductType is >= 1 and <= 3 ? req.ProductType.Value : 1;
@@ -678,6 +693,17 @@ public sealed class ImportRepository
             {
                 if (TryParseDecimal(text, out var d)) { value = d; return true; }
                 error = $"{f.Label}: '{text}' sayı değil";
+                return false;
+            }
+            case "date":
+            {
+                if (DateTime.TryParse(text, CultureInfo.GetCultureInfo("tr-TR"), DateTimeStyles.None, out var tr)
+                    || DateTime.TryParse(text, CultureInfo.InvariantCulture, DateTimeStyles.None, out tr))
+                {
+                    value = tr.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture);
+                    return true;
+                }
+                error = $"{f.Label}: '{text}' tarih değil";
                 return false;
             }
             case "enum":

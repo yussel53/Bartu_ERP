@@ -17,8 +17,6 @@ public sealed class SpreadsheetData
 /// </summary>
 public static class SpreadsheetReader
 {
-    public const int MaxRows = 20000;
-
     public static SpreadsheetData Read(Stream stream, string fileName)
     {
         var ext = Path.GetExtension(fileName ?? "").ToLowerInvariant();
@@ -56,7 +54,6 @@ public static class SpreadsheetReader
             var cells = new List<string>(width);
             for (var i = 0; i < width; i++) cells.Add(i < row.Count ? row[i].Trim() : "");
             data.Rows.Add(cells);
-            if (data.Rows.Count >= MaxRows) break;
         }
         return data;
     }
@@ -120,7 +117,6 @@ public static class SpreadsheetReader
                 cells.Add(CellText(c, shared, dateStyles));
             }
             result.Add(cells);
-            if (result.Count > MaxRows + 50) break;
         }
         return result;
     }
@@ -240,7 +236,6 @@ public static class SpreadsheetReader
                 cell.Clear();
                 rows.Add(row);
                 row = new List<string>();
-                if (rows.Count > MaxRows + 50) break;
             }
             else cell.Append(ch);
         }

@@ -40,14 +40,14 @@ export const SCHEMA_MODULE_MAP: SchemaTableRef[] = [
   { table: 'ELedger', module: 'edevlet', group: 'e-defter', title: 'e-Defter' },
   { table: 'RiskGroup', module: 'finans', group: 'ana-kayitlar', title: 'Risk Grupları' },
   { table: 'BankCard', module: 'finans', group: 'ana-kayitlar', title: 'Banka', notes: 'Hesaplar (BankAccountCard) form içinde sekme' },
-  { table: 'BankAccountCard', module: 'finans', group: 'ana-kayitlar', title: 'Banka Hesapları', notes: 'BankCard formu içinde sekme · BankCardID' },
+  { table: 'BankAccountCard', module: 'finans', group: 'ana-kayitlar', title: 'Banka Hesapları', notes: 'BankCard formu içinde sekme · BankCardID · Integ* entegrasyon · süreç işi BankFetch' },
   { table: 'SafeCard', module: 'finans', group: 'ana-kayitlar', title: 'Kasa Kartları' },
   { table: 'BoundCard', module: 'finans', group: 'ana-kayitlar', title: 'Çek / Senet Kartları' },
   { table: 'PaidPlanCard', module: 'finans', group: 'ana-kayitlar', title: 'Ödeme / Tahsilat Planları', notes: 'PlanType 1 Ödeme / 2 Tahsilat / 3 Her ikisi · PaidPlanLine' },
   { table: 'PaidPlanLine', module: 'finans', group: 'ana-kayitlar', title: 'Ödeme Plan Satırları' },
   { table: 'BankCredit', module: 'finans', group: 'ana-kayitlar', title: 'Banka Kredileri' },
   { table: 'BankCreditInstallment', module: 'finans', group: 'hareketler', title: 'Kredi Taksitleri' },
-  { table: 'CustomerVoucher', module: 'finans', group: 'hareketler', title: 'Cari Fişler', notes: 'Type fiş tipi · satırlar CustomerTrans (1→N)' },
+  { table: 'CustomerVoucher', module: 'finans', group: 'hareketler', title: 'Cari Fişler', notes: 'Type fiş tipi · satırlar CustomerTrans (1→N) · veri aktarımı customer-voucher' },
   { table: 'CustomerTrans', module: 'finans', group: 'hareketler', title: 'Cari Fiş Satırları', notes: 'CustomerVoucherID + CustomerID + Amount' },
   { table: 'PaymentTrans', module: 'finans', group: 'hareketler', title: 'Ödeme Hareketi', notes: 'Cari fiş satırı / kapama · Type_: 1 Tahsilat, 2 Ödeme' },
   { table: 'BankVoucher', module: 'finans', group: 'hareketler', title: 'Banka Fişleri', notes: 'Type_ fiş tipi · satırlar BankTrans (1→N)' },
@@ -65,7 +65,7 @@ export const SCHEMA_MODULE_MAP: SchemaTableRef[] = [
   { table: 'SYS_ProcessInstance', module: 'surec', group: 'hareketler', title: 'Süreç Örnekleri', notes: 'DataJson: belge, cari, adres, satir — her başlangıçta aynı nesne' },
   { table: 'SYS_ProcessTask', module: 'surec', group: 'hareketler', title: 'Onay Kuyruğu', notes: 'Kullanıcı onay görevleri' },
   { table: 'SYS_ProcessDocLink', module: 'surec', group: 'islemler', title: 'Belge Bağları', notes: 'TalepToOrder · EGovToOrder' },
-  { table: 'Invoice', module: 'satis|satinalma', group: 'hareketler', title: 'Fatura', notes: 'InvoiceType ile satış/alış/iade' },
+  { table: 'Invoice', module: 'satis|satinalma', group: 'hareketler', title: 'Fatura', notes: 'InvoiceType ile satış/alış/iade/alınan hizmet · veri aktarımı invoice' },
 
   // Muhasebe
   {
@@ -78,7 +78,7 @@ export const SCHEMA_MODULE_MAP: SchemaTableRef[] = [
   { table: 'AccountGroup', module: 'muhasebe', group: 'ana-kayitlar', title: 'Hesap Grupları' },
   { table: 'AccountLink', module: 'muhasebe', group: 'ana-kayitlar', title: 'Muhasebe Bağlantıları', notes: 'Ekle: Modul+Fiş türü+Hesap+Koşul · Product/Tax/Bank/Bound/Customer' },
   { table: 'AccountLinkDetail', module: 'muhasebe', group: 'ana-kayitlar', title: 'Kart / Bağlantı Detay', notes: 'Kart sekmesi + AccountLink satırları · ConditionTitle/ConditionJson' },
-  { table: 'AccountVoucher', module: 'muhasebe', group: 'hareketler', title: 'Muhasebe Fişleri' },
+  { table: 'AccountVoucher', module: 'muhasebe', group: 'hareketler', title: 'Muhasebe Fişleri', notes: 'Veri aktarımı account-voucher · e-Defter yevmiye XML' },
   { table: 'AccountTrans', module: 'muhasebe', group: 'hareketler', title: 'Muhasebe Hareketleri' },
   { table: 'AccountLinkTrans', module: 'muhasebe', group: 'islemler', title: 'Ön / Resmi Muhasebe Bağlantı' },
 

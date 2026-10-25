@@ -1,6 +1,13 @@
 import { API_BASE, ApiError, apiJson } from '../config/api';
 
-export type ImportKind = 'product' | 'customer' | 'account';
+export type ImportKind =
+  | 'product'
+  | 'customer'
+  | 'account'
+  | 'invoice'
+  | 'customer-voucher'
+  | 'bank-voucher'
+  | 'account-voucher';
 
 export type ImportFieldDef = {
   key: string;
@@ -40,6 +47,7 @@ export type ImportApplyRequest = {
   dryRun: boolean;
   productType?: number;
   accountPrefixParent?: boolean;
+  createMissingCards?: boolean;
   fileName?: string;
   importedBy?: string;
 };
@@ -59,6 +67,7 @@ export type ImportApplyResult = {
   updated: number;
   skipped: number;
   failed: number;
+  rowsTruncated?: boolean;
   rows: ImportRowResult[];
 };
 
@@ -78,7 +87,19 @@ export type ImportLogRow = {
   ImportedAt: string;
 };
 
+export type ImportSourceDef = {
+  id: string;
+  title: string;
+  note: string;
+  headers: Record<string, Record<string, string>>;
+};
+
 export const fetchImportTargets = () => apiJson<ImportTargetDef[]>('/api/import/targets');
+
+export const fetchImportSources = () => apiJson<ImportSourceDef[]>('/api/import/sources');
+
+export const sourceHeader = (source: ImportSourceDef | null, kind: string, field: ImportFieldDef) =>
+  source?.headers?.[kind]?.[field.key] || field.label;
 
 export async function parseImportFile(file: File): Promise<ParsedSheet> {
   const form = new FormData();
@@ -98,6 +119,7 @@ export const applyImport = (kind: ImportKind, req: ImportApplyRequest) =>
     body: JSON.stringify(req),
   });
 
-export const importTemplateUrl = (kind: ImportKind) => `${API_BASE}/api/import/${kind}/template`;
+export const importTemplateUrl = (kind: ImportKind, source = 'bartu') =>
+  `${API_BASE}/api/import/${kind}/template?source=${encodeURIComponent(source)}`;
 
 export const fetchImportHistory = (take = 30) => apiJson<ImportLogRow[]>(`/api/import/history?take=${take}`);

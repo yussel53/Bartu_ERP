@@ -121,6 +121,7 @@ public sealed class RecordsRepository
             ["SystemUser"] = ["Password"],
             ["SYS_Users"] = ["PasswordHash"],
             ["CRM_MailProfile"] = ["SmtpPassword"],
+            ["BankAccountCard"] = ["IntegSecret"],
         };
 
     /// <summary>Ana kart → nested çocuk tablolar</summary>

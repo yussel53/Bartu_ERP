@@ -1,6 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { listTableColumns, type ExtraFieldTarget } from '../api/extraFieldsApi';
-import { previewProcessSource, testProcessSource } from '../api/processApi';
+import { previewBankColumns, previewProcessSource, testProcessSource } from '../api/processApi';
+import { listRecords } from '../api/recordsApi';
 
 type ScanCol = { name: string; kind: 'alan' | 'tablo' };
 type MapRow = { alan: string; mod: 'column' | 'template' | 'fixed'; deger: string };
@@ -353,6 +354,131 @@ export const ModuleTransferEditor: React.FC<{
       >
         {loading ? 'Alanlar okunuyor…' : 'Hedef alan ekle'}
       </button>
+    </div>
+  );
+};
+
+function cell(row: Record<string, unknown>, key: string): string {
+  const hit = Object.entries(row).find(([k]) => k.toLowerCase() === key.toLowerCase());
+  return hit && hit[1] != null ? String(hit[1]) : '';
+}
+
+export const BankFetchEditor: React.FC<{
+  json?: string | null;
+  onChange: (json: string | null) => void;
+  onError: (text: string) => void;
+}> = ({ json, onChange, onError }) => {
+  const cfg = readCfg(json);
+  const cols = readCols(cfg);
+  const accountId = Number(cfg.bankAccountCardId ?? 0);
+  const [accounts, setAccounts] = useState<{ id: number; label: string }[]>([]);
+  const [busy, setBusy] = useState(false);
+  const [note, setNote] = useState('');
+  const set = (patch: Record<string, unknown>) => onChange(writeCfg(json, patch));
+
+  useEffect(() => {
+    let cancel = false;
+    listRecords('BankAccountCard', { take: 200 })
+      .then((res) => {
+        if (cancel) return;
+        const open = res.rows.filter((row) => {
+          const flag = cell(row, 'IntegEnabled');
+          return flag === 'true' || flag === '1' || flag === 'True';
+        });
+        setAccounts(open.map((row) => ({
+          id: Number(cell(row, 'BankAccountCardID')),
+          label: [cell(row, 'Code'), cell(row, 'Title'), cell(row, 'IntegBank')].filter(Boolean).join(' · '),
+        })));
+      })
+      .catch(() => {
+        if (!cancel) setAccounts([]);
+      });
+    return () => { cancel = true; };
+  }, []);
+
+  const loadCols = async () => {
+    setBusy(true);
+    setNote('');
+    try {
+      const names = await previewBankColumns({
+        bankAccountCardId: accountId,
+        gun: Number(cfg.gun ?? 7),
+        jsonPath: text(cfg, 'jsonPath'),
+      });
+      const prev = new Map(cols.map((c) => [c.name.toLowerCase(), c.kind]));
+      const account = new Set(['hesapkodu', 'hesapadi', 'banka', 'iban']);
+      set({
+        columns: names.map((name) => ({
+          name,
+          kind: prev.get(name.toLowerCase()) ?? (account.has(name.toLowerCase()) ? 'alan' : 'tablo'),
+        })),
+      });
+      setNote(`${names.length} kolon alındı. Sonraki adımlar {Alan} olarak kullanır.`);
+    } catch (e) {
+      onError(e instanceof Error ? e.message : 'Kolonlar okunamadı');
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <div className="sm:col-span-2 space-y-2 rounded border border-amber-200 bg-amber-50/50 p-2">
+      <div className="text-[10px] uppercase tracking-wide text-amber-900">Banka entegrasyonu · hesap hareketi</div>
+      <p className="text-[11px] text-slate-600">
+        Bağlantı, Finans → Banka Entegrasyonu kaydındaki servis adresinden okunur. Tarih aralığı adreste {'{baslangic}'} ve {'{bitis}'} ile de yazılabilir.
+      </p>
+      <label className="block text-[11px]">
+        Hesap
+        <select value={accountId} onChange={(e) => set({ bankAccountCardId: Number(e.target.value) })} className={inputCls}>
+          <option value={0}>Entegrasyonu açık tüm hesaplar</option>
+          {accounts.map((a) => (
+            <option key={a.id} value={a.id}>{a.label}</option>
+          ))}
+        </select>
+      </label>
+      {accounts.length === 0 && (
+        <p className="text-[11px] text-amber-800">Açık entegrasyonlu hesap yok. Önce banka hesabında entegrasyonu işaretleyin.</p>
+      )}
+      <div className="grid grid-cols-2 gap-2">
+        <label className="block text-[11px]">
+          Gün
+          <input type="number" min={1} max={366} value={Number(cfg.gun ?? 7)} onChange={(e) => set({ gun: Number(e.target.value) || 7 })} className={inputCls} />
+        </label>
+        <label className="block text-[11px]">
+          Kayıt listesi yolu
+          <input value={text(cfg, 'jsonPath')} onChange={(e) => set({ jsonPath: e.target.value })} className={inputCls} placeholder="data.items" />
+        </label>
+      </div>
+      <button type="button" disabled={busy} onClick={() => void loadCols()} className="rounded border border-sky-300 bg-white px-2 py-1 text-[11px] text-sky-800 disabled:opacity-50">
+        {busy ? 'Okunuyor…' : 'Kolon başlıklarını al'}
+      </button>
+      {note && <p className="text-[11px] text-slate-600">{note}</p>}
+      {cols.length > 0 && (
+        <div className="rounded border border-black/10 bg-white p-2 space-y-1">
+          {cols.map((col) => (
+            <label key={col.name} className="flex items-center gap-2 text-[12px]">
+              <span className="font-mono flex-1 min-w-0 truncate">{col.name}</span>
+              <select
+                value={col.kind}
+                onChange={(e) => {
+                  const kind = e.target.value === 'tablo' ? 'tablo' : 'alan';
+                  set({ columns: cols.map((c) => (c.name === col.name ? { ...c, kind } : c)) });
+                }}
+                className="rounded border border-slate-200 bg-white px-1 py-0.5 text-[11px]"
+              >
+                <option value="alan">Alan</option>
+                <option value="tablo">Tablo</option>
+              </select>
+            </label>
+          ))}
+          {cols.some((c) => c.kind === 'tablo') && (
+            <label className="block text-[11px] pt-1">
+              Tablo adı
+              <input value={text(cfg, 'tabloAdi') || 'Satirlar'} onChange={(e) => set({ tabloAdi: e.target.value.trim() || 'Satirlar' })} className={`${inputCls} font-mono`} />
+            </label>
+          )}
+        </div>
+      )}
     </div>
   );
 };

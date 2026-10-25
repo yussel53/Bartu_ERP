@@ -20,7 +20,7 @@ import {
   saveProcessDef,
 } from '../api/processApi';
 import { evaluateFormula, formulaFieldRefs, FORMULA_FUNCTIONS } from '../data/formulaEval';
-import { DataFetchEditor, ModuleTransferEditor } from './ProcessJobEditors';
+import { BankFetchEditor, DataFetchEditor, ModuleTransferEditor } from './ProcessJobEditors';
 import { appConfirm } from '../utils/appConfirm';
 import { listRoles, type Role } from '../api/rolesApi';
 import {
@@ -349,7 +349,23 @@ export const ProcessDesignerPage: React.FC<ProcessDesignerPageProps> = ({ onBack
         approverRoleId: n.needsApprover ? roles[0]?.id ?? null : null,
         approverUserId: null,
         isActive: true,
-        configJson: null,
+        configJson: n.nodeType === 'BankFetch'
+          ? JSON.stringify({
+              bankAccountCardId: 0,
+              gun: 7,
+              tabloAdi: 'Satirlar',
+              columns: [
+                { name: 'HesapKodu', kind: 'alan' },
+                { name: 'HesapAdi', kind: 'alan' },
+                { name: 'Banka', kind: 'alan' },
+                { name: 'Iban', kind: 'alan' },
+                { name: 'Tarih', kind: 'tablo' },
+                { name: 'Aciklama', kind: 'tablo' },
+                { name: 'Tutar', kind: 'tablo' },
+                { name: 'Referans', kind: 'tablo' },
+              ],
+            })
+          : null,
         nextStepOnOk: null,
         nextStepOnFail: null,
       },
@@ -505,7 +521,7 @@ export const ProcessDesignerPage: React.FC<ProcessDesignerPageProps> = ({ onBack
         >
           <RefreshCw className={`w-3.5 h-3.5 ${busy ? 'animate-spin' : ''}`} /> Yenile
         </button>
-        {draft && draft.processDefID > 0 && (draft.triggerType === 8 || steps.some((s) => s.nodeType === 'DbScan' || s.nodeType === 'DbScanLoop' || s.nodeType === 'DataFetch')) && (
+        {draft && draft.processDefID > 0 && (draft.triggerType === 8 || steps.some((s) => s.nodeType === 'DbScan' || s.nodeType === 'DbScanLoop' || s.nodeType === 'DataFetch' || s.nodeType === 'BankFetch')) && (
           <button
             type="button"
             disabled={busy}
@@ -859,6 +875,15 @@ export const ProcessDesignerPage: React.FC<ProcessDesignerPageProps> = ({ onBack
                               </div>
                               {SQL_NODES.has(s.nodeType || '') && (
                                 <SqlFieldEditor
+                                  json={s.configJson}
+                                  onChange={(next) =>
+                                    setSteps((prev) => prev.map((x, i) => (i === idx ? { ...x, configJson: next } : x)))
+                                  }
+                                  onError={(text) => setMsg({ kind: 'err', text })}
+                                />
+                              )}
+                              {s.nodeType === 'BankFetch' && (
+                                <BankFetchEditor
                                   json={s.configJson}
                                   onChange={(next) =>
                                     setSteps((prev) => prev.map((x, i) => (i === idx ? { ...x, configJson: next } : x)))

@@ -79,6 +79,7 @@ export const WORKFLOW_NODES: WorkflowNodeDef[] = [
   { nodeType: 'EInvoiceCheck', label: 'E-Fatura Kontrol', actionType: 'Review', tone: 'blue', group: 'veri', needsApprover: true },
   { nodeType: 'Terminate', label: 'Sonlandır', actionType: 'Approve', tone: 'red', group: 'akis' },
   { nodeType: 'SubProcess', label: 'Alt Süreç', actionType: 'Approve', tone: 'purple', group: 'akis' },
+  { nodeType: 'BankFetch', label: 'Banka Entegrasyonu', actionType: 'Approve', tone: 'gold', group: 'entegrasyon' },
   { nodeType: 'WebApi', label: 'Web Api', actionType: 'Approve', tone: 'gold', group: 'entegrasyon', dualOut: true },
   { nodeType: 'WebService', label: 'Web Servis', actionType: 'Approve', tone: 'gold', group: 'entegrasyon', dualOut: true },
   { nodeType: 'RestService', label: 'Rest Servis', actionType: 'Approve', tone: 'gold', group: 'entegrasyon', dualOut: true },

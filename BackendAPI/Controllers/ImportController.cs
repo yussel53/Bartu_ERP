@@ -22,16 +22,32 @@ public sealed class ImportController : ControllerBase
     [HttpGet("targets")]
     public IActionResult Targets() => Ok(ImportRepository.Targets);
 
+    [HttpGet("sources")]
+    public IActionResult Sources() => Ok(ImportSources.All);
+
     /// <summary>Excel (.xlsx) veya CSV dosyasını başlık + satır olarak döner; kayıt yapmaz.</summary>
     [HttpPost("parse")]
-    [RequestSizeLimit(30_000_000)]
+    [DisableRequestSizeLimit]
+    [RequestFormLimits(MultipartBodyLengthLimit = long.MaxValue)]
     public IActionResult Parse(IFormFile? file)
     {
         if (file == null || file.Length == 0) return BadRequest(new { message = "Dosya seçilmedi" });
         try
         {
             using var s = file.OpenReadStream();
-            var data = SpreadsheetReader.Read(s, file.FileName);
+            using var ms = new MemoryStream();
+            s.CopyTo(ms);
+            var bytes = ms.ToArray();
+            SpreadsheetData data;
+            if (YevmiyeReader.TryRead(bytes, file.FileName, out var yevmiye, out var yerr))
+            {
+                if (yerr != null) return BadRequest(new { message = yerr });
+                data = yevmiye!;
+            }
+            else
+            {
+                data = SpreadsheetReader.Read(new MemoryStream(bytes), file.FileName);
+            }
             if (data.Headers.Count == 0) return BadRequest(new { message = "Dosyada başlık satırı bulunamadı" });
             return Ok(new
             {
@@ -39,7 +55,7 @@ public sealed class ImportController : ControllerBase
                 data.SheetName,
                 data.Headers,
                 data.Rows,
-                truncated = data.Rows.Count >= SpreadsheetReader.MaxRows,
+                truncated = false,
             });
         }
         catch (InvalidOperationException ex)
@@ -53,21 +69,24 @@ public sealed class ImportController : ControllerBase
     }
 
     [HttpGet("{kind}/template")]
-    public IActionResult Template(string kind)
+    public IActionResult Template(string kind, [FromQuery] string? source)
     {
         var def = ImportRepository.GetTarget(kind);
         if (def == null) return NotFound(new { message = $"Bilinmeyen tür: {kind}" });
-        var headers = def.Fields.Select(f => f.Label).ToList();
+        var profile = ImportSources.Find(source) ?? ImportSources.All[0];
+        var headers = def.Fields.Select(f => ImportSources.Header(profile, def.Kind, f)).ToList();
         var sample = def.Fields.Select(f => f.Sample).ToList();
-        var bytes = SpreadsheetWriter.Write(def.Title.Length > 31 ? def.Title[..31] : def.Title, headers, new[] { sample });
+        var sheet = def.Title.Length > 31 ? def.Title[..31] : def.Title;
+        var bytes = SpreadsheetWriter.Write(sheet, headers, new[] { sample });
+        var suffix = profile.Id == "bartu" ? "" : $"_{profile.Id}";
         return File(bytes,
             "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-            $"{def.TableName}_sablon.xlsx");
+            $"{def.TableName}{suffix}_sablon.xlsx");
     }
 
     /// <summary>Eşlenmiş satırları doğrular (dryRun) veya kaydeder.</summary>
     [HttpPost("{kind}/apply")]
-    [RequestSizeLimit(60_000_000)]
+    [DisableRequestSizeLimit]
     public async Task<IActionResult> Apply(string kind, [FromBody] ImportApplyRequest req, CancellationToken ct)
     {
         if (ImportRepository.GetTarget(kind) == null) return NotFound(new { message = $"Bilinmeyen tür: {kind}" });
