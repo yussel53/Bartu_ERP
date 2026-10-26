@@ -93,6 +93,17 @@ public sealed class ImportController : ControllerBase
         catch (Exception ex) { return StatusCode(500, new { message = ex.Message }); }
     }
 
+    [HttpGet("profiles/{id:int}")]
+    public async Task<IActionResult> Profile(int id, CancellationToken ct)
+    {
+        try
+        {
+            var dto = await _profiles.GetAsync(id, ct);
+            return dto == null ? NotFound(new { message = "Aktarım yok." }) : Ok(dto);
+        }
+        catch (Exception ex) { return StatusCode(500, new { message = ex.Message }); }
+    }
+
     [HttpPost("profiles")]
     public async Task<IActionResult> SaveProfile([FromBody] ImportProfileDto dto, CancellationToken ct)
     {

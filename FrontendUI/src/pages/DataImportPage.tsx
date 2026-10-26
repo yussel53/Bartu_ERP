@@ -6,6 +6,7 @@ import {
   deleteImportProfile,
   fetchImportFields,
   fetchImportHistory,
+  fetchImportProfile,
   fetchImportProfiles,
   fetchImportSourceColumns,
   testImportSource,
@@ -135,6 +136,7 @@ export const DataImportPage: React.FC<DataImportPageProps> = () => {
   const [kind, setKind] = React.useState<ImportKind>('product');
   const [catalog, setCatalog] = React.useState<ImportFieldDef[]>([]);
   const [extraKeys, setExtraKeys] = React.useState<string[]>([]);
+  const [removedKeys, setRemovedKeys] = React.useState<string[]>([]);
   const [alias, setAlias] = React.useState<Record<string, string>>({});
   const aliasRef = React.useRef(alias);
   aliasRef.current = alias;
@@ -174,12 +176,12 @@ export const DataImportPage: React.FC<DataImportPageProps> = () => {
   const known = new Map<string, ImportFieldDef>();
   for (const f of [...curated, ...fields]) known.set(f.key, f);
   const templateFields = [
-    ...baseTemplate,
+    ...baseTemplate.filter((f) => !removedKeys.includes(f.key)),
     ...extraKeys
       .map((k) => known.get(k))
       .filter((f): f is ImportFieldDef => {
         if (!f) return false;
-        return !baseTemplate.some((b) => b.key === f.key);
+        return !baseTemplate.some((b) => b.key === f.key) && !removedKeys.includes(f.key);
       }),
   ];
   const addable = [...known.values()]
@@ -422,6 +424,7 @@ export const DataImportPage: React.FC<DataImportPageProps> = () => {
     setLink(emptySource());
     setAlias({});
     setExtraKeys([]);
+    setRemovedKeys([]);
     setSheet(null);
     setAfterSql('');
     setIntervalMin('');
@@ -448,8 +451,26 @@ export const DataImportPage: React.FC<DataImportPageProps> = () => {
     setCreateMissingCards(p.createMissingCards);
     if (p.productType) setProductType(p.productType);
     savedMap.current = p.map;
-    setExtraKeys(p.map.map((m) => m.field));
+    const baseKeys = new Set(
+      (targets.find((t) => t.kind === p.kind)?.fields ?? [])
+        .filter((f) => f.required || f.defaultOn !== false)
+        .map((f) => f.key),
+    );
+    const mapped = p.map.map((m) => m.field).filter((k) => Boolean(k));
+    if (mapped.length === 0) {
+      setExtraKeys([]);
+      setRemovedKeys([]);
+    } else {
+      setExtraKeys(mapped.filter((k) => !baseKeys.has(k)));
+      setRemovedKeys([...baseKeys].filter((k) => !mapped.includes(k)));
+    }
     setAlias(Object.fromEntries(p.map.filter((m) => m.field).map((m) => [m.field, m.header])));
+    void fetchImportProfile(p.importProfileID)
+      .then((full) => {
+        const pwd = full.source?.password ?? '';
+        if (pwd) setLink((cur) => ({ ...cur, password: pwd }));
+      })
+      .catch(() => { /* şifre alanı boş kalır; kayıtlı değer sunucuda durur */ });
     setSheet(null);
     setLinkTest(null);
     setInfo(p.lastStatus ? `Son çalışma: ${p.lastStatus}` : 'Profil açıldı. Başlıkları alıp eşlemeyi kontrol edin.');
@@ -750,6 +771,7 @@ export const DataImportPage: React.FC<DataImportPageProps> = () => {
               setKind(e.target.value as ImportKind);
               setCatalog([]);
               setExtraKeys([]);
+              setRemovedKeys([]);
               setAlias({});
               setSheet(null);
               setProfileId(0);
@@ -787,7 +809,10 @@ export const DataImportPage: React.FC<DataImportPageProps> = () => {
                 value=""
                 onChange={(e) => {
                   const key = e.target.value;
-                  if (key) setExtraKeys((prev) => (prev.includes(key) ? prev : [...prev, key]));
+                  if (!key) return;
+                  setRemovedKeys((prev) => prev.filter((k) => k !== key));
+                  if (!baseTemplate.some((b) => b.key === key))
+                    setExtraKeys((prev) => (prev.includes(key) ? prev : [...prev, key]));
                 }}
               >
                 <option value="">Şablona kolon ekle…</option>
@@ -804,7 +829,7 @@ export const DataImportPage: React.FC<DataImportPageProps> = () => {
               <table className="w-full border-collapse text-left text-[11px]">
                 <thead className="sticky top-0 bg-slate-100 text-slate-600">
                   <tr>
-                    <th className="px-2 py-1 w-10">Sıra</th>
+                    <th className="px-2 py-1 w-16">Sıra</th>
                     <th className="px-2 py-1">Başlık</th>
                     <th className="px-2 py-1 w-[220px]">Kaynak kolon</th>
                   </tr>
@@ -812,20 +837,27 @@ export const DataImportPage: React.FC<DataImportPageProps> = () => {
                 <tbody>
                   {templateFields.map((f, i) => (
                     <tr key={f.key} className="border-t border-slate-100">
-                      <td className="px-2 py-1 tabular-nums text-slate-400">{i + 1}</td>
+                      <td className="px-2 py-1">
+                        <span className="inline-flex items-center gap-1 tabular-nums text-slate-400">
+                          <button
+                            type="button"
+                            title="Çıkar"
+                            className="inline-flex h-4 w-4 items-center justify-center rounded border border-slate-300 text-[12px] leading-none text-slate-500 hover:border-red-300 hover:text-red-600"
+                            onClick={() => {
+                              if (baseTemplate.some((b) => b.key === f.key))
+                                setRemovedKeys((prev) => (prev.includes(f.key) ? prev : [...prev, f.key]));
+                              setExtraKeys((prev) => prev.filter((k) => k !== f.key));
+                            }}
+                          >
+                            −
+                          </button>
+                          {i + 1}
+                        </span>
+                      </td>
                       <td className="px-2 py-1">
                         <span className="font-medium text-slate-800">{headerOf(f)}</span>
                         {f.required && <span className="text-red-600"> *</span>}
                         {f.label !== headerOf(f) && <span className="text-slate-400"> · {f.label}</span>}
-                        {extraKeys.includes(f.key) && !baseTemplate.some((b) => b.key === f.key) && (
-                          <button
-                            type="button"
-                            className="ml-2 text-slate-400 hover:text-red-600"
-                            onClick={() => setExtraKeys((prev) => prev.filter((k) => k !== f.key))}
-                          >
-                            kaldır
-                          </button>
-                        )}
                       </td>
                       <td className="px-2 py-1">
                         <input
@@ -963,7 +995,7 @@ export const DataImportPage: React.FC<DataImportPageProps> = () => {
                       <input className={inputCls} value={link.user ?? ''} autoComplete="off" onChange={(e) => setLink({ ...link, user: e.target.value })} />
                     </label>
                     <label className="block text-[11px]">Şifre
-                      <input type="password" className={inputCls} value={link.password ?? ''} autoComplete="new-password" placeholder={profileId ? 'boşsa kayıtlı şifre durur' : ''} onChange={(e) => setLink({ ...link, password: e.target.value })} />
+                      <input type="password" className={inputCls} value={link.password ?? ''} autoComplete="new-password" placeholder={profileId ? 'kayıtlı şifre burada durur' : ''} onChange={(e) => setLink({ ...link, password: e.target.value })} />
                     </label>
                   </>
                 )}

@@ -64,6 +64,18 @@ public sealed class ImportProfileService
         return rows.Select(r => ToDto(r, mask: true)).ToList();
     }
 
+    /// <summary>Düzenleme ekranı kayıtlı şifreyi de getirir.</summary>
+    public async Task<ImportProfileDto?> GetAsync(int id, CancellationToken ct)
+    {
+        if (!await TableAsync(ct)) return null;
+        var row = await _db.QuerySingleOrDefaultAsync<ProfileRow>(new CommandDefinition(
+            @"SELECT ImportProfileID, Title, Kind, SourceKind, SourceJson, MapJson, Mode, CreateMissingCards,
+                     ProductType, IntervalMinutes, IsActive, ProcessDefID, AfterSql, KeepLog, LastRunAt, NextRunAt, LastStatus
+              FROM dbo.SYS_ImportProfile WHERE ImportProfileID = @id",
+            new { id }, cancellationToken: ct));
+        return row == null ? null : ToDto(row, mask: false);
+    }
+
     public async Task<ImportProfileDto> SaveAsync(ImportProfileDto dto, CancellationToken ct)
     {
         if (!await TableAsync(ct))

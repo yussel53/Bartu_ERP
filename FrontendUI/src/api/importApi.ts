@@ -187,6 +187,8 @@ export type ImportProfile = {
 
 export const fetchImportProfiles = () => apiJson<ImportProfile[]>('/api/import/profiles');
 
+export const fetchImportProfile = (id: number) => apiJson<ImportProfile>(`/api/import/profiles/${id}`);
+
 export const saveImportProfile = (body: Partial<ImportProfile> & { title: string; kind: ImportKind; sourceKind: number }) =>
   apiJson<ImportProfile>('/api/import/profiles', { method: 'POST', body: JSON.stringify(body) });
 
