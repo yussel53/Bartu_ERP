@@ -20,7 +20,7 @@ export const SCHEMA_MODULE_MAP: SchemaTableRef[] = [
   { table: 'ProductUnit', module: 'malzeme', group: 'ana-kayitlar', title: 'Birim Çevirimi', notes: 'Sol birim listesi · sağda çevrim + ölçü (Weight/Length/Width/Height) + barkod grid' },
   { table: 'ProductBarcode', module: 'malzeme', group: 'ana-kayitlar', title: 'Barkodlar', notes: 'Birim çevirimi altında · ProductCardID + UnitID · bir birime N barkod' },
   { table: 'ProductSub', module: 'malzeme', group: 'ana-kayitlar', title: 'Alt Malzeme / Reçete', notes: 'ProductCard formu içinde sekme · MainProductCardID' },
-  { table: 'ProductCustomerAlias', module: 'malzeme', group: 'ana-kayitlar', title: 'Cari Malzeme', notes: 'ProductCard formu içinde sekme · cariye özel kod/ad' },
+  { table: 'ProductCustomerAlias', module: 'malzeme', group: 'ana-kayitlar', title: 'Cari Malzeme', notes: 'ProductCard formu içinde sekme · cari veya vergi/TCK no ile özel kod/ad' },
   { table: 'VariantCard', module: 'malzeme', group: 'ana-kayitlar', title: 'Varyant Kartları', notes: 'ProductCard formu içinde sekme · ProductCardID' },
   { table: 'VariantTemplate', module: 'malzeme', group: 'ana-kayitlar', title: 'Varyant Şablonları', notes: 'Özellik eksenleri + değerler → kartta kombinasyon üretir' },
   { table: 'VariantTemplateDim', module: 'malzeme', group: 'ana-kayitlar', title: 'Şablon Özellikleri', notes: 'VariantTemplate satırları · ValuesText' },

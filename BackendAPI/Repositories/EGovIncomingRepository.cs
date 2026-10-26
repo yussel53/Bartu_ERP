@@ -457,10 +457,15 @@ public sealed class EGovIncomingRepository
             SELECT TOP 1 a.ProductCardID AS Id, p.Code, p.Title, p.ProductType
             FROM dbo.ProductCustomerAlias a
             JOIN dbo.ProductCard p ON p.ProductCardID = a.ProductCardID
-            WHERE a.CustomerCardID = @customerId AND a.IsActive = 1
+            LEFT JOIN dbo.CustomerCard c ON c.CustomerCardID = @customerId
+            WHERE a.IsActive = 1
+              AND (
+                    (ISNULL(a.MatchBy, 1) = 1 AND a.CustomerCardID = @customerId)
+                 OR (a.MatchBy = 2 AND NULLIF(LTRIM(RTRIM(a.TaxNr)), N'') = NULLIF(LTRIM(RTRIM(c.TaxNr)), N''))
+                  )
               AND (   (@code IS NOT NULL AND a.CustomerCode = @code)
                    OR (@code IS NULL AND @name IS NOT NULL AND a.CustomerTitle = @name))
-            ORDER BY a.ProductCustomerAliasID DESC
+            ORDER BY CASE WHEN ISNULL(a.MatchBy, 1) = 1 THEN 0 ELSE 1 END, a.ProductCustomerAliasID DESC
             """, new { customerId, code = Blank(code), name = Blank(name) }, cancellationToken: ct));
 
     // ─── ERP'ye kaydet ──────────────────────────────────────────────────────

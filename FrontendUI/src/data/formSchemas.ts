@@ -638,17 +638,40 @@ function productCardSchema(
     enableCustomerAliasesTab: true,
     customerAliasFields: [
       {
+        fieldId: 620,
+        fieldName: 'MatchBy',
+        label: 'Kapsam',
+        fieldType: 'select',
+        isRequired: true,
+        colSpan: 3,
+        orderIndex: 0,
+        defaultValue: '1',
+        optionsJson: select([
+          { label: 'Cari', value: '1' },
+          { label: 'Vergi No / TCK No', value: '2' },
+        ]),
+      },
+      {
         fieldId: 621,
         fieldName: 'CustomerCardID',
         label: 'Cari',
         fieldType: 'select',
-        isRequired: true,
+        isRequired: false,
         colSpan: 4,
         orderIndex: 1,
         optionsJson: select([
           { label: '120.01 — ABC Ticaret A.Ş.', value: '1' },
           { label: '120.02 — XYZ Sanayi Ltd.', value: '2' },
         ]),
+      },
+      {
+        fieldId: 625,
+        fieldName: 'TaxNr',
+        label: 'Vergi / TCK No',
+        fieldType: 'text',
+        isRequired: false,
+        colSpan: 3,
+        orderIndex: 1,
       },
       {
         fieldId: 622,

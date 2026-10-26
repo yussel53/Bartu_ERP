@@ -219,8 +219,15 @@ ORDER BY ISNULL(pt.TransLineNo, 2147483647), pt.ProductTransID", new { id })).To
             if (ld.ProductCardId is int pid && CustomerId is int cid && await HasAsync("ProductCustomerAlias"))
             {
                 var a = await Db.QueryFirstOrDefaultAsync(@"
-SELECT TOP 1 CustomerCode, CustomerTitle FROM dbo.ProductCustomerAlias
-WHERE ProductCardID = @pid AND CustomerCardID = @cid AND ISNULL(IsActive, 1) = 1 ORDER BY ProductCustomerAliasID", new { pid, cid });
+SELECT TOP 1 a.CustomerCode, a.CustomerTitle
+FROM dbo.ProductCustomerAlias a
+LEFT JOIN dbo.CustomerCard c ON c.CustomerCardID = @cid
+WHERE a.ProductCardID = @pid AND ISNULL(a.IsActive, 1) = 1
+  AND (
+        (ISNULL(a.MatchBy, 1) = 1 AND a.CustomerCardID = @cid)
+     OR (a.MatchBy = 2 AND NULLIF(LTRIM(RTRIM(a.TaxNr)), N'') = NULLIF(LTRIM(RTRIM(c.TaxNr)), N''))
+      )
+ORDER BY CASE WHEN ISNULL(a.MatchBy, 1) = 1 THEN 0 ELSE 1 END, a.ProductCustomerAliasID", new { pid, cid });
                 ld.CustomerCode = (string?)a?.CustomerCode;
                 ld.CustomerTitle = (string?)a?.CustomerTitle;
             }

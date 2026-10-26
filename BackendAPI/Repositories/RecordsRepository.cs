@@ -1515,6 +1515,7 @@ SELECT CAST(SCOPE_IDENTITY() AS INT);";
             if (IsEmptyChildRow(rawRow, spec)) continue;
 
             var row = new Dictionary<string, object?>(rawRow, StringComparer.OrdinalIgnoreCase);
+            NormalizeCustomerAlias(spec, colSet, row);
 
             // CustomerTrans: Amount → LocalAmount yedek
             // Satır sırası: LineNo (form) → TransLineNo (AccountTrans, AccountTransDetail)
@@ -1881,6 +1882,28 @@ VALUES ({string.Join(", ", writeCols.Select(c => "@" + c))});";
             "auxilValues" => data.AuxilValues,
             _ => null,
         };
+
+    /// <summary>Cari malzeme: 1 yalnız seçilen cari, 2 aynı vergi / TCK numaralı tüm cariler.</summary>
+    private static void NormalizeCustomerAlias(NestedChildSpec spec, HashSet<string> colSet, Dictionary<string, object?> row)
+    {
+        if (!spec.TableName.Equals("ProductCustomerAlias", StringComparison.OrdinalIgnoreCase)) return;
+        if (!colSet.Contains("MatchBy")) return;
+        var match = Convert.ToString(CoerceDbValue(GetCI(row, "MatchBy"))) == "2" ? 2 : 1;
+        row["MatchBy"] = match;
+        if (match == 2)
+        {
+            var tax = Convert.ToString(CoerceDbValue(GetCI(row, "TaxNr")))?.Trim();
+            if (string.IsNullOrWhiteSpace(tax))
+                throw new InvalidOperationException("Vergi / TCK no bazlı satırda vergi numarası yazın.");
+            row["TaxNr"] = tax;
+            row["CustomerCardID"] = null;
+            return;
+        }
+        var customer = Convert.ToString(CoerceDbValue(GetCI(row, "CustomerCardID")));
+        if (string.IsNullOrWhiteSpace(customer))
+            throw new InvalidOperationException("Cari bazlı satırda cari seçin.");
+        row["TaxNr"] = null;
+    }
 
     private static bool IsEmptyChildRow(Dictionary<string, object?> row, NestedChildSpec spec)
     {

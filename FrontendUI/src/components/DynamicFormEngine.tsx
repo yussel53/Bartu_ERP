@@ -1849,7 +1849,7 @@ export const DynamicFormEngine: React.FC<DynamicFormEngineProps> = ({
                   Cari Malzeme
                 </h3>
                 <p className="text-[11px] text-slate-500 mt-0.5">
-                  Bu malzemenin cari hesabına özel kodu ve adı (ProductCustomerAlias)
+                  Kapsam cari ise yalnız seçilen karta, vergi / TCK no ise aynı numaralı tüm carilere yazılır.
                 </p>
               </div>
               {!readOnly && (
@@ -1857,7 +1857,9 @@ export const DynamicFormEngine: React.FC<DynamicFormEngineProps> = ({
                   type="button"
                   onClick={() =>
                     appendCustomerAlias({
+                      MatchBy: '1',
                       CustomerCardID: '',
+                      TaxNr: '',
                       CustomerCode: '',
                       CustomerTitle: '',
                       Note: '',
