@@ -140,6 +140,10 @@ export const DataImportPage: React.FC<DataImportPageProps> = () => {
   const [alias, setAlias] = React.useState<Record<string, string>>({});
   const aliasRef = React.useRef(alias);
   aliasRef.current = alias;
+  const [fixedKeys, setFixedKeys] = React.useState<string[]>([]);
+  const fixedRef = React.useRef(fixedKeys);
+  fixedRef.current = fixedKeys;
+  const touchedRef = React.useRef<string[]>([]);
   const [channel, setChannel] = React.useState<Channel>('excel');
   const [link, setLink] = React.useState<ImportSourceRequest>(emptySource);
   const [colMap, setColMap] = React.useState<Record<string, string>>({});
@@ -189,7 +193,20 @@ export const DataImportPage: React.FC<DataImportPageProps> = () => {
     .sort((a, b) => a.label.localeCompare(b.label, 'tr'));
   const headerSource = channel === 'excel' ? source : null;
   const headerOf = (f: ImportFieldDef) => sourceHeader(headerSource, kind, f);
-  const sourceName = (f: ImportFieldDef) => (alias[f.key] !== undefined ? alias[f.key] : headerOf(f));
+  const constantOf = (key: string) => (fixedKeys.includes(key) ? (alias[key] ?? '').trim() : '');
+  /** Alanın kaynak kolonu: elle / otomatik eşleme, yoksa yazılan kaynak adı. Bir kolon birden çok alana gidebilir (ör. DESCRIPTION → Ad + Açıklama). */
+  const boundHeader = (key: string): string => {
+    if (!sheet || fixedKeys.includes(key)) return '';
+    const direct = sheet.headers.find((h) => colMap[h] === key);
+    if (direct) return direct;
+    const want = (alias[key] ?? '').trim();
+    return want ? sheet.headers.find((h) => norm(h) === norm(want)) ?? '' : '';
+  };
+  const sourceName = (f: ImportFieldDef) => {
+    if (alias[f.key] !== undefined) return alias[f.key];
+    if (sheet) return boundHeader(f.key);
+    return headerOf(f);
+  };
 
   React.useEffect(() => {
     let cancel = false;
@@ -236,25 +253,36 @@ export const DataImportPage: React.FC<DataImportPageProps> = () => {
       return;
     }
     const map = autoMap(sheet.headers, templateFields, channel === 'excel' ? source : null, kind);
+    const becomeFixed: string[] = [];
     for (const f of templateFields) {
+      if (fixedRef.current.includes(f.key)) {
+        for (const h of Object.keys(map)) if (map[h] === f.key) map[h] = '';
+        continue;
+      }
       if (aliasRef.current[f.key] === undefined) continue;
       const want = aliasRef.current[f.key].trim();
       for (const h of Object.keys(map)) if (map[h] === f.key) map[h] = '';
       const hit = want ? sheet.headers.find((h) => norm(h) === norm(want)) : undefined;
       if (hit) map[hit] = f.key;
+      else if (want && touchedRef.current.includes(f.key)) becomeFixed.push(f.key);
     }
     if (savedMap.current) {
       for (const item of savedMap.current) {
+        if (item.literal || !item.field) continue;
+        if (fixedRef.current.includes(item.field)) continue;
         if (sheet.headers.includes(item.header)) map[item.header] = item.field;
       }
       savedMap.current = null;
     }
     setColMap(map);
+    if (becomeFixed.length > 0)
+      setFixedKeys((prev) => [...new Set([...prev, ...becomeFixed])]);
   }, [sheet, catalog, target, source, kind, channel]);
 
-  const assigned = Object.values(colMap).filter(Boolean);
-  const duplicateFields = [...new Set(assigned.filter((key, i) => assigned.indexOf(key) !== i))];
-  const missingRequired = templateFields.filter((f) => f.required && !assigned.includes(f.key));
+  const mappedValues = Object.values(colMap).filter(Boolean);
+  const duplicateFields = [...new Set(mappedValues.filter((key, i) => mappedValues.indexOf(key) !== i))];
+  const assigned = templateFields.filter((f) => Boolean(boundHeader(f.key))).map((f) => f.key);
+  const missingRequired = templateFields.filter((f) => f.required && !assigned.includes(f.key) && !constantOf(f.key));
   const templateOk = Boolean(sheet && sheet.rows.length > 0 && missingRequired.length === 0 && duplicateFields.length === 0);
 
   React.useEffect(() => {
@@ -291,6 +319,22 @@ export const DataImportPage: React.FC<DataImportPageProps> = () => {
         any = true;
         rec[key] = v;
       });
+      // Aynı kolonu paylaşan alanlar (colMap tek alan tutar)
+      for (const f of templateFields) {
+        if (rec[f.key] !== undefined || constantOf(f.key)) continue;
+        const h = boundHeader(f.key);
+        if (!h) continue;
+        const v = (cells[sheet.headers.indexOf(h)] ?? '').trim();
+        if (!v) continue;
+        rec[f.key] = v;
+        any = true;
+      }
+      for (const f of templateFields) {
+        const fixed = constantOf(f.key);
+        if (!fixed) continue;
+        rec[f.key] = fixed;
+        any = true;
+      }
       if (any) out.push(rec);
     });
     return out;
@@ -385,9 +429,10 @@ export const DataImportPage: React.FC<DataImportPageProps> = () => {
     try {
       const map = templateFields
         .map((f) => {
-          const bound = sheet?.headers.find((h) => colMap[h] === f.key);
-          const header = (bound || sourceName(f)).trim();
-          return header ? { header, field: f.key } : null;
+          const fixed = constantOf(f.key);
+          if (fixed) return { header: fixed, field: f.key, literal: true };
+          const bound = boundHeader(f.key);
+          return bound ? { header: bound, field: f.key } : null;
         })
         .filter((m): m is ImportMapItem => Boolean(m));
       const saved = await saveImportProfile({
@@ -423,6 +468,8 @@ export const DataImportPage: React.FC<DataImportPageProps> = () => {
     setChannel('excel');
     setLink(emptySource());
     setAlias({});
+    setFixedKeys([]);
+    touchedRef.current = [];
     setExtraKeys([]);
     setRemovedKeys([]);
     setSheet(null);
@@ -465,6 +512,8 @@ export const DataImportPage: React.FC<DataImportPageProps> = () => {
       setRemovedKeys([...baseKeys].filter((k) => !mapped.includes(k)));
     }
     setAlias(Object.fromEntries(p.map.filter((m) => m.field).map((m) => [m.field, m.header])));
+    setFixedKeys(p.map.filter((m) => m.literal && m.field).map((m) => m.field));
+    touchedRef.current = [];
     void fetchImportProfile(p.importProfileID)
       .then((full) => {
         const pwd = full.source?.password ?? '';
@@ -526,9 +575,12 @@ export const DataImportPage: React.FC<DataImportPageProps> = () => {
   };
 
   const previewRows = sheet ? sheet.rows.slice(0, 5) : [];
-  const mappedFields = templateFields.filter((f) => Object.values(colMap).includes(f.key));
-  const colOf = (key: string) => sheet ? sheet.headers.findIndex((h) => colMap[h] === key) : -1;
-  const headerFor = (key: string) => sheet?.headers.find((h) => colMap[h] === key) ?? '';
+  const mappedFields = templateFields.filter((f) => Boolean(boundHeader(f.key)) || Boolean(constantOf(f.key)));
+  const colOf = (key: string) => {
+    const h = boundHeader(key);
+    return sheet && h ? sheet.headers.indexOf(h) : -1;
+  };
+  const headerFor = (key: string) => boundHeader(key);
 
   const bindField = (fieldKey: string, header: string) => {
     setColMap((prev) => {
@@ -542,10 +594,22 @@ export const DataImportPage: React.FC<DataImportPageProps> = () => {
   };
 
   const setSourceName = (fieldKey: string, name: string) => {
+    if (!touchedRef.current.includes(fieldKey)) touchedRef.current = [...touchedRef.current, fieldKey];
     setAlias((prev) => ({ ...prev, [fieldKey]: name }));
-    if (!sheet) return;
-    const hit = sheet.headers.find((h) => norm(h) === norm(name));
-    bindField(fieldKey, hit ?? '');
+    if (!sheet) {
+      setFixedKeys((prev) => prev.filter((k) => k !== fieldKey));
+      return;
+    }
+    const trimmed = name.trim();
+    const hit = sheet.headers.find((h) => norm(h) === norm(trimmed)) ?? '';
+    const asValue = Boolean(trimmed) && !hit;
+    setFixedKeys((prev) => {
+      const has = prev.includes(fieldKey);
+      if (asValue && !has) return [...prev, fieldKey];
+      if (!asValue && has) return prev.filter((k) => k !== fieldKey);
+      return prev;
+    });
+    bindField(fieldKey, asValue ? '' : hit);
   };
 
   const bindByOrder = () => {
@@ -560,6 +624,7 @@ export const DataImportPage: React.FC<DataImportPageProps> = () => {
     });
     for (const h of sheet.headers) if (!(h in next)) next[h] = '';
     setAlias((prev) => ({ ...prev, ...names }));
+    setFixedKeys((prev) => prev.filter((k) => !templateFields.some((f) => f.key === k)));
     setColMap(next);
     setInfo('Kolonlar şablon sırasına bağlandı.');
   };
@@ -773,6 +838,8 @@ export const DataImportPage: React.FC<DataImportPageProps> = () => {
               setExtraKeys([]);
               setRemovedKeys([]);
               setAlias({});
+              setFixedKeys([]);
+              touchedRef.current = [];
               setSheet(null);
               setProfileId(0);
             }}
@@ -822,7 +889,7 @@ export const DataImportPage: React.FC<DataImportPageProps> = () => {
               </select>
             </div>
             <p className="text-[11px] text-slate-500">
-              Kaynak kolon adı başlıkla aynı gelir. Kaynaktaki ad farklıysa buradan değiştirin.
+              Kaynak kolon, listedeki bir başlıksa o kolondan okunur. Listede yoksa yazdığınız metin her satıra sabit değer olarak yazılır.
               {kind === 'account-voucher' ? ' e-Defter yevmiye XML veya ZIP yalnız bu aktarımda okunur.' : ''}
             </p>
             <div className="max-h-56 overflow-auto rounded border border-slate-200 bg-white dark:bg-slate-900">
@@ -861,8 +928,10 @@ export const DataImportPage: React.FC<DataImportPageProps> = () => {
                       </td>
                       <td className="px-2 py-1">
                         <input
-                          className={`h-7 w-full rounded border bg-white px-1.5 text-[11px] ${f.required && sheet && !headerFor(f.key) ? 'border-red-300' : 'border-slate-300'}`}
+                          className={`h-7 w-full rounded border bg-white px-1.5 text-[11px] ${f.required && sheet && !headerFor(f.key) && !constantOf(f.key) ? 'border-red-300' : 'border-slate-300'}`}
                           value={sourceName(f)}
+                          placeholder={headerOf(f)}
+                          title="Kolon adı veya her satıra yazılacak sabit değer"
                           list={sheet && sheet.headers.length > 0 ? `imp-col-${f.key}` : undefined}
                           onChange={(e) => setSourceName(f.key, e.target.value)}
                         />
@@ -890,7 +959,7 @@ export const DataImportPage: React.FC<DataImportPageProps> = () => {
           {channel === 'excel' && (
           <label className="md:col-span-3 space-y-1">
             <span className="text-[11px] font-medium text-slate-600">Excel şablonu</span>
-            <select className={inputCls} value={source?.id ?? 'bartu'} onChange={(e) => { setSourceId(e.target.value); setAlias({}); }}>
+            <select className={inputCls} value={source?.id ?? 'bartu'} onChange={(e) => { setSourceId(e.target.value); setAlias({}); setFixedKeys([]); touchedRef.current = []; }}>
               {(sources.length ? sources : [{ id: 'bartu', title: 'Kavi Soft', note: '', headers: {} }]).map((s) => (
                 <option key={s.id} value={s.id}>{s.title}</option>
               ))}
@@ -1115,7 +1184,11 @@ export const DataImportPage: React.FC<DataImportPageProps> = () => {
             <p className="text-[12px] text-red-700">Aynı Kavi Soft alanına birden fazla kolon bağlandı.</p>
           )}
           {templateOk && (
-            <p className="text-[12px] text-emerald-700">{assigned.length} kolon bağlandı · {sheet.rows.length} satır</p>
+            <p className="text-[12px] text-emerald-700">
+              {assigned.length} kolon bağlandı
+              {fixedKeys.length > 0 ? ` · ${fixedKeys.length} sabit değer` : ''}
+              {' · '}{sheet.rows.length} satır
+            </p>
           )}
 
           {mappedFields.length > 0 && previewRows.length > 0 && (
@@ -1137,7 +1210,7 @@ export const DataImportPage: React.FC<DataImportPageProps> = () => {
                       <td className="px-2 py-1 text-slate-400 tabular-nums">{i + 2}</td>
                       {mappedFields.map((f) => (
                         <td key={f.key} className="px-2 py-1 whitespace-nowrap">
-                          {cells[colOf(f.key)] ?? ''}
+                          {constantOf(f.key) || (cells[colOf(f.key)] ?? '')}
                         </td>
                       ))}
                     </tr>

@@ -113,6 +113,96 @@ internal static class ProcessContextData
         return !Regex.IsMatch(t, @"\b(INSERT|UPDATE|DELETE|DROP|ALTER|EXEC|EXECUTE|MERGE|TRUNCATE|INTO)\b", RegexOptions.IgnoreCase);
     }
 
+    /// <summary>
+    /// Kullanıcı SELECT'i türetilmiş tabloya alınır. Sondaki ORDER BY dışarı taşınır;
+    /// aksi halde SQL Server alt sorguda ORDER BY kabul etmez.
+    /// </summary>
+    public static string WrapDerived(string sql, string alias, int? top, bool mysql = false)
+    {
+        var body = sql.Trim().TrimEnd(';').Trim();
+        var cut = TopLevelOrderByIndex(body);
+        string? order = null;
+        if (cut >= 0)
+        {
+            order = body[cut..].Trim();
+            body = body[..cut].Trim();
+        }
+        string text;
+        if (mysql)
+        {
+            text = $"SELECT * FROM (\n{body}\n) AS {alias}";
+            if (top != 0 && order != null) text += "\n" + order;
+            if (top is int n) text += $"\nLIMIT {n}";
+        }
+        else if (order != null && top is int take && take > 0)
+            text = $"SELECT * FROM (\n{body}\n) AS {alias}\n{order}\nOFFSET 0 ROWS FETCH NEXT {take} ROWS ONLY";
+        else
+        {
+            var topSql = top is int n ? $"TOP ({n}) " : "";
+            text = $"SELECT {topSql}* FROM (\n{body}\n) AS {alias}";
+            if (top != 0 && order != null) text += "\n" + order;
+        }
+        return text;
+    }
+
+    private static int TopLevelOrderByIndex(string sql)
+    {
+        var depth = 0;
+        var inStr = false;
+        var found = -1;
+        for (var i = 0; i < sql.Length; i++)
+        {
+            var c = sql[i];
+            if (inStr)
+            {
+                if (c != '\'') continue;
+                if (i + 1 < sql.Length && sql[i + 1] == '\'') { i++; continue; }
+                inStr = false;
+                continue;
+            }
+            if (c == '-' && i + 1 < sql.Length && sql[i + 1] == '-')
+            {
+                var nl = sql.IndexOf('\n', i);
+                i = nl < 0 ? sql.Length - 1 : nl;
+                continue;
+            }
+            if (c == '/' && i + 1 < sql.Length && sql[i + 1] == '*')
+            {
+                var end = sql.IndexOf("*/", i + 2, StringComparison.Ordinal);
+                i = end < 0 ? sql.Length - 1 : end + 1;
+                continue;
+            }
+            if (c == '\'') { inStr = true; continue; }
+            if (c == '(') { depth++; continue; }
+            if (c == ')') { if (depth > 0) depth--; continue; }
+            if (depth != 0 || !IsOrderByAt(sql, i) || PrecededByOver(sql, i)) continue;
+            found = i;
+        }
+        return found;
+    }
+
+    private static bool IsOrderByAt(string sql, int i)
+    {
+        if (i > 0 && (char.IsLetterOrDigit(sql[i - 1]) || sql[i - 1] == '_')) return false;
+        if (i + 7 > sql.Length || !sql.AsSpan(i, 5).Equals("order", StringComparison.OrdinalIgnoreCase)) return false;
+        var j = i + 5;
+        if (j >= sql.Length || !char.IsWhiteSpace(sql[j])) return false;
+        while (j < sql.Length && char.IsWhiteSpace(sql[j])) j++;
+        if (j + 2 > sql.Length || !sql.AsSpan(j, 2).Equals("by", StringComparison.OrdinalIgnoreCase)) return false;
+        var after = j + 2;
+        return after >= sql.Length || !(char.IsLetterOrDigit(sql[after]) || sql[after] == '_');
+    }
+
+    private static bool PrecededByOver(string sql, int i)
+    {
+        var j = i - 1;
+        while (j >= 0 && char.IsWhiteSpace(sql[j])) j--;
+        if (j < 2) return false;
+        var start = j - 3;
+        if (start < 0 || !sql.AsSpan(start, 4).Equals("over", StringComparison.OrdinalIgnoreCase)) return false;
+        return start == 0 || !(char.IsLetterOrDigit(sql[start - 1]) || sql[start - 1] == '_');
+    }
+
     public static (string Table, int Id) SourceOf(IDictionary<string, object?> row, string json)
     {
         foreach (var pair in new (string Col, string Table)[]

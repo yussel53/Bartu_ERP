@@ -88,9 +88,7 @@ internal static class ProcessSource
         await conn.OpenAsync(ct);
         await using var cmd = conn.CreateCommand();
         cmd.CommandTimeout = take is null ? 180 : 60;
-        cmd.CommandText = req.SourceType == 2
-            ? (take is null ? $"SELECT * FROM ({sql}) AS scan_q" : $"SELECT * FROM ({sql}) AS scan_q LIMIT {take.Value}")
-            : (take is null ? $"SELECT * FROM ({sql}) AS scan_q" : $"SELECT TOP ({take.Value}) * FROM ({sql}) AS scan_q");
+        cmd.CommandText = ProcessContextData.WrapDerived(sql, "scan_q", take, mysql: req.SourceType == 2);
         await using var reader = await cmd.ExecuteReaderAsync(ct);
         var names = NamesOf(reader);
         var list = new List<Dictionary<string, object?>>();
@@ -117,9 +115,7 @@ internal static class ProcessSource
         await conn.OpenAsync(ct);
         await using var cmd = conn.CreateCommand();
         cmd.CommandTimeout = 30;
-        cmd.CommandText = req.SourceType == 2
-            ? $"SELECT * FROM ({sql}) AS scan_q LIMIT 0"
-            : $"SELECT TOP (0) * FROM ({sql}) AS scan_q";
+        cmd.CommandText = ProcessContextData.WrapDerived(sql, "scan_q", 0, mysql: req.SourceType == 2);
         await using var reader = await cmd.ExecuteReaderAsync(ct);
         return NamesOf(reader);
     }

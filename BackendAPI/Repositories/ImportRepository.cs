@@ -134,7 +134,7 @@ public sealed partial class ImportRepository
                 new() { Key = "Code", Label = "Kod", Required = true, Sample = "MLZ-0001",
                         Aliases = new[] { "malzeme kodu", "hizmet kodu", "stok kodu", "kod", "code" } },
                 new() { Key = "Title", Label = "Ad", Required = true, Sample = "Örnek Malzeme",
-                        Aliases = new[] { "malzeme adi", "hizmet adi", "stok adi", "aciklama", "ad", "adi", "title", "name" } },
+                        Aliases = new[] { "malzeme adi", "hizmet adi", "stok adi", "aciklama", "description", "ad", "adi", "title", "name" } },
                 new() { Key = "DefaultUnitID", Label = "Ana Birim", Type = "enum", Options = UnitOptions, Sample = "Adet",
                         Aliases = new[] { "birim", "ana birim", "unit" }, Hint = "Boşsa Adet" },
                 new() { Key = "U_MaterialKind", Label = "Malzeme Sınıfı", Type = "enum", Additional = true, Sample = "Ticari Mal",
@@ -174,7 +174,7 @@ public sealed partial class ImportRepository
                 new() { Key = "Code", Label = "Cari Kodu", Required = true, Sample = "120.01.001",
                         Aliases = new[] { "cari kodu", "cari kod", "kod", "code" } },
                 new() { Key = "Title", Label = "Ünvan", Required = true, Sample = "Örnek Ticaret Ltd. Şti.",
-                        Aliases = new[] { "unvan", "cari unvani", "cari adi", "firma adi", "ad", "title", "name" } },
+                        Aliases = new[] { "unvan", "cari unvani", "cari adi", "firma adi", "description", "aciklama", "ad", "adi", "title", "name" } },
                 new() { Key = "Type_", Label = "Cari Tür", Type = "enum", Sample = "Alıcı / Satıcı",
                         Options = new() { ["Alıcı"] = "1", ["Müşteri"] = "1", ["Satıcı"] = "2", ["Tedarikçi"] = "2",
                                           ["Alıcı / Satıcı"] = "3", ["Alıcı Satıcı"] = "3", ["Her İkisi"] = "3" },
@@ -239,7 +239,7 @@ public sealed partial class ImportRepository
                 new() { Key = "Code", Label = "Hesap Kodu", Required = true, Sample = "100.01",
                         Aliases = new[] { "hesap kodu", "kod", "code" } },
                 new() { Key = "Title", Label = "Hesap Adı", Required = true, Sample = "Merkez Kasa",
-                        Aliases = new[] { "hesap adi", "aciklama", "ad", "title", "name" } },
+                        Aliases = new[] { "hesap adi", "aciklama", "description", "ad", "adi", "title", "name" } },
                 new() { Key = "MainAccountCode", Label = "Üst Hesap Kodu", Special = true,
                         Aliases = new[] { "ust hesap kodu", "ust hesap", "ana hesap kodu", "parent" },
                         Hint = "Noktalı kodlarda dikkate alınmaz" },
@@ -391,11 +391,28 @@ public sealed partial class ImportRepository
         var existing = await LoadExistingAsync(def, ct);
         var parsed = ParseRows(def, req.Rows);
 
+        // Ad / ünvan / hesap adı boşsa açıklama, yetkili adı veya kod kullanılır.
+        // Malzeme, cari ve hesap aktarımında aynı kural geçerlidir.
+        foreach (var r in parsed)
+        {
+            if (HasText(r, "Title")) continue;
+            foreach (var key in new[] { "U_Description", "Description", "Contact_Name" })
+            {
+                if (!HasText(r, key)) continue;
+                r.Values["Title"] = r.Values[key]?.ToString()?.Trim();
+                break;
+            }
+            if (!HasText(r, "Title") && r.Code.Length > 0)
+                r.Values["Title"] = r.Code;
+        }
+
+        // Aynı kod kaynakta birden çok kez gelirse (ör. JOIN çoğaltması) ilk satır aktarılır, diğerleri atlanır
         var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        var duplicates = new HashSet<ParsedRow>();
         foreach (var r in parsed)
         {
             if (r.Code.Length == 0) continue;
-            if (!seen.Add(r.Code)) r.Errors.Add("Dosyada tekrar eden kod");
+            if (!seen.Add(r.Code)) duplicates.Add(r);
         }
 
         if (def.Kind == "account")
@@ -417,6 +434,14 @@ public sealed partial class ImportRepository
         {
             var res = new ImportRowResult { RowNo = row.RowNo, Code = row.Code };
             result.Rows.Add(res);
+
+            if (duplicates.Contains(row))
+            {
+                res.Action = "skip";
+                res.Message = "Kaynakta tekrar eden kod — ilk satır aktarıldı, bu satır atlandı";
+                result.Skipped++;
+                continue;
+            }
 
             var found = existing.TryGetValue(row.Code, out var ex);
             if (row.Errors.Count == 0 && !found && !row.Values.ContainsKey("Title"))
@@ -482,6 +507,9 @@ public sealed partial class ImportRepository
         if (!req.DryRun) await WriteLogAsync(def, req, result, ct);
         return result;
     }
+
+    private static bool HasText(ParsedRow row, string key) =>
+        row.Values.TryGetValue(key, out var v) && !string.IsNullOrWhiteSpace(v?.ToString());
 
     private static List<ParsedRow> ParseRows(ImportTargetDef def, List<Dictionary<string, string?>> rows)
     {

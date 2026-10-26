@@ -11,6 +11,8 @@ public sealed class ImportMapItem
 {
     public string Header { get; set; } = "";
     public string Field { get; set; } = "";
+    /// <summary>Kaynak kolonu değil; her satıra yazılacak sabit metin.</summary>
+    public bool Literal { get; set; }
 }
 
 public sealed class ImportProfileDto
@@ -200,7 +202,7 @@ public sealed class ImportProfileService
                 throw new InvalidOperationException("Yalnızca tek bir SELECT yazılabilir.");
             Open();
             await using var cmd = ((SqlConnection)_db).CreateCommand();
-            cmd.CommandText = $"SELECT TOP (0) * FROM ({sql}) AS scan_q";
+            cmd.CommandText = ProcessContextData.WrapDerived(sql, "scan_q", 0);
             cmd.CommandTimeout = 30;
             await using var reader = await cmd.ExecuteReaderAsync(ct);
             var names = new List<string>();
@@ -292,6 +294,12 @@ public sealed class ImportProfileService
             foreach (var map in dto.Map)
             {
                 if (string.IsNullOrWhiteSpace(map.Field) || string.IsNullOrWhiteSpace(map.Header)) continue;
+                if (map.Literal)
+                {
+                    rec[map.Field] = map.Header.Trim();
+                    any = true;
+                    continue;
+                }
                 if (!TryGet(src, map.Header, out var value) || value == null) continue;
                 var text = Cell(value);
                 if (string.IsNullOrWhiteSpace(text)) continue;
@@ -468,7 +476,7 @@ public sealed class ImportProfileService
         Open();
         var list = new List<Dictionary<string, object?>>();
         await using var cmd = ((SqlConnection)_db).CreateCommand();
-        cmd.CommandText = $"SELECT * FROM ({sql}) AS scan_q";
+        cmd.CommandText = ProcessContextData.WrapDerived(sql, "scan_q", null);
         cmd.CommandTimeout = 180;
         await using var reader = await cmd.ExecuteReaderAsync(ct);
         while (await reader.ReadAsync(ct))

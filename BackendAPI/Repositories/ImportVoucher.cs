@@ -136,6 +136,11 @@ public sealed partial class ImportRepository
     {
         var mode = (req.Mode ?? "upsert").Trim().ToLowerInvariant();
         var parsed = ParseRows(def, req.Rows);
+        foreach (var row in parsed)
+        {
+            if (Str(row, "LineDescription").Length == 0 && Str(row, "Description").Length > 0)
+                row.Values["LineDescription"] = Str(row, "Description");
+        }
         var result = new ImportApplyResult { DryRun = req.DryRun, Total = 0 };
         var customers = await LoadCodeMapAsync("CustomerCard", "CustomerCardID", "Code", ct);
         var products = def.Kind == "invoice" ? await LoadCodeMapAsync("ProductCard", "ProductCardID", "Code", ct) : new();

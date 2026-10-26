@@ -145,7 +145,7 @@ export const setImportProfileLog = (id: number, keepLog: boolean) =>
 
 export const fetchImportFields = (kind: ImportKind) => apiJson<ImportFieldDef[]>(`/api/import/${kind}/fields`);
 
-export type ImportMapItem = { header: string; field: string };
+export type ImportMapItem = { header: string; field: string; literal?: boolean };
 
 export type ImportSourceRequest = {
   sourceType: number;

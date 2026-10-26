@@ -505,7 +505,7 @@ public sealed class ProcessRepository
                 try
                 {
                     var raw = await _db.QueryAsync(new CommandDefinition(
-                        $"SELECT TOP (200) * FROM ({plan.Sql}) AS scan_q", cancellationToken: ct));
+                        ProcessContextData.WrapDerived(plan.Sql, "scan_q", 200), cancellationToken: ct));
                     rows = raw.Select(r => (IDictionary<string, object?>)ToNullableDict(r)).ToList();
                 }
                 catch (Exception ex)
@@ -559,7 +559,7 @@ public sealed class ProcessRepository
         if (_db is not SqlConnection conn)
             throw new InvalidOperationException("Sorgu kolonları okunamadı.");
         await using var cmd = conn.CreateCommand();
-        cmd.CommandText = $"SELECT TOP (0) * FROM ({sql}) AS scan_q";
+        cmd.CommandText = ProcessContextData.WrapDerived(sql, "scan_q", 0);
         cmd.CommandTimeout = 30;
         await using var reader = await cmd.ExecuteReaderAsync(ct);
         var names = new List<string>();
