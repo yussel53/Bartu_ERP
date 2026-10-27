@@ -427,14 +427,36 @@ export const DataImportPage: React.FC<DataImportPageProps> = () => {
     setBusy(true);
     setError(null);
     try {
-      const map = templateFields
-        .map((f) => {
-          const fixed = constantOf(f.key);
-          if (fixed) return { header: fixed, field: f.key, literal: true };
-          const bound = boundHeader(f.key);
-          return bound ? { header: bound, field: f.key } : null;
-        })
-        .filter((m): m is ImportMapItem => Boolean(m));
+      // Veri çekilmeden kaydetmede boundHeader boş kalır — alias / önceki eşleme korunur
+      const built: ImportMapItem[] = [];
+      for (const f of templateFields) {
+        const fixed = constantOf(f.key);
+        if (fixed) {
+          built.push({ header: fixed, field: f.key, literal: true });
+          continue;
+        }
+        const bound = boundHeader(f.key);
+        if (bound) {
+          built.push({ header: bound, field: f.key });
+          continue;
+        }
+        const named = (alias[f.key] ?? '').trim();
+        if (!named) continue;
+        built.push(
+          fixedKeys.includes(f.key)
+            ? { header: named, field: f.key, literal: true }
+            : { header: named, field: f.key },
+        );
+      }
+      let map = built;
+      if (map.length === 0 && profileId > 0) {
+        const prev = profiles.find((p) => p.importProfileID === profileId)?.map ?? [];
+        if (prev.length > 0) map = prev;
+      }
+      if (map.length === 0) {
+        setError('Şablon eşlemesi boş. Kaynak başlıklarını alıp kolonları bağlayın, sonra kaydedin.');
+        return;
+      }
       const saved = await saveImportProfile({
         importProfileID: profileId,
         title,
@@ -451,6 +473,9 @@ export const DataImportPage: React.FC<DataImportPageProps> = () => {
         isActive: true,
       });
       setProfileId(saved.importProfileID);
+      savedMap.current = map;
+      setAlias(Object.fromEntries(map.filter((m) => m.field).map((m) => [m.field, m.header])));
+      setFixedKeys(map.filter((m) => m.literal && m.field).map((m) => m.field));
       setProfiles(await fetchImportProfiles());
       setScreen('list');
       setInfo(null);
@@ -967,8 +992,8 @@ export const DataImportPage: React.FC<DataImportPageProps> = () => {
           </label>
           )}
           {kind === 'product' && (
-            <label className="md:col-span-3 space-y-1">
-              <span className="text-[11px] font-medium text-slate-600">Kart Tipi</span>
+            <label className="md:col-span-3 space-y-1" title="Kaynakta Kart Tipi / CARDTYPE bağlıysa satırdaki değer kullanılır">
+              <span className="text-[11px] font-medium text-slate-600">Varsayılan tip (kolon yoksa)</span>
               <select className={inputCls} value={productType} onChange={(e) => setProductType(Number(e.target.value))}>
                 <option value={1}>1 — Malzeme</option>
                 <option value={2}>2 — Verilen Hizmet</option>

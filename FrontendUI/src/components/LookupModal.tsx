@@ -2,10 +2,19 @@ import React from 'react';
 import { Plus, Search, X } from 'lucide-react';
 
 export interface LookupOptionMeta {
+  kind?: 'product' | 'customer';
   stockQty?: number | string;
   mainUnit?: string;
   salesOrderQty?: number | string;
   purchaseOrderQty?: number | string;
+  taxNr?: string;
+  balance?: number;
+  ba?: string;
+  cityTown?: string;
+  phone?: string;
+  lastMoveDate?: string;
+  riskGroup?: string;
+  overdue?: number;
 }
 
 export interface LookupOption {
@@ -34,6 +43,14 @@ function fmtQty(v: unknown): string {
   return new Intl.NumberFormat('tr-TR', { maximumFractionDigits: 4 }).format(n);
 }
 
+function fmtMoney(v: unknown): string {
+  if (v == null || v === '') return '';
+  const n = Number(v);
+  if (!Number.isFinite(n)) return String(v);
+  if (Math.abs(n) < 0.005) return '';
+  return new Intl.NumberFormat('tr-TR', { minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(Math.abs(n));
+}
+
 /** Liste seçim diyaloğu — filtre + satır tıklama + isteğe bağlı yeni kart */
 export const LookupModal: React.FC<LookupModalProps> = ({
   title,
@@ -47,7 +64,8 @@ export const LookupModal: React.FC<LookupModalProps> = ({
 }) => {
   const [q, setQ] = React.useState('');
   const inputRef = React.useRef<HTMLInputElement>(null);
-  const showProductStats = options.some((o) => o.meta != null);
+  const showProductStats = options.some((o) => o.meta?.kind === 'product' || o.meta?.stockQty != null);
+  const showCustomerStats = options.some((o) => o.meta?.kind === 'customer');
 
   React.useEffect(() => {
     inputRef.current?.focus();
@@ -65,7 +83,11 @@ export const LookupModal: React.FC<LookupModalProps> = ({
       (o) =>
         o.label.toLocaleLowerCase('tr').includes(needle) ||
         o.value.toLocaleLowerCase('tr').includes(needle) ||
-        (o.meta?.mainUnit || '').toLocaleLowerCase('tr').includes(needle),
+        (o.meta?.mainUnit || '').toLocaleLowerCase('tr').includes(needle) ||
+        (o.meta?.taxNr || '').toLocaleLowerCase('tr').includes(needle) ||
+        (o.meta?.phone || '').toLocaleLowerCase('tr').includes(needle) ||
+        (o.meta?.cityTown || '').toLocaleLowerCase('tr').includes(needle) ||
+        (o.meta?.riskGroup || '').toLocaleLowerCase('tr').includes(needle),
     );
   }, [options, q]);
 
@@ -77,7 +99,7 @@ export const LookupModal: React.FC<LookupModalProps> = ({
     >
       <div
         className={`w-full bg-white dark:bg-slate-900 rounded-lg shadow-xl border border-slate-200 dark:border-slate-700 overflow-hidden ${
-          showProductStats ? 'max-w-3xl' : 'max-w-lg'
+          showCustomerStats ? 'max-w-5xl' : showProductStats ? 'max-w-3xl' : 'max-w-lg'
         }`}
         onClick={(e) => e.stopPropagation()}
         role="dialog"
@@ -116,7 +138,11 @@ export const LookupModal: React.FC<LookupModalProps> = ({
               type="text"
               value={q}
               onChange={(e) => setQ(e.target.value)}
-              placeholder="Kod veya ad ile ara…"
+              placeholder={
+                showCustomerStats
+                  ? 'Kod, ünvan, VKN veya telefon ile ara…'
+                  : 'Kod veya ad ile ara…'
+              }
               className="w-full h-8 pl-7 pr-2 text-[12px] rounded border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-900 outline-none focus:ring-1 focus:ring-blue-500/30 focus:border-blue-500"
             />
           </div>
@@ -151,6 +177,16 @@ export const LookupModal: React.FC<LookupModalProps> = ({
                       <th className="px-2 py-1.5 font-semibold text-right whitespace-nowrap">Alım Sip.</th>
                     </>
                   )}
+                  {showCustomerStats && (
+                    <>
+                      <th className="px-2 py-1.5 font-semibold whitespace-nowrap">VKN / TCKN</th>
+                      <th className="px-2 py-1.5 font-semibold text-right whitespace-nowrap">Bakiye</th>
+                      <th className="px-2 py-1.5 font-semibold text-center whitespace-nowrap">B/A</th>
+                      <th className="px-2 py-1.5 font-semibold whitespace-nowrap">İl / İlçe</th>
+                      <th className="px-2 py-1.5 font-semibold whitespace-nowrap">Telefon</th>
+                      <th className="px-2 py-1.5 font-semibold whitespace-nowrap">Son Hareket</th>
+                    </>
+                  )}
                 </tr>
               </thead>
               <tbody>
@@ -159,6 +195,8 @@ export const LookupModal: React.FC<LookupModalProps> = ({
                   const dash = opt.label.indexOf('—');
                   const code = dash > 0 ? opt.label.slice(0, dash).trim() : opt.value;
                   const name = dash > 0 ? opt.label.slice(dash + 1).trim() : opt.label;
+                  const bal = Number(opt.meta?.balance ?? 0);
+                  const ba = opt.meta?.ba || '';
                   return (
                     <tr
                       key={opt.value}
@@ -186,6 +224,36 @@ export const LookupModal: React.FC<LookupModalProps> = ({
                           </td>
                           <td className="px-2 py-1.5 text-right tabular-nums text-slate-700 dark:text-slate-200">
                             {fmtQty(opt.meta?.purchaseOrderQty)}
+                          </td>
+                        </>
+                      )}
+                      {showCustomerStats && (
+                        <>
+                          <td className="px-2 py-1.5 tabular-nums text-slate-600 dark:text-slate-300 whitespace-nowrap">
+                            {opt.meta?.taxNr || '—'}
+                          </td>
+                          <td
+                            className={`px-2 py-1.5 text-right tabular-nums whitespace-nowrap ${
+                              ba === 'B'
+                                ? 'text-rose-700 dark:text-rose-300'
+                                : ba === 'A'
+                                  ? 'text-emerald-700 dark:text-emerald-300'
+                                  : 'text-slate-700 dark:text-slate-200'
+                            }`}
+                          >
+                            {fmtMoney(bal) || '—'}
+                          </td>
+                          <td className="px-2 py-1.5 text-center font-semibold text-slate-600 dark:text-slate-300">
+                            {ba || '—'}
+                          </td>
+                          <td className="px-2 py-1.5 text-slate-600 dark:text-slate-300 whitespace-nowrap">
+                            {opt.meta?.cityTown || '—'}
+                          </td>
+                          <td className="px-2 py-1.5 text-slate-600 dark:text-slate-300 whitespace-nowrap">
+                            {opt.meta?.phone || '—'}
+                          </td>
+                          <td className="px-2 py-1.5 tabular-nums text-slate-600 dark:text-slate-300 whitespace-nowrap">
+                            {opt.meta?.lastMoveDate || '—'}
                           </td>
                         </>
                       )}

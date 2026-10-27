@@ -28,6 +28,7 @@ import { useAppModules } from '../contexts/AppModulesContext';
 import { useAuth } from './AuthGate';
 import { appConfirm } from '../utils/appConfirm';
 import { SystemNoticeBanner } from './SystemNoticeBanner';
+import { ThemePicker } from './ThemePicker';
 import { getLoadedSystemInfo } from '../api/systemApi';
 
 /** Çalışan sürüm: numara · commit · derleme zamanı */
@@ -357,6 +358,7 @@ export const AppShell: React.FC<AppShellProps> = ({ currentPath, onNavigate, chi
             <LifeBuoy className="w-3.5 h-3.5 shrink-0" />
             Yardım
           </button>
+          <ThemePicker />
           <UserBlock />
           <button
             type="button"

@@ -28,7 +28,8 @@ public static class ImportSources
             Headers = new(StringComparer.OrdinalIgnoreCase)
             {
                 ["product"] = Map(
-                    ("Code", "Malzeme Kodu"), ("Title", "Malzeme Açıklaması"), ("DefaultUnitID", "Birim"),
+                    ("Code", "Malzeme Kodu"), ("Title", "Malzeme Açıklaması"), ("ProductType", "CARDTYPE"),
+                    ("DefaultUnitID", "Birim"),
                     ("U_MaterialKind", "Malzeme Türü"), ("U_UnitPrice", "Alış Fiyatı"), ("U_Description", "Açıklama"),
                     ("IsActive", "Durum"), ("UseInMaterial", "Malzeme"), ("UseInSales", "Satış ve Dağıtım"), ("UseInPurchase", "Satınalma")),
                 ["customer"] = Map(

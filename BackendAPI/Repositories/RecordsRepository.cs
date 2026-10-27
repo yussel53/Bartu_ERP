@@ -107,6 +107,7 @@ internal sealed class NestedChildSpec
 public sealed class RecordsRepository
 {
     private static readonly Regex SafeIdent = new(@"^[A-Za-z_][A-Za-z0-9_]*$", RegexOptions.Compiled);
+    private static readonly Regex UdfName = new(@"^U_[A-Za-z0-9_]{1,60}$", RegexOptions.Compiled);
     private readonly IDbConnection _db;
 
     /// <summary>
@@ -682,7 +683,8 @@ public sealed class RecordsRepository
         foreach (var id in ids)
             result[id] = new ProductCardStats();
 
-        // Ana birim
+        // Ana birim adı, birim kartındaki UnitID karşılığıdır
+        var unitTitles = await LoadUnitTitlesAsync(ct);
         if (await TableExistsAsync("ProductUnit"))
         {
             var unitRows = await _db.QueryAsync<(int ProductCardID, int? UnitID)>(new CommandDefinition(
@@ -697,7 +699,7 @@ ORDER BY CASE WHEN IsMain = 1 THEN 0 ELSE 1 END, LineNr, ProductUnitID",
             {
                 if (!result.TryGetValue(u.ProductCardID, out var st)) continue;
                 if (!string.IsNullOrEmpty(st.MainUnitName)) continue;
-                st.MainUnitName = UnitCatalogLabel(u.UnitID);
+                st.MainUnitName = UnitTitle(unitTitles, u.UnitID);
             }
         }
         var defRows = await _db.QueryAsync<(int ProductCardID, int? DefaultUnitID)>(new CommandDefinition(
@@ -708,7 +710,7 @@ ORDER BY CASE WHEN IsMain = 1 THEN 0 ELSE 1 END, LineNr, ProductUnitID",
         {
             if (!result.TryGetValue(d.ProductCardID, out var st)) continue;
             if (!string.IsNullOrEmpty(st.MainUnitName) || d.DefaultUnitID is null or <= 0) continue;
-            st.MainUnitName = UnitCatalogLabel(d.DefaultUnitID);
+            st.MainUnitName = UnitTitle(unitTitles, d.DefaultUnitID);
         }
 
         // Stok
@@ -961,6 +963,68 @@ GROUP BY t.ItemsID, v.Type_",
         _ => unitId?.ToString() ?? "",
     };
 
+    private async Task<Dictionary<int, string>> LoadUnitTitlesAsync(CancellationToken ct)
+    {
+        var map = new Dictionary<int, string>();
+        var exists = await _db.ExecuteScalarAsync<int?>(new CommandDefinition(
+            "SELECT OBJECT_ID(N'dbo.UnitCard', N'U')", cancellationToken: ct));
+        if (exists is not null)
+        {
+            var rows = await _db.QueryAsync<(int UnitID, string? Title)>(new CommandDefinition(
+                "SELECT UnitID, Title FROM dbo.UnitCard", cancellationToken: ct));
+            foreach (var r in rows)
+            {
+                if (r.UnitID <= 0 || string.IsNullOrWhiteSpace(r.Title)) continue;
+                map[r.UnitID] = r.Title.Trim();
+            }
+        }
+        return map;
+    }
+
+    private static string UnitTitle(Dictionary<int, string> titles, int? unitId)
+    {
+        if (unitId is > 0 && titles.TryGetValue(unitId.Value, out var title)) return title;
+        return UnitCatalogLabel(unitId);
+    }
+
+    /// <summary>U_ alanı tabloda yoksa gerçek kolon açar. AdditionalFields JSON'una yazılmaz.</summary>
+    private async Task EnsureUdfColumnAsync(
+        string tableName,
+        string key,
+        object? sample,
+        List<string> cols,
+        HashSet<string> colSet,
+        Dictionary<string, string> colTypes,
+        CancellationToken ct)
+    {
+        if (!UdfName.IsMatch(key) || colSet.Contains(key)) return;
+        if (!await TableExistsAsync(tableName)) return;
+        var (ddl, typeName) = UdfColumnType(key, sample);
+        await _db.ExecuteAsync(new CommandDefinition(
+            $"ALTER TABLE [dbo].[{tableName}] ADD [{key}] {ddl} NULL",
+            cancellationToken: ct));
+        cols.Add(key);
+        colSet.Add(key);
+        colTypes[key] = typeName;
+    }
+
+    private static (string Ddl, string TypeName) UdfColumnType(string key, object? sample)
+    {
+        sample = NormalizeJsonElement(sample);
+        if (key.Equals("U_UnitPrice", StringComparison.OrdinalIgnoreCase) || sample is decimal or double or float)
+            return ("FLOAT", "float");
+        if (sample is bool) return ("BIT", "bit");
+        if (sample is int or long or short or byte) return ("INT", "int");
+        if (sample is DateTime) return ("DATETIME", "datetime");
+        if (key.Equals("U_DueDate", StringComparison.OrdinalIgnoreCase)) return ("DATETIME", "datetime");
+        var text = sample?.ToString() ?? "";
+        if (key.Equals("U_Description", StringComparison.OrdinalIgnoreCase) || key.Equals("U_Note", StringComparison.OrdinalIgnoreCase) || text.Length > 400)
+            return ("NVARCHAR(MAX)", "nvarchar");
+        if (key.Equals("U_MaterialKind", StringComparison.OrdinalIgnoreCase) || key.Equals("U_PaymentType", StringComparison.OrdinalIgnoreCase))
+            return ("NVARCHAR(40)", "nvarchar");
+        return ("NVARCHAR(500)", "nvarchar");
+    }
+
     public async Task<RecordGetResult?> GetAsync(
         string tableName,
         string? primaryKeyHint,
@@ -1081,11 +1145,19 @@ GROUP BY t.ItemsID, v.Type_",
         if (colSet.Contains("AccountGroupID") && !pending.ContainsKey("AccountGroupID"))
             pending["AccountGroupID"] = 1;
 
-        // Ek alanlar: tabloda gerçek U_ kolonu varsa oraya yaz, yoksa JSON'da kalsın
+        // U_ alanları JSON'a yazılmaz. Kolon yoksa açılır ve değer oraya gider.
+        var incomingAdditional = data.AdditionalFields ?? new Dictionary<string, object?>();
+        var hadAdditional = incomingAdditional.Count > 0;
         var leftoverAdditional = new Dictionary<string, object?>();
-        foreach (var kv in data.AdditionalFields ?? new Dictionary<string, object?>())
+        foreach (var kv in incomingAdditional)
         {
             if (string.IsNullOrWhiteSpace(kv.Key) || !SafeIdent.IsMatch(kv.Key)) continue;
+            if (UdfName.IsMatch(kv.Key)
+                && !colSet.Contains(kv.Key)
+                && !kv.Key.Equals(pk, StringComparison.OrdinalIgnoreCase))
+            {
+                await EnsureUdfColumnAsync(tableName, kv.Key, kv.Value, cols, colSet, colTypes, ct);
+            }
             if (!colSet.Contains(kv.Key) || kv.Key.Equals(pk, StringComparison.OrdinalIgnoreCase))
             {
                 leftoverAdditional[kv.Key] = kv.Value;
@@ -1099,12 +1171,13 @@ GROUP BY t.ItemsID, v.Type_",
         foreach (var col in writeCols)
             parameters.Add(col, pending[col]);
 
-        if (hasAdditional)
+        if (hasAdditional && hadAdditional)
         {
-            var json = JsonSerializer.Serialize(leftoverAdditional);
             var addCol = cols.First(c => c.Equals("AdditionalFields", StringComparison.OrdinalIgnoreCase));
             writeCols.Add(addCol);
-            parameters.Add(addCol, json);
+            parameters.Add(addCol, leftoverAdditional.Count == 0
+                ? null
+                : JsonSerializer.Serialize(leftoverAdditional));
         }
 
         if (writeCols.Count == 0)

@@ -1,16 +1,28 @@
 import { listRecords } from './recordsApi';
+import { getCustomerSummaries } from './cardStatementApi';
 
 export interface LookupOptionMeta {
+  /** product */
   stockQty?: number | string;
   mainUnit?: string;
   salesOrderQty?: number | string;
   purchaseOrderQty?: number | string;
+  /** customer */
+  kind?: 'product' | 'customer';
+  taxNr?: string;
+  balance?: number;
+  ba?: string;
+  cityTown?: string;
+  phone?: string;
+  lastMoveDate?: string;
+  riskGroup?: string;
+  overdue?: number;
 }
 
 export interface LookupOption {
   label: string;
   value: string;
-  /** Malzeme seçiminde stok / birim / sipariş */
+  /** Malzeme: stok / birim · Cari: bakiye / iletişim */
   meta?: LookupOptionMeta;
 }
 
@@ -25,8 +37,10 @@ export type LookupSource = {
   /** Lookup’tan «Yeni ekle» ile açılacak form */
   createFormCode?: string;
   createTitle?: string;
-  /** ProductCard seçiminde ek kolonlar */
+  /** ProductCard seçiminde stok / birim / sipariş */
   productStats?: boolean;
+  /** CustomerCard seçiminde bakiye / il / telefon / son hareket */
+  customerStats?: boolean;
 };
 
 /** Form alan adı → SQL lookup kaynağı */
@@ -38,6 +52,7 @@ const FIELD_LOOKUP: Record<string, LookupSource> = {
     titleCols: ['Title'],
     createFormCode: 'CustomerCardForm',
     createTitle: 'Yeni Cari',
+    customerStats: true,
   },
   CustomerCardID: {
     table: 'CustomerCard',
@@ -46,6 +61,7 @@ const FIELD_LOOKUP: Record<string, LookupSource> = {
     titleCols: ['Title'],
     createFormCode: 'CustomerCardForm',
     createTitle: 'Yeni Cari',
+    customerStats: true,
   },
   ProductCardID: {
     table: 'ProductCard',
@@ -309,20 +325,32 @@ export async function loadLookupOptions(
   const src: LookupSource = override ? { ...baseSrc, ...override } : baseSrc;
 
   const key = cacheKey(src);
-  // Malzeme stok/sipariş güncel kalsın — productStats için önbellek kullanma
-  if (!src.productStats) {
+  // Stok / bakiye güncel kalsın — stats için önbellek kullanma
+  const liveStats = Boolean(src.productStats || src.customerStats);
+  if (!liveStats) {
     const hit = cache.get(key);
     if (hit) return hit;
   }
 
   const pending = (async () => {
     try {
-      const res = await listRecords(src.table, {
-        pk: src.pk,
-        filterColumn: src.filterColumn,
-        filterValue: src.filterValue,
-        take: src.take ?? 500,
-      });
+      const [res, summaries] = await Promise.all([
+        listRecords(src.table, {
+          pk: src.pk,
+          filterColumn: src.filterColumn,
+          filterValue: src.filterValue,
+          take: src.take ?? 500,
+        }),
+        src.customerStats
+          ? getCustomerSummaries().catch(() => [])
+          : Promise.resolve([] as Awaited<ReturnType<typeof getCustomerSummaries>>),
+      ]);
+      const summaryById = new Map(summaries.map((s) => [String(s.customerCardID), s]));
+      const num = (v: unknown) => {
+        if (v == null || v === '') return 0;
+        const n = Number(v);
+        return Number.isFinite(n) ? n : 0;
+      };
       return (res.rows || [])
         .map((row) => {
           const r = row as Record<string, unknown>;
@@ -332,16 +360,30 @@ export async function loadLookupOptions(
           const label = [code, title].filter(Boolean).join(' — ') || String(id ?? '');
           const opt: LookupOption = { label, value: String(id ?? '') };
           if (src.productStats) {
-            const num = (v: unknown) => {
-              if (v == null || v === '') return 0;
-              const n = Number(v);
-              return Number.isFinite(n) ? n : 0;
-            };
             opt.meta = {
+              kind: 'product',
               stockQty: num(r.StockQty ?? r.stockQty),
               mainUnit: String(r.MainUnitName ?? r.mainUnitName ?? r.MainUnit ?? r.mainUnit ?? ''),
               salesOrderQty: num(r.SalesOrderQty ?? r.salesOrderQty),
               purchaseOrderQty: num(r.PurchaseOrderQty ?? r.purchaseOrderQty),
+            };
+          }
+          if (src.customerStats) {
+            const s = summaryById.get(String(id ?? ''));
+            const bal = s?.balance ?? 0;
+            const tax = pick(r, ['TaxNr', 'TaxNumber']);
+            opt.meta = {
+              kind: 'customer',
+              taxNr: tax || undefined,
+              balance: bal,
+              ba: !s || Math.abs(bal) < 0.005 ? '' : bal > 0 ? 'B' : 'A',
+              cityTown: [s?.city, s?.town].filter(Boolean).join(' / ') || undefined,
+              phone: s?.phone || undefined,
+              lastMoveDate: s?.lastMoveDate
+                ? String(s.lastMoveDate).slice(0, 10).split('-').reverse().join('.')
+                : undefined,
+              riskGroup: s?.riskGroup || undefined,
+              overdue: s?.overdue && s.overdue > 0 ? s.overdue : undefined,
             };
           }
           return opt;
@@ -351,7 +393,7 @@ export async function loadLookupOptions(
       return [];
     }
   })();
-  if (!src.productStats) cache.set(key, pending);
+  if (!liveStats) cache.set(key, pending);
   return pending;
 }
 

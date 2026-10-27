@@ -93,8 +93,8 @@ export const LookupField: React.FC<LookupFieldProps> = ({
   const openPicker = () => {
     if (disabled) return;
     setOpen(true);
-    // Malzeme seçiminde stok/sipariş güncel gelsin
-    if (fieldName && src?.productStats) {
+    // Malzeme stok / cari bakiye güncel gelsin
+    if (fieldName && (src?.productStats || src?.customerStats)) {
       void reloadLookupOptions(fieldName).then((next) => {
         if (next.length) setOptions(next);
       });
