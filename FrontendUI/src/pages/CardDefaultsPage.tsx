@@ -4,6 +4,7 @@ import { EntityFormPage } from './EntityFormPage';
 import { CARD_DEFAULT_KINDS, type CardDefaultKind } from '../data/cardDefaults';
 import { getRecord, saveRecord } from '../api/recordsApi';
 import { getFormSchema } from '../data/formSchemas';
+import { resolveTaxCardForSetting } from '../api/moduleParamsApi';
 
 interface CardDefaultsPageProps {
   onBack: () => void;
@@ -13,7 +14,29 @@ interface CardDefaultsPageProps {
 
 async function ensureKindTemplate(kind: CardDefaultKind): Promise<void> {
   try {
-    await getRecord(kind.tableName, kind.templateId, kind.primaryKeyColumn);
+    const existing = await getRecord(kind.tableName, kind.templateId, kind.primaryKeyColumn);
+    // Mevcut malzeme öndeğerinde vergi kartı boşsa STK_KDV_SAL ile doldur
+    if (kind.id === 'product') {
+      const cur = existing.standardFields?.TaxCardID ?? existing.standardFields?.taxCardID;
+      if (cur == null || cur === '' || cur === 0 || cur === '0') {
+        try {
+          const { taxCardId } = await resolveTaxCardForSetting('STK_KDV_SAL');
+          if (taxCardId) {
+            await saveRecord(
+              kind.tableName,
+              {
+                recordId: kind.templateId,
+                standardFields: { ...existing.standardFields, TaxCardID: taxCardId },
+                additionalFields: existing.additionalFields || {},
+              },
+              { pk: kind.primaryKeyColumn, formCode: kind.formCode },
+            );
+          }
+        } catch {
+          /* */
+        }
+      }
+    }
     return;
   } catch {
     /* yoksa seed */
@@ -36,6 +59,15 @@ async function ensureKindTemplate(kind: CardDefaultKind): Promise<void> {
     seed.Title = `Öndeğer ${kind.title}`;
   }
   Object.assign(seed, kind.seed || {});
+  // Malzeme öndeğer şablonu: STK_KDV_SAL → TaxCardID
+  if (kind.id === 'product' && (seed.TaxCardID == null || seed.TaxCardID === '' || seed.TaxCardID === 0)) {
+    try {
+      const { taxCardId } = await resolveTaxCardForSetting('STK_KDV_SAL');
+      if (taxCardId) seed.TaxCardID = taxCardId;
+    } catch {
+      /* yoksa şablon vergi kartı boş */
+    }
+  }
   await saveRecord(
     kind.tableName,
     { recordId: kind.templateId, standardFields: seed, additionalFields: {} },

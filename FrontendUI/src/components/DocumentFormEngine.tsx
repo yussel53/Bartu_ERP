@@ -14,7 +14,7 @@ import { FieldRenderer } from './FieldRenderer';
 import { FormTabs } from './FormTabs';
 import { canField } from '../data/permissions';
 import { getCurrency, getCurrencyRate, LOCAL_CURRENCY_ID, CURRENCIES } from '../data/currencies';
-import { Plus, Minus, RefreshCw, ClipboardPaste } from 'lucide-react';
+import { Plus, Minus, RefreshCw, ClipboardPaste, Pencil } from 'lucide-react';
 import { FieldLayoutContext, FormFieldContext, InlineColsContext, InlineFieldGrid } from './FormFieldContext';
 import { useOrgFieldCascade } from '../hooks/useOrgFieldCascade';
 import { allocateDocumentNumber } from '../api/numberTemplateApi';
@@ -822,9 +822,18 @@ export const DocumentFormEngine: React.FC<DocumentFormEngineProps> = ({
     net: number;
     qty: number;
   } | null>(null);
+  /** Dip toplam KDV elle düzeltme — satır hesabını kilitleyip farkı son satıra yazar */
+  const [taxEditOn, setTaxEditOn] = React.useState(false);
+  const [taxEditValue, setTaxEditValue] = React.useState<number | null>(null);
+  const [taxEditText, setTaxEditText] = React.useState('');
+  const taxEditOnRef = React.useRef(false);
+  taxEditOnRef.current = taxEditOn;
   const productTaxCache = React.useRef<Record<number, string>>({});
   const appliedProductTax = React.useRef<Record<number, number>>({});
-  const payableTotal = lineMoney?.net ?? grandTotal;
+  const payableTotal =
+    taxEditOn && taxEditValue != null && hasMaterialLineTotals
+      ? roundMoney((lineMoney?.total ?? 0) + taxEditValue)
+      : lineMoney?.net ?? grandTotal;
 
   React.useEffect(() => {
     if (!hasLines || readOnly) return;
@@ -1082,11 +1091,20 @@ export const DocumentFormEngine: React.FC<DocumentFormEngineProps> = ({
         const net = roundMoney(base + tax);
         taxSum += tax;
         netSum += net;
-        if (hasTotalTax && (row.TotalTax == null || row.TotalTax === '' || Math.abs(parseLineNum(row.TotalTax) - tax) > 0.0005)) {
-          write(`lines.${i}.TotalTax`, tax);
-        }
-        if (hasNet && (row.NetTotal == null || row.NetTotal === '' || Math.abs(parseLineNum(row.NetTotal) - net) > 0.0005)) {
-          write(`lines.${i}.NetTotal`, net);
+        // KDV düzelt açıkken satır KDV/net üzerine yazma
+        if (!taxEditOnRef.current) {
+          if (
+            hasTotalTax &&
+            (row.TotalTax == null || row.TotalTax === '' || Math.abs(parseLineNum(row.TotalTax) - tax) > 0.0005)
+          ) {
+            write(`lines.${i}.TotalTax`, tax);
+          }
+          if (
+            hasNet &&
+            (row.NetTotal == null || row.NetTotal === '' || Math.abs(parseLineNum(row.NetTotal) - net) > 0.0005)
+          ) {
+            write(`lines.${i}.NetTotal`, net);
+          }
         }
       }
       if (!cancelled) {
@@ -1209,7 +1227,7 @@ export const DocumentFormEngine: React.FC<DocumentFormEngineProps> = ({
   const handleFormSubmit = (data: FieldValues) => {
     if (readOnly) return;
     const rawLines = hasLines ? ((data.lines as Record<string, unknown>[]) || []) : undefined;
-    const lines = rawLines
+    let lines = rawLines
       ?.map((row, i): Record<string, unknown> => {
         const next: Record<string, unknown> = {
           ...row,
@@ -1250,6 +1268,31 @@ export const DocumentFormEngine: React.FC<DocumentFormEngineProps> = ({
           return String(v).trim() !== '';
         });
       });
+    // KDV düzelt: dip toplam ile satır KDV farkını son dolu satıra yaz
+    if (
+      taxEditOn &&
+      taxEditValue != null &&
+      lines &&
+      lines.length > 0 &&
+      schema.lineFields?.some((f) => f.fieldName === 'TotalTax')
+    ) {
+      const currentSum = roundMoney(lines.reduce((a, r) => a + parseLineNum(r.TotalTax), 0));
+      const diff = roundMoney(taxEditValue - currentSum);
+      if (Math.abs(diff) > 0.0005) {
+        let idx = lines.length - 1;
+        for (let i = lines.length - 1; i >= 0; i--) {
+          if (lineProductId(lines[i]) || parseLineNum(lines[i].TotalPrice) > 0) {
+            idx = i;
+            break;
+          }
+        }
+        const newTax = roundMoney(parseLineNum(lines[idx].TotalTax) + diff);
+        lines[idx] = { ...lines[idx], TotalTax: newTax };
+        if (schema.lineFields.some((f) => f.fieldName === 'NetTotal')) {
+          lines[idx].NetTotal = roundMoney(parseLineNum(lines[idx].TotalPrice) + newTax);
+        }
+      }
+    }
     const bal = schema.balanceFields;
     if (bal && lines) {
       for (const row of lines) {
@@ -1957,7 +2000,8 @@ export const DocumentFormEngine: React.FC<DocumentFormEngineProps> = ({
   const sumTax = lineMoney?.tax ?? sumLineField(watchedLines || [], 'TotalTax');
   const sumLineTotal = lineMoney?.total ?? sumLineField(watchedLines || [], 'TotalPrice');
   const sumQty = lineMoney?.qty ?? sumLineField(watchedLines || [], 'Quantity');
-  const footerNet = lineMoney?.net ?? roundMoney(sumLineTotal + sumTax);
+  const displayTax = taxEditOn && taxEditValue != null ? taxEditValue : sumTax;
+  const footerNet = roundMoney(sumLineTotal + displayTax);
 
   const currencyChoices = React.useMemo(() => {
     const local = CURRENCIES.find((c) => c.isLocal);
@@ -2245,9 +2289,40 @@ export const DocumentFormEngine: React.FC<DocumentFormEngineProps> = ({
 
                           {hasMaterialLineTotals ? (
                             <div>
-                              <h3 className="text-[11px] font-semibold uppercase tracking-wide text-slate-500 mb-2">
-                                Toplam
-                              </h3>
+                              <div className="flex items-center justify-between gap-2 mb-2">
+                                <h3 className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">
+                                  Toplam
+                                </h3>
+                                {!readOnly && (
+                                  <button
+                                    type="button"
+                                    title={
+                                      taxEditOn
+                                        ? 'KDV düzeltmeyi kapat (satır hesabına dön)'
+                                        : 'Dip toplam KDV tutarına elle müdahale'
+                                    }
+                                    onClick={() => {
+                                      if (taxEditOn) {
+                                        setTaxEditOn(false);
+                                        setTaxEditValue(null);
+                                        setTaxEditText('');
+                                      } else {
+                                        setTaxEditOn(true);
+                                        setTaxEditValue(sumTax);
+                                        setTaxEditText(formatTrNumber(sumTax));
+                                      }
+                                    }}
+                                    className={`inline-flex items-center gap-1 px-1.5 h-6 text-[10px] font-semibold rounded-sm border transition-colors ${
+                                      taxEditOn
+                                        ? 'text-amber-800 bg-amber-50 border-amber-300 hover:bg-amber-100'
+                                        : 'text-slate-600 bg-white border-slate-300 hover:bg-slate-50'
+                                    }`}
+                                  >
+                                    <Pencil className="w-3 h-3" />
+                                    {taxEditOn ? 'KDV kilitli' : 'KDV düzelt'}
+                                  </button>
+                                )}
+                              </div>
                               <div className="grid grid-cols-2 gap-x-4 gap-y-1.5 text-[12px]">
                                 <div className="text-slate-500">Toplam İndirim</div>
                                 <div className="text-right font-semibold tabular-nums text-slate-800 dark:text-slate-100">
@@ -2259,8 +2334,44 @@ export const DocumentFormEngine: React.FC<DocumentFormEngineProps> = ({
                                 </div>
                                 <div className="text-slate-500">Toplam KDV</div>
                                 <div className="text-right font-semibold tabular-nums text-slate-800 dark:text-slate-100">
-                                  {formatTrNumber(sumTax)}
+                                  {taxEditOn && !readOnly ? (
+                                    <input
+                                      type="text"
+                                      inputMode="decimal"
+                                      className="w-full max-w-[120px] ml-auto block h-7 px-1.5 text-right text-[12px] font-semibold tabular-nums rounded-sm border border-amber-400 bg-amber-50 outline-none focus:border-amber-600 dark:bg-amber-950/40 dark:border-amber-600"
+                                      value={taxEditText}
+                                      onChange={(e) => {
+                                        const raw = e.target.value;
+                                        setTaxEditText(raw);
+                                        if (raw.trim() === '') {
+                                          setTaxEditValue(0);
+                                          return;
+                                        }
+                                        const n = parseLocaleNumber(raw);
+                                        if (n != null) setTaxEditValue(roundMoney(n));
+                                      }}
+                                      onBlur={() => {
+                                        if (taxEditValue != null) {
+                                          setTaxEditText(formatTrNumber(taxEditValue));
+                                        }
+                                      }}
+                                      onFocus={(e) => e.target.select()}
+                                    />
+                                  ) : (
+                                    formatTrNumber(displayTax)
+                                  )}
                                 </div>
+                                {taxEditOn && Math.abs(displayTax - sumTax) > 0.0005 ? (
+                                  <>
+                                    <div className="text-[10px] text-amber-700">Hesaplanan KDV</div>
+                                    <div className="text-right text-[10px] tabular-nums text-amber-700">
+                                      {formatTrNumber(sumTax)}
+                                      <span className="ml-1">
+                                        (fark {formatTrNumber(displayTax - sumTax)})
+                                      </span>
+                                    </div>
+                                  </>
+                                ) : null}
                                 <div className="text-slate-700 font-semibold border-t border-slate-200 dark:border-slate-600 pt-1.5">
                                   Net
                                 </div>
@@ -2343,7 +2454,7 @@ export const DocumentFormEngine: React.FC<DocumentFormEngineProps> = ({
                           ))}
                         </div>
                         )}
-                        {hasMaterialLineTotals && (sumDiscount > 0 || sumTax > 0) && (
+                        {hasMaterialLineTotals && (sumDiscount > 0 || displayTax > 0 || taxEditOn) && (
                           <div className="border-t border-slate-200 dark:border-slate-600 pt-2 grid grid-cols-2 gap-x-3 gap-y-1 text-[12px]">
                             {sumDiscount > 0 && (
                               <>
@@ -2353,11 +2464,13 @@ export const DocumentFormEngine: React.FC<DocumentFormEngineProps> = ({
                                 </div>
                               </>
                             )}
-                            {sumTax > 0 && (
+                            {(displayTax > 0 || taxEditOn) && (
                               <>
-                                <div className="text-slate-500">KDV</div>
+                                <div className="text-slate-500">
+                                  KDV{taxEditOn ? ' (düzeltildi)' : ''}
+                                </div>
                                 <div className="text-right tabular-nums font-medium">
-                                  {formatTrNumber(sumTax)}
+                                  {formatTrNumber(displayTax)}
                                 </div>
                               </>
                             )}

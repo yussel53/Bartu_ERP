@@ -14,6 +14,7 @@ import {
   List,
   ChevronRight,
   UserCheck,
+  BookCheck,
 } from 'lucide-react';
 import { AppModule, MenuScreen } from '../types/formTypes';
 import { RowActions, RowActionExtraItem } from '../components/RowActions';
@@ -39,6 +40,8 @@ import { convertCustomerToCari, CustomerListSummary, getCustomerSummaries } from
 import { ModuleOverviewPage } from './ModuleOverviewPage';
 import { FormTabs } from '../components/FormTabs';
 import { appConfirm } from '../utils/appConfirm';
+import { apiJson } from '../config/api';
+import { appToast } from '../utils/appToast';
 
 /** CustomerCard.Type_ (Alıcı / Satıcı) */
 const CUSTOMER_TYPE_LABELS: Record<string, string> = { '1': 'Alıcı', '2': 'Satıcı', '3': 'Alıcı / Satıcı' };
@@ -383,23 +386,61 @@ export const ModuleListPage: React.FC<ModuleListPageProps> = ({
     }
   };
 
+  const accountingSourceForList = (): 'invoice' | 'safevoucher' | null => {
+    const t = (tableName || '').toLowerCase();
+    if (t === 'invoice') return 'invoice';
+    if (t === 'safevoucher') return 'safevoucher';
+    return null;
+  };
+
+  const handlePostAccounting = async (rowId: string | number) => {
+    const source = accountingSourceForList();
+    const id = Number(rowId);
+    if (!source || !(id > 0)) return;
+    try {
+      const res = await apiJson<{ message?: string; Message?: string }>(
+        `/api/accounting/post/${source}/${id}`,
+        { method: 'POST' },
+      );
+      appToast(res.message || res.Message || 'Muhasebeleştirildi');
+    } catch (e) {
+      appToast(e instanceof Error ? e.message : 'Muhasebeleştirilemedi', {
+        kind: 'error',
+        durationMs: 5000,
+      });
+    }
+  };
+
   /** Kart listelerinde Ekstre / Hareketler / ek bölümler (Cari, Malzeme, Banka, Kasa, Hesap Planı…) */
   const statementItemsFor = (rowId: string | number): RowActionExtraItem[] => {
     const id = Number(rowId);
-    if (!stmtDef || !allowed.view || source !== 'db' || !Number.isInteger(id) || id <= 0) return [];
-    return stmtDef.items.map((it, i) => ({
-      key: `stmt-${it.key}`,
-      label: it.label,
-      icon:
-        i === 0 ? (
-          <FileText className="w-3.5 h-3.5" />
-        ) : it.key === 'hareketler' ? (
-          <List className="w-3.5 h-3.5" />
-        ) : (
-          <ChevronRight className="w-3.5 h-3.5" />
-        ),
-      onClick: () => setStatement({ cardId: id, tab: it.key }),
-    }));
+    const items: RowActionExtraItem[] = [];
+    if (stmtDef && allowed.view && source === 'db' && Number.isInteger(id) && id > 0) {
+      for (const [i, it] of stmtDef.items.entries()) {
+        items.push({
+          key: `stmt-${it.key}`,
+          label: it.label,
+          icon:
+            i === 0 ? (
+              <FileText className="w-3.5 h-3.5" />
+            ) : it.key === 'hareketler' ? (
+              <List className="w-3.5 h-3.5" />
+            ) : (
+              <ChevronRight className="w-3.5 h-3.5" />
+            ),
+          onClick: () => setStatement({ cardId: id, tab: it.key }),
+        });
+      }
+    }
+    if (accountingSourceForList() && source === 'db' && Number.isInteger(id) && id > 0) {
+      items.push({
+        key: 'acc-post',
+        label: 'Muhasebeleştir',
+        icon: <BookCheck className="w-3.5 h-3.5" />,
+        onClick: () => void handlePostAccounting(rowId),
+      });
+    }
+    return items;
   };
 
   const contextItemsFor = (rowId: string | number): RowContextMenuItem[] => {

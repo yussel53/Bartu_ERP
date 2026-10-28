@@ -300,6 +300,10 @@ export function buildOperationAuthTree(): OpTreeNode[] {
             !s.isEGovRules &&
             !s.isStockCosting &&
             !s.isAccountingPost &&
+            !s.isAccountingPool &&
+            !s.isAccountingParams &&
+            !s.isKasaParams &&
+            !s.moduleParamKey &&
             !s.isCustomerAging &&
             !s.isBoundPortfolio &&
             !s.isReportSchedules &&

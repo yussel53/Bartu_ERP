@@ -1,5 +1,6 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { ArrowLeft, LayoutTemplate, X } from 'lucide-react';
+import { ArrowLeft, BookCheck, LayoutTemplate, Loader2, X } from 'lucide-react';
+import { apiJson } from '../config/api';
 import { FormLayoutDesigner } from '../components/FormLayoutDesigner';
 import { FormLayoutRow, resolveFormLayouts } from '../api/formLayoutsApi';
 import {
@@ -29,7 +30,9 @@ import { getCurrentProfile } from '../data/permissions';
 import { resolveOrgDefaults } from '../data/orgUnits';
 import { useOpenDocumentsOptional } from '../contexts/OpenDocumentsContext';
 import { findDefaultTemplate, stripTemplateMeta } from '../data/cardDefaults';
+import { resolveTaxCardForSetting } from '../api/moduleParamsApi';
 import { appConfirm } from '../utils/appConfirm';
+import { appToast } from '../utils/appToast';
 
 interface EntityFormPageProps {
   formCode: string;
@@ -202,7 +205,25 @@ export const EntityFormPage: React.FC<EntityFormPageProps> = ({
   const [initialData, setInitialData] = useState<DynamicFormDataDto | undefined>();
   const [loading, setLoading] = useState(true);
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [postingAcc, setPostingAcc] = useState(false);
   const [loadError, setLoadError] = useState<string | null>(null);
+
+  const accountingSource = (table?: string): 'invoice' | 'safevoucher' | null => {
+    const t = (table || '').toLowerCase();
+    if (t === 'invoice') return 'invoice';
+    if (t === 'safevoucher') return 'safevoucher';
+    return null;
+  };
+
+  const postAccounting = async (table: string, id: number): Promise<string | null> => {
+    const source = accountingSource(table);
+    if (!source || !(id > 0)) return null;
+    const res = await apiJson<{ message?: string; Message?: string }>(
+      `/api/accounting/post/${source}/${id}`,
+      { method: 'POST' },
+    );
+    return res.message || res.Message || 'Muhasebeleştirildi';
+  };
 
   // ── Ekran tasarımları (kullanıcı / rol bazında) ────────────────────
   const layoutUser = useMemo(() => getCurrentProfile(), []);
@@ -407,6 +428,22 @@ export const EntityFormPage: React.FC<EntityFormPageProps> = ({
             }
           }
 
+          // Malzeme kartı: STK_KDV_SAL öndeğerinden Vergi Kartı (TaxCardID)
+          if (
+            enriched.tableName === 'ProductCard' &&
+            !templateMode &&
+            (standardFields.TaxCardID == null ||
+              standardFields.TaxCardID === '' ||
+              standardFields.TaxCardID === 0)
+          ) {
+            try {
+              const { taxCardId } = await resolveTaxCardForSetting('STK_KDV_SAL');
+              if (taxCardId) standardFields.TaxCardID = taxCardId;
+            } catch {
+              /* vergi kartı eşleşmezse boş kalsın */
+            }
+          }
+
           const data: DynamicFormDataDto = {
             recordId: 0,
             standardFields,
@@ -530,21 +567,46 @@ export const EntityFormPage: React.FC<EntityFormPageProps> = ({
 
       if (trackDraft && draftId) openDocsRef.current?.closeDocument(draftId);
 
-      const idNote = `ID=${result.recordId}${code ? ` · Kod=${code}` : ''}`;
-      const postNote =
-        result.postSave && result.postSave.length
-          ? `\nPostSave: ${result.postSave.map((p) => `${p.title || p.type}: ${p.message}`).join('; ')}`
-          : '';
-      alert(
-        (result.message || (mode === 'edit' ? 'Güncellendi' : 'Kaydedildi')) +
-          `\n${idNote}` +
-          postNote,
-      );
+      const failedPost = (result.postSave || []).filter((p) => !p.success);
+      appToast(mode === 'edit' ? 'Güncellendi' : 'Kaydedildi');
+      if (failedPost.length > 0) {
+        appToast(
+          failedPost.map((p) => `${p.title || p.type}: ${p.message}`).join('\n'),
+          { kind: 'error' },
+        );
+      }
+      // Sunucu kayıt sonrası havuza yazar / parametreye göre muhasebeleştirir — mesajı göster
+      const saveMsg = result.message || '';
+      if (/Havuza alındı|Muhasebe fişi oluşturuldu|eksik bağlantı|Muhasebe havuzu/i.test(saveMsg)) {
+        const accPart = saveMsg
+          .split(' · ')
+          .filter((p) => /Havuza|Muhasebe|eksik bağlantı/i.test(p))
+          .join(' · ');
+        if (accPart) {
+          const err = /eksik|hatası|Muhasebeleştirilmedi/i.test(accPart);
+          appToast(accPart, { kind: err ? 'error' : 'info', durationMs: err ? 5000 : 3200 });
+        }
+      }
       onBack();
     } catch (e) {
-      alert(e instanceof Error ? e.message : 'Kayıt başarısız');
+      appToast(e instanceof Error ? e.message : 'Kayıt başarısız', { kind: 'error' });
     } finally {
       setIsSubmitting(false);
+    }
+  };
+
+  const handlePostAccountingClick = async () => {
+    if (!schema || postingAcc) return;
+    const id = Number(recordId);
+    if (!(id > 0) || !accountingSource(schema.tableName)) return;
+    setPostingAcc(true);
+    try {
+      const msg = await postAccounting(schema.tableName, id);
+      appToast(msg || 'Muhasebeleştirildi');
+    } catch (e) {
+      appToast(e instanceof Error ? e.message : 'Muhasebeleştirilemedi', { kind: 'error', durationMs: 5000 });
+    } finally {
+      setPostingAcc(false);
     }
   };
 
@@ -642,6 +704,25 @@ export const EntityFormPage: React.FC<EntityFormPageProps> = ({
               >
                 <LayoutTemplate className="w-3.5 h-3.5" />
                 Tasarla
+              </button>
+            )}
+          {schema &&
+            accountingSource(schema.tableName) &&
+            Number(recordId) > 0 &&
+            mode !== 'create' && (
+              <button
+                type="button"
+                disabled={postingAcc}
+                onClick={() => void handlePostAccountingClick()}
+                title="Bu belge için muhasebe fişi oluştur"
+                className="inline-flex items-center gap-1 px-2 h-7 text-[11px] font-semibold text-emerald-800 bg-emerald-50 border border-emerald-300 hover:bg-emerald-100 rounded-sm disabled:opacity-50"
+              >
+                {postingAcc ? (
+                  <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                ) : (
+                  <BookCheck className="w-3.5 h-3.5" />
+                )}
+                Muhasebeleştir
               </button>
             )}
           {trackDraft && (

@@ -29,6 +29,8 @@ public sealed class RecordsController : ControllerBase
     private readonly NumberTemplateRepository _numbers;
     private readonly StockService _stock;
     private readonly AccountingPostService _accounting;
+    private readonly SafeParamsService _safeParams;
+    private readonly InvoiceParamsService _invoiceParams;
     private readonly RiskService _risk;
     private readonly AuditService _audit;
     private readonly BudgetService _budget;
@@ -43,6 +45,8 @@ public sealed class RecordsController : ControllerBase
         NumberTemplateRepository numbers,
         StockService stock,
         AccountingPostService accounting,
+        SafeParamsService safeParams,
+        InvoiceParamsService invoiceParams,
         RiskService risk,
         AuditService audit,
         BudgetService budget)
@@ -51,6 +55,8 @@ public sealed class RecordsController : ControllerBase
         _budget = budget;
         _stock = stock;
         _accounting = accounting;
+        _safeParams = safeParams;
+        _invoiceParams = invoiceParams;
         _risk = risk;
         _scope = scope;
         _numbers = numbers;
@@ -229,6 +235,30 @@ public sealed class RecordsController : ControllerBase
                 if (risk.Action is 1 or 2) riskWarning = risk.Message + (risk.Action == 2 ? " (yönetici onayıyla)" : "");
             }
 
+            // Kasa parametreleri: çalışma günü / negatif seviye / boş muhasebe kodu doldur
+            if (!isTemplate && tableName.Equals("SafeVoucher", StringComparison.OrdinalIgnoreCase) && body.StandardFields != null)
+            {
+                var safeErr = await _safeParams.ValidateBeforeSaveAsync(body.RecordId, body.StandardFields, body.Lines, ct);
+                if (safeErr != null)
+                    return BadRequest(new { success = false, message = safeErr });
+                if (body.Lines is { Count: > 0 })
+                    await _safeParams.FillEmptyAccountCodesAsync(body.StandardFields, body.Lines, ct);
+            }
+
+            // Fatura parametreleri: ödeme aşımı / birim fiyat / boş muhasebe kodu
+            string? invoiceParamWarning = null;
+            if (!isTemplate && tableName.Equals("Invoice", StringComparison.OrdinalIgnoreCase) && body.StandardFields != null)
+            {
+                var invErr = await _invoiceParams.ValidateBeforeSaveAsync(
+                    body.RecordId, body.StandardFields, body.Lines, body.PaymentPlans, ct);
+                if (invErr != null)
+                    return BadRequest(new { success = false, message = invErr });
+                invoiceParamWarning = await _invoiceParams.WarningAfterValidateAsync(
+                    body.StandardFields, body.Lines, body.PaymentPlans, ct);
+                if (body.Lines is { Count: > 0 })
+                    await _invoiceParams.FillEmptyAccountCodesAsync(body.StandardFields, body.Lines, ct);
+            }
+
             // Y-17: bütçe — aylık bütçeyi aşan faturada OverAction 1 uyar · 2 engelle
             string? budgetWarning = null;
             if (!isTemplate && tableName.Equals("Invoice", StringComparison.OrdinalIgnoreCase) && body.StandardFields != null && body.Lines is { Count: > 0 })
@@ -320,21 +350,26 @@ public sealed class RecordsController : ControllerBase
                 /* dönüşüm kayıt kaydını etkilemez */
             }
 
-            // Y-09: fatura / kasa fişi → muhasebe fişi (ACC_AUTO_POST «Otomatik Mahsup» = 1; bağlantı eksikse kayıt yapılır, uyarı döner)
+            // Y-09: fatura / kasa → muhasebe havuzu (parametreye göre otomatik fiş; bağlantı eksikse kayıt yapılır, uyarı döner)
             string? accountingWarning = null;
             if (!isTemplate && (tableName.Equals("Invoice", StringComparison.OrdinalIgnoreCase) || tableName.Equals("SafeVoucher", StringComparison.OrdinalIgnoreCase)))
             {
                 try
                 {
-                    if (await _accounting.AutoPostEnabledAsync())
+                    var acc = await _accounting.ProcessAfterSaveAsync(tableName, id, ct);
+                    if (acc != null && !string.IsNullOrWhiteSpace(acc.Message))
                     {
-                        var acc = await _accounting.PostAsync(tableName, id, ct);
-                        if (!acc.Success) accountingWarning = "Muhasebeleştirilmedi: " + acc.Message;
+                        if (acc.Success && acc.AccountVoucherID != null)
+                            accountingWarning = acc.Message; // bilgilendirme (fiş oluştu)
+                        else if (!acc.Success || acc.Missing.Count > 0)
+                            accountingWarning = acc.Message;
+                        else if (acc.AccPoolID != null)
+                            accountingWarning = acc.Message; // havuza alındı
                     }
                 }
                 catch (Exception ex)
                 {
-                    accountingWarning = "Muhasebeleştirilmedi: " + ex.Message;
+                    accountingWarning = "Muhasebe havuzu: " + ex.Message;
                 }
             }
 
@@ -352,7 +387,7 @@ public sealed class RecordsController : ControllerBase
             return Ok(new
             {
                 success = true,
-                message = string.Join(" · ", new[] { message, autoNumber != null ? $"Fiş no: {autoNumber}" : null, stockWarning, riskWarning, budgetWarning, accountingWarning }
+                message = string.Join(" · ", new[] { message, autoNumber != null ? $"Fiş no: {autoNumber}" : null, stockWarning, riskWarning, budgetWarning, invoiceParamWarning, accountingWarning }
                     .Where(x => !string.IsNullOrEmpty(x))),
                 recordId = id,
                 autoNumber,

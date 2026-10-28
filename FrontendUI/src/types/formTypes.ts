@@ -233,6 +233,14 @@ export interface MenuScreen {
   isStockCosting?: boolean;
   /** Genel Muhasebe → Muhasebeleştirme (fatura / kasa fişi → muhasebe fişi) */
   isAccountingPost?: boolean;
+  /** Genel Muhasebe → Muhasebe Havuzu (SYS_AccPool) */
+  isAccountingPool?: boolean;
+  /** Genel Muhasebe → Muhasebe Parametreleri (otomatik / havuz kaynakları) */
+  isAccountingParams?: boolean;
+  /** Sistem → Parametreler → Kasa (eski bayrak; moduleParamKey tercih edilir) */
+  isKasaParams?: boolean;
+  /** Sistem → Parametreler → Mikro tarzı grid (kasa|fatura|stok|cari) */
+  moduleParamKey?: 'kasa' | 'fatura' | 'stok' | 'cari';
   /** Finans → Raporlar → Cari Yaşlandırma (açık kalemler, vade dağılımı) */
   isCustomerAging?: boolean;
   /** Finans → Çek / Senet Portföyü (bordrolar, konum, vade takvimi) */
@@ -251,7 +259,7 @@ export interface MenuScreen {
   isEGovConsole?: boolean;
   /** E-Devlet → Raporlar → KDV ve Ba / Bs (E-08) */
   isEGovTaxReport?: boolean;
-  /** Veritabanı SqlUpdates (01_xxx.sql) güncelleme ekranı */
+  /** Veritabanı SqlUpdates (yyyyMMdd_HHmmss_xxx.sql) güncelleme ekranı */
   isDbUpdatesAdmin?: boolean;
   /** Muhasebe → Yevmiye madde numaralandırma işlemi */
   isJournalNumbering?: boolean;

@@ -3806,12 +3806,13 @@ Object.assign(FORM_SCHEMAS, {
     ],
     /** SafeTrans satırları: tahsilat / tediyede cari; kasa↔bankada banka hesabı; virmanda hedef kasa */
     lineFields: [
-      { fieldId: 7450, fieldName: 'CustomerID', label: 'Cari', fieldType: 'select', isRequired: false, colSpan: 4, orderIndex: 1, optionsJson: select([]) },
+      { fieldId: 7450, fieldName: 'CustomerID', label: 'Cari', fieldType: 'select', isRequired: false, colSpan: 3, orderIndex: 1, optionsJson: select([]) },
       { fieldId: 7451, fieldName: 'BankAccountCardID', label: 'Banka Hesabı', fieldType: 'select', isRequired: false, colSpan: 3, orderIndex: 2, optionsJson: select([]) },
-      { fieldId: 7452, fieldName: 'AimSafeCardID', label: 'Hedef Kasa', fieldType: 'select', isRequired: false, colSpan: 3, orderIndex: 3, optionsJson: select([]) },
-      { fieldId: 7453, fieldName: 'Description', label: 'Açıklama', fieldType: 'text', isRequired: false, colSpan: 3, orderIndex: 4 },
-      { fieldId: 7454, fieldName: 'DueDate', label: 'Vade', fieldType: 'date', isRequired: false, colSpan: 2, orderIndex: 5 },
-      { fieldId: 7455, fieldName: 'Amount', label: 'Tutar', fieldType: 'number', isRequired: true, colSpan: 2, orderIndex: 6 },
+      { fieldId: 7452, fieldName: 'AimSafeCardID', label: 'Hedef Kasa', fieldType: 'select', isRequired: false, colSpan: 2, orderIndex: 3, optionsJson: select([]) },
+      { fieldId: 7456, fieldName: 'AccountCardID', label: 'Muhasebe Hesabı', fieldType: 'select', isRequired: false, colSpan: 3, orderIndex: 4, optionsJson: select([]) },
+      { fieldId: 7453, fieldName: 'Description', label: 'Açıklama', fieldType: 'text', isRequired: false, colSpan: 3, orderIndex: 5 },
+      { fieldId: 7454, fieldName: 'DueDate', label: 'Vade', fieldType: 'date', isRequired: false, colSpan: 2, orderIndex: 6 },
+      { fieldId: 7455, fieldName: 'Amount', label: 'Tutar', fieldType: 'number', isRequired: true, colSpan: 2, orderIndex: 7 },
     ],
   },
   PaymentTransForm: {
@@ -4092,6 +4093,7 @@ Object.assign(FORM_SCHEMAS, {
           { label: 'Satış', value: 'satis' },
           { label: 'Satınalma', value: 'satinalma' },
           { label: 'Muhasebe', value: 'muhasebe' },
+          { label: 'Kasa', value: 'kasa' },
         ]),
       },
     ],

@@ -7,6 +7,10 @@ import { EGovDesignTemplatesPage } from '../pages/EGovDesignTemplatesPage';
 import { EGovRulesPage } from '../pages/EGovRulesPage';
 import { StockCostingPage } from '../pages/StockCostingPage';
 import { AccountingPostPage } from '../pages/AccountingPostPage';
+import { AccountingPoolPage } from '../pages/AccountingPoolPage';
+import { AccountingParamsPage } from '../pages/AccountingParamsPage';
+import { ModuleParamsPage } from '../pages/ModuleParamsPage';
+import type { ModuleParamKey } from '../data/paramDefs';
 import { CustomerAgingPage } from '../pages/CustomerAgingPage';
 import { BoundPortfolioPage } from '../pages/BoundPortfolioPage';
 import { ReportSchedulesPage } from '../pages/ReportSchedulesPage';
@@ -143,6 +147,26 @@ export const ModuleWorkspace: React.FC<ModuleWorkspaceProps> = ({
     }
     if (activeScreen.isStockCosting) {
       return <StockCostingPage onBack={() => onNavigate(module.path)} />;
+    }
+    if (activeScreen.isAccountingPool) {
+      return (
+        <AccountingPoolPage
+          onBack={() => onNavigate(module.path)}
+          onOpenParams={() => onNavigate('muhasebe/islemler/muhasebe-parametreleri')}
+        />
+      );
+    }
+    if (activeScreen.isAccountingParams) {
+      return <AccountingParamsPage onBack={() => onNavigate(module.path)} />;
+    }
+    {
+      const paramKey = (activeScreen.moduleParamKey ||
+        (activeScreen.isKasaParams ? 'kasa' : null)) as ModuleParamKey | null;
+      if (paramKey) {
+        return (
+          <ModuleParamsPage moduleKey={paramKey} onBack={() => onNavigate(module.path)} />
+        );
+      }
     }
     if (activeScreen.isAccountingPost) {
       return <AccountingPostPage onBack={() => onNavigate(module.path)} />;

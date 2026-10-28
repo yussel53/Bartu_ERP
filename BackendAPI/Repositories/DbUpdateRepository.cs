@@ -10,7 +10,8 @@ public sealed class DbUpdateScriptInfo
 {
     public string ScriptName { get; set; } = "";
     public string Title { get; set; } = "";
-    public int Sequence { get; set; }
+    /// <summary>Sıralama: eski NN_ → küçük sayı; yeni yyyyMMddHHmmss → zaman damgası.</summary>
+    public long Sequence { get; set; }
     public bool Applied { get; set; }
     public DateTime? AppliedAt { get; set; }
     public string? Message { get; set; }
@@ -76,7 +77,8 @@ public sealed class DbUpdateRepository
 
         var files = Directory.GetFiles(folder, "*.sql")
             .Select(f => new FileInfo(f))
-            .OrderBy(f => f.Name, StringComparer.OrdinalIgnoreCase)
+            .OrderBy(f => ParseSortKey(f.Name))
+            .ThenBy(f => f.Name, StringComparer.OrdinalIgnoreCase)
             .ToList();
 
         HashSet<string> applied = new(StringComparer.OrdinalIgnoreCase);
@@ -105,7 +107,7 @@ public sealed class DbUpdateRepository
 
         foreach (var f in files)
         {
-            var seq = ParseSequence(f.Name);
+            var seq = ParseSortKey(f.Name);
             var title = Path.GetFileNameWithoutExtension(f.Name);
             var isApplied = applied.Contains(f.Name);
             info.Scripts.Add(new DbUpdateScriptInfo
@@ -203,10 +205,19 @@ public sealed class DbUpdateRepository
         return Path.Combine(GetFolderPath(), scriptName);
     }
 
-    private static int ParseSequence(string fileName)
+    /// <summary>
+    /// Eski: 01_xxx / 110_xxx → 1…110.
+    /// Yeni: 20261028_115800_xxx → 20261028115800 (yılaygün + saatsn).
+    /// </summary>
+    private static long ParseSortKey(string fileName)
     {
-        var m = Regex.Match(fileName, @"^(\d+)");
-        return m.Success && int.TryParse(m.Groups[1].Value, out var n) ? n : 9999;
+        var ts = Regex.Match(fileName, @"^(\d{8})_(\d{6})_");
+        if (ts.Success && long.TryParse(ts.Groups[1].Value + ts.Groups[2].Value, out var stamp))
+            return stamp;
+        var m = Regex.Match(fileName, @"^(\d+)_");
+        if (m.Success && long.TryParse(m.Groups[1].Value, out var n))
+            return n;
+        return long.MaxValue;
     }
 
     private static IEnumerable<string> SplitGoBatches(string sql)
