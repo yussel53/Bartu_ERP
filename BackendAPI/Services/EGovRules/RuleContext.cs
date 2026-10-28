@@ -90,12 +90,11 @@ public sealed partial class RuleContext
     private async Task<List<(string Field, string Type)>> ExtraFieldsAsync(string table)
     {
         if (_extra.TryGetValue(table, out var list)) return list;
-        list = [];
-        if (await HasAsync("SYS_ExtraFields"))
-            list = (await Db.QueryAsync<(string, string)>(@"
-SELECT FieldName, DataType FROM dbo.SYS_ExtraFields
-WHERE TableName = @table AND IsActive = 1 AND COL_LENGTH(N'dbo.' + TableName, FieldName) IS NOT NULL", new { table }))
-                .Where(f => ExtraFieldRx().IsMatch(f.Item1)).ToList();
+        // tablodaki tüm U_ kolonları (tanımsız olanlar da: kayıt sırasında açılanlar)
+        list = (await Db.QueryAsync<(string, string)>(@"
+SELECT c.name, t.name FROM sys.columns c JOIN sys.types t ON t.user_type_id = c.user_type_id
+WHERE c.object_id = OBJECT_ID(N'dbo.' + @table) AND c.name LIKE N'U[_]%'", new { table }))
+            .Where(f => ExtraFieldRx().IsMatch(f.Item1)).ToList();
         return _extra[table] = list;
     }
 
@@ -413,13 +412,16 @@ ORDER BY CASE WHEN ISNULL(a.MatchBy, 1) = 1 THEN 0 ELSE 1 END, a.ProductCustomer
         ("Satir.Miktar", "Miktar", true), ("Satir.Birim", "Birim kodu", true), ("Satir.Fiyat", "Birim fiyat", true),
     ];
 
-    /// <summary>Tanımlı ek alanların yer tutucuları (Ek Alanlar ekranından eklenenler dahil)</summary>
+    /// <summary>Ek alan yer tutucuları: tablolardaki U_ kolonları; etiket Ek Alanlar tanımından, tanımsızsa kolon adı</summary>
     public static async Task<List<(string Key, string Label, bool Line)>> ExtraPlaceholdersAsync(IDbConnection db)
     {
-        if (await db.ExecuteScalarAsync<int?>("SELECT OBJECT_ID(N'dbo.SYS_ExtraFields', N'U')") == null) return [];
-        var defs = await db.QueryAsync<(string Table, string Field, string Label)>(@"
-SELECT TableName, FieldName, Label FROM dbo.SYS_ExtraFields
-WHERE IsActive = 1 AND COL_LENGTH(N'dbo.' + TableName, FieldName) IS NOT NULL ORDER BY TableName, OrderIndex, Label");
+        var hasDefs = await db.ExecuteScalarAsync<int?>("SELECT OBJECT_ID(N'dbo.SYS_ExtraFields', N'U')") != null;
+        var defs = await db.QueryAsync<(string Table, string Field, string Label)>($@"
+SELECT o.name, c.name, {(hasDefs ? "ISNULL(e.Label, c.name)" : "c.name")}
+FROM sys.columns c JOIN sys.objects o ON o.object_id = c.object_id AND o.type = 'U' AND SCHEMA_NAME(o.schema_id) = N'dbo'
+{(hasDefs ? "LEFT JOIN dbo.SYS_ExtraFields e ON e.TableName = o.name AND e.FieldName = c.name" : "")}
+WHERE o.name IN @tables AND c.name LIKE N'U[_]%' {(hasDefs ? "AND ISNULL(e.IsActive, 1) = 1" : "")}
+ORDER BY o.name, {(hasDefs ? "ISNULL(e.OrderIndex, 9999), " : "")}c.name", new { tables = ExtraTables.Select(t => t.Table).Distinct().ToArray() });
         return (from d in defs
                 from t in ExtraTables
                 where t.Table.Equals(d.Table, StringComparison.OrdinalIgnoreCase) && ExtraFieldRx().IsMatch(d.Field)
