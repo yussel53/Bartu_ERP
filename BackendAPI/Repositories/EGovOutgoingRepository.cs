@@ -254,9 +254,14 @@ public sealed class EGovOutgoingRepository
             """, new { invoiceId }, cancellationToken: ct));
         if (h == null) return null;
 
-        var lines = (await _db.QueryAsync(new CommandDefinition("""
+        // Satır istisna / tevkifat: ek alan kolonları (U_); eski kayıtlarda AdditionalFields JSON anahtarı
+        var udf = (await _db.QueryAsync<string>(new CommandDefinition(
+            "SELECT name FROM sys.columns WHERE object_id = OBJECT_ID(N'dbo.ProductTrans') AND name IN @names",
+            new { names = LineUdf }, cancellationToken: ct))).ToList();
+        var udfSelect = string.Concat(udf.Select(c => $", t.[{c}]"));
+        var lines = (await _db.QueryAsync(new CommandDefinition($"""
             SELECT t.ProductTransID, t.TransLineNo, t.Quantity, t.Price, t.TotalDiscount, t.TotalPrice, t.TotalTax, t.NetTotal, t.UnitID, t.TaxRate,
-                   t.Description, t.AdditionalFields, p.Code, p.Title, tc.Rate AS CardRate
+                   t.Description, t.AdditionalFields{udfSelect}, p.Code, p.Title, tc.Rate AS CardRate
             FROM dbo.ProductTrans t
             LEFT JOIN dbo.ProductCard p ON p.ProductCardID = t.ProductCardID
             LEFT JOIN dbo.TaxCard tc ON tc.TaxCardID = t.TaxCardID
@@ -310,6 +315,9 @@ public sealed class EGovOutgoingRepository
         foreach (var l in lines)
         {
             var extra = Extra((string?)l.AdditionalFields);
+            var row = (IDictionary<string, object?>)l;
+            foreach (var c in udf)
+                if (Convert.ToString(row[c], System.Globalization.CultureInfo.InvariantCulture)?.Trim() is { Length: > 0 } v) extra[c[2..]] = v;
             var rate = l.TaxRate != null ? Convert.ToDecimal(l.TaxRate) : l.CardRate != null ? Convert.ToDecimal(l.CardRate) : 0m;
             inv.Lines.Add(new UblOutLine
             {
@@ -398,6 +406,9 @@ public sealed class EGovOutgoingRepository
             WHERE EGovDocumentID = @egovDocumentId AND Direction = 2
             """, new { egovDocumentId, reason, userId }, cancellationToken: ct));
     }
+
+    /// <summary>Satırın e-Belge ek alanları (ProductTrans U_ kolonları)</summary>
+    private static readonly string[] LineUdf = ["U_TaxExemptionCode", "U_TaxExemptionReason", "U_WithholdingCode", "U_WithholdingRate"];
 
     /// <summary>Satır AdditionalFields (JSON) → metin sözlüğü</summary>
     private static Dictionary<string, string> Extra(string? json)
