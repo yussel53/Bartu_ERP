@@ -60,8 +60,8 @@ public sealed class UblValidator
             if (l.Quantity <= 0) E($"{at}: miktar sıfır ya da negatif.");
             if (l.Price < 0) E($"{at}: birim fiyat negatif.");
             if (l.Discount < 0 || l.Discount > l.Gross) E($"{at}: iskonto tutarı satır tutarını aşıyor ya da negatif.");
-            if (l.TaxRate == 0 && string.IsNullOrWhiteSpace(l.ExemptionCode)) E($"{at}: KDV %0 için istisna kodu gerekli (satır ek alanı TaxExemptionCode; istisna değilse 351).");
-            if (!string.IsNullOrWhiteSpace(l.WithholdingCode) && (l.WithholdingRate <= 0 || l.WithholdingRate > 100)) E($"{at}: tevkifat oranı (WithholdingRate) 1–100 olmalı.");
+            if (l.TaxRate == 0 && string.IsNullOrWhiteSpace(l.ExemptionCode)) E($"{at}: KDV %0 için istisna kodu gerekli (satır ek alanı «KDV istisna kodu» U_TaxExemptionCode; istisna değilse 351).");
+            if (!string.IsNullOrWhiteSpace(l.WithholdingCode) && (l.WithholdingRate <= 0 || l.WithholdingRate > 100)) E($"{at}: tevkifat oranı (U_WithholdingRate) 1–100 olmalı.");
             if (!string.IsNullOrWhiteSpace(l.WithholdingCode) && l.TaxRate == 0) E($"{at}: KDV'siz satırda tevkifat olamaz.");
         }
 
