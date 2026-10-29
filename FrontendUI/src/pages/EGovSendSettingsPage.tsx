@@ -132,6 +132,23 @@ export const EGovSendSettingsPage: React.FC<{ onBack: () => void }> = ({ onBack 
               <option value="TEMELFATURA">TEMELFATURA</option>
             </select>
           </label>
+          <label className="flex flex-col gap-0.5 text-[12px]">
+            <span className="text-slate-500">e-Arşiv gönderim şekli</span>
+            <select className={inp} disabled={!canEdit} value={s?.eArchiveSendType ?? 'ELEKTRONIK'} onChange={(e) => set('eArchiveSendType', e.target.value)}>
+              <option value="ELEKTRONIK">ELEKTRONIK</option>
+              <option value="KAGIT">KAGIT</option>
+            </select>
+          </label>
+          <label className="flex flex-col gap-0.5 text-[12px]">
+            <span className="text-slate-500">İnternet satışı web adresi</span>
+            <input
+              className={`${inp} w-56`}
+              disabled={!canEdit}
+              placeholder="https://www.ornek.com.tr"
+              value={s?.eArchiveWebAddress ?? ''}
+              onChange={(e) => set('eArchiveWebAddress', e.target.value)}
+            />
+          </label>
           <button
             type="button"
             onClick={() => void save()}

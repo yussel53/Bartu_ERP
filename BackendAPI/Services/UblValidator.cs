@@ -71,6 +71,29 @@ public sealed class UblValidator
             if (inv.ProfileId == "TICARIFATURA") E("İade faturası TICARIFATURA senaryosuyla gönderilemez; TEMELFATURA seçin.");
         }
         if (inv.Currency != "TRY" && (inv.ExchangeRate ?? 0) <= 0) E($"Döviz ({inv.Currency}) için kur girilmemiş.");
+
+        // E-04: e-Arşiv (GİB e-Arşiv kılavuzu 3.3.2.4 gonderimSekli, 3.3.2.17 internetSatisBilgi)
+        if (inv.ProfileId == "EARSIVFATURA" && inv.EArchive is { } ea)
+        {
+            if (ea.SendType is not ("ELEKTRONIK" or "KAGIT")) E("e-Arşiv gönderim şekli ELEKTRONIK ya da KAGIT olmalı.");
+            if (!string.IsNullOrWhiteSpace(inv.Customer.Email) && !System.Text.RegularExpressions.Regex.IsMatch(inv.Customer.Email.Trim(), @"^[^@\s]+@[^@\s]+\.[^@\s]+$"))
+                E("Alıcı e-posta adresi geçersiz.");
+            if (ea.SendType == "ELEKTRONIK" && string.IsNullOrWhiteSpace(inv.Customer.Email))
+                W("Elektronik gönderimde alıcı e-postası boş; fatura alıcıya iletilemez.");
+            if (ea.IsInternetSale)
+            {
+                if (string.IsNullOrWhiteSpace(ea.WebAddress)) E("İnternet satışında web adresi zorunlu.");
+                if (!UblEArchiveInfo.PaymentMethods.Contains(ea.PaymentMethod ?? "")) E("İnternet satışında ödeme şekli seçilmeli.");
+                if (ea.PaymentMethod == "DIGER" && string.IsNullOrWhiteSpace(ea.PaymentNote)) E("Ödeme şekli DIGER ise açıklama yazılmalı.");
+                if (ea.PaymentMethod == "ODEMEARACISI" && string.IsNullOrWhiteSpace(ea.PaymentAgent)) W("Ödeme aracısı adı boş.");
+                // Ödeme tarihi: kapıda ödeme ve DIGER dışında zorunlu
+                if (ea.PaymentMethod is not (null or "KAPIDAODEME" or "DIGER") && ea.PaymentDate == null) E("Bu ödeme şeklinde ödeme tarihi zorunlu.");
+                if (ea.DespatchDate == null) E("İnternet satışında gönderi tarihi zorunlu.");
+                var carrier = (ea.CarrierTaxNr ?? "").Trim();
+                if (!Digits(carrier, 10, 11)) E("İnternet satışında taşıyıcı VKN/TCKN zorunlu (10 ya da 11 hane).");
+                if (string.IsNullOrWhiteSpace(ea.CarrierName)) E("İnternet satışında taşıyıcı unvanı / adı zorunlu.");
+            }
+        }
         return r;
     }
 

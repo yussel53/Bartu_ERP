@@ -1,6 +1,17 @@
 import React, { useCallback, useEffect, useState } from 'react';
 import { AlertTriangle, CheckCircle2, Download, FileCode2, Info, Lock, RefreshCw, Send, X, XCircle } from 'lucide-react';
-import { OutgoingIssue, OutgoingPreview, downloadOutgoingUbl, outgoingStatus, previewOutgoing, sendOutgoing } from '../api/egovOutgoingApi';
+import {
+  EArchiveInfo,
+  OutgoingIssue,
+  OutgoingPreview,
+  PAYMENT_METHODS,
+  cancelOutgoing,
+  downloadOutgoingUbl,
+  outgoingStatus,
+  previewOutgoing,
+  saveEArchiveInfo,
+  sendOutgoing,
+} from '../api/egovOutgoingApi';
 
 const n = (v: number) => v.toLocaleString('tr-TR', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 /** E-03: e-belge olarak gönderilen fatura tipleri — 1 Satış · 3 Satış İade · 4 Alış İade */
@@ -89,6 +100,23 @@ const EGovSendModal: React.FC<{ invoiceId: number; onClose: () => void }> = ({ i
     try {
       const r = await sendOutgoing(invoiceId, opts());
       setNotice(r.sendStatus === 'Gönderildi' ? `Gönderildi: ${r.invoiceNo}` : `Gönderilemedi: ${r.sendBlockReason ?? ''}`);
+      await load();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const doCancel = async () => {
+    if (!pv) return;
+    const reason = window.prompt(`${pv.invoiceNo} e-Arşiv faturası iptal edilecek. İptal gerekçesi:`);
+    if (!reason?.trim()) return;
+    setBusy(true);
+    setError(null);
+    try {
+      await cancelOutgoing(invoiceId, reason.trim());
+      setNotice(`İptal edildi: ${pv.invoiceNo}`);
       await load();
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
@@ -193,6 +221,17 @@ const EGovSendModal: React.FC<{ invoiceId: number; onClose: () => void }> = ({ i
                 >
                   <Download className="w-3.5 h-3.5" /> UBL indir
                 </button>
+                {pv.docKind === 2 && pv.sendStatus === 'Gönderildi' && (
+                  <button
+                    type="button"
+                    onClick={() => void doCancel()}
+                    disabled={busy || !pv.cancelAllowed}
+                    title={pv.cancelBlockReason ?? undefined}
+                    className="inline-flex items-center gap-1.5 rounded-sm border border-red-300 bg-white px-2.5 py-1 text-red-700 hover:bg-red-50 disabled:opacity-50"
+                  >
+                    {!pv.cancelAllowed && <Lock className="w-3.5 h-3.5" />} İptal et
+                  </button>
+                )}
                 {pv.eGovDocumentId && (
                   <button
                     type="button"
@@ -218,6 +257,24 @@ const EGovSendModal: React.FC<{ invoiceId: number; onClose: () => void }> = ({ i
               {!pv.sendAllowed && pv.sendBlockReason && (
                 <div className="rounded-sm border border-amber-200 bg-amber-50 px-2.5 py-1.5 text-[12px] text-amber-800 inline-flex items-center gap-1.5">
                   <Lock className="w-3.5 h-3.5" /> {pv.sendBlockReason}
+                </div>
+              )}
+              {pv.docKind === 2 && pv.eArchive && (
+                <EArchiveForm
+                  key={`${pv.eArchive.invoiceID}-${pv.eArchive.saved}`}
+                  value={pv.eArchive}
+                  readOnly={pv.sendStatus === 'Gönderildi'}
+                  onSaved={async (msg) => {
+                    setNotice(msg);
+                    await load();
+                  }}
+                  onError={setError}
+                />
+              )}
+              {pv.cancelledAt && (
+                <div className="text-[12px] text-red-700">
+                  İptal edildi: {new Date(pv.cancelledAt).toLocaleString('tr-TR')}
+                  {pv.cancelReason ? ` · ${pv.cancelReason}` : ''}
                 </div>
               )}
               {pv.sendStatus && (
@@ -304,6 +361,124 @@ const EGovSendModal: React.FC<{ invoiceId: number; onClose: () => void }> = ({ i
         </div>
       </div>
     </div>
+  );
+};
+
+/** E-04: e-Arşiv gönderim şekli, alıcı e-postası ve internet satışı bilgileri (GİB e-Arşiv kılavuzu 3.3.2.17) */
+const EArchiveForm: React.FC<{
+  value: EArchiveInfo;
+  readOnly: boolean;
+  onSaved: (message: string) => Promise<void>;
+  onError: (message: string) => void;
+}> = ({ value, readOnly, onSaved, onError }) => {
+  const [v, setV] = useState(value);
+  const [saving, setSaving] = useState(false);
+  const set = <K extends keyof EArchiveInfo>(k: K, x: EArchiveInfo[K]) => setV((o) => ({ ...o, [k]: x }));
+  const dirty = JSON.stringify(v) !== JSON.stringify(value);
+  const inp = 'rounded-sm border border-slate-300 px-2 py-1 text-[12px] disabled:bg-slate-50';
+  const day = (x?: string | null) => (x ? String(x).slice(0, 10) : '');
+
+  const save = async () => {
+    setSaving(true);
+    try {
+      await onSaved((await saveEArchiveInfo(v.invoiceID, v)).message);
+    } catch (e) {
+      onError(e instanceof Error ? e.message : String(e));
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const field = (label: string, el: React.ReactNode) => (
+    <label className="flex flex-col gap-0.5">
+      <span className="text-slate-500">{label}</span>
+      {el}
+    </label>
+  );
+
+  return (
+    <section className="rounded-sm border border-slate-200 p-3 space-y-2 text-[12px]">
+      <div className="flex items-center justify-between">
+        <span className="font-medium text-slate-700">e-Arşiv bilgileri {!value.saved && <span className="text-slate-400">(firma varsayılanı)</span>}</span>
+        {!readOnly && (
+          <button
+            type="button"
+            onClick={() => void save()}
+            disabled={saving || (!dirty && value.saved)}
+            className="rounded-sm border border-slate-300 bg-white px-2.5 py-1 hover:bg-slate-100 disabled:opacity-50"
+          >
+            Kaydet ve yenile
+          </button>
+        )}
+      </div>
+      <div className="flex flex-wrap items-end gap-2">
+        {field(
+          'Gönderim şekli',
+          <select className={inp} disabled={readOnly} value={v.sendType} onChange={(e) => set('sendType', e.target.value)}>
+            <option value="ELEKTRONIK">ELEKTRONIK</option>
+            <option value="KAGIT">KAGIT</option>
+          </select>,
+        )}
+        {field(
+          'Alıcı e-postası',
+          <input className={`${inp} w-56`} disabled={readOnly} value={v.email ?? ''} onChange={(e) => set('email', e.target.value)} />,
+        )}
+        <label className="inline-flex items-center gap-1.5 pb-1">
+          <input type="checkbox" disabled={readOnly} checked={v.isInternetSale} onChange={(e) => set('isInternetSale', e.target.checked)} />
+          İnternet satışı
+        </label>
+      </div>
+      {v.isInternetSale && (
+        <div className="flex flex-wrap items-end gap-2">
+          {field(
+            'Web adresi',
+            <input className={`${inp} w-56`} disabled={readOnly} value={v.webAddress ?? ''} onChange={(e) => set('webAddress', e.target.value)} />,
+          )}
+          {field(
+            'Ödeme şekli',
+            <select className={inp} disabled={readOnly} value={v.paymentMethod ?? ''} onChange={(e) => set('paymentMethod', e.target.value || null)}>
+              <option value="">Seçin</option>
+              {PAYMENT_METHODS.map((m) => (
+                <option key={m} value={m}>
+                  {m}
+                </option>
+              ))}
+            </select>,
+          )}
+          {v.paymentMethod === 'DIGER' &&
+            field(
+              'Ödeme açıklaması',
+              <input className={`${inp} w-44`} disabled={readOnly} value={v.paymentNote ?? ''} onChange={(e) => set('paymentNote', e.target.value)} />,
+            )}
+          {field(
+            'Ödeme aracısı',
+            <input className={`${inp} w-40`} disabled={readOnly} value={v.paymentAgent ?? ''} onChange={(e) => set('paymentAgent', e.target.value)} />,
+          )}
+          {field(
+            'Ödeme tarihi',
+            <input type="date" className={inp} disabled={readOnly} value={day(v.paymentDate)} onChange={(e) => set('paymentDate', e.target.value || null)} />,
+          )}
+          {field(
+            'Gönderi tarihi',
+            <input type="date" className={inp} disabled={readOnly} value={day(v.despatchDate)} onChange={(e) => set('despatchDate', e.target.value || null)} />,
+          )}
+          {field(
+            'Taşıyıcı VKN/TCKN',
+            <input
+              className={`${inp} w-32`}
+              disabled={readOnly}
+              maxLength={11}
+              value={v.carrierTaxNr ?? ''}
+              onChange={(e) => set('carrierTaxNr', e.target.value.replace(/\D/g, ''))}
+            />,
+          )}
+          {field(
+            'Taşıyıcı unvanı / adı',
+            <input className={`${inp} w-48`} disabled={readOnly} value={v.carrierName ?? ''} onChange={(e) => set('carrierName', e.target.value)} />,
+          )}
+        </div>
+      )}
+    </section>
   );
 };
 

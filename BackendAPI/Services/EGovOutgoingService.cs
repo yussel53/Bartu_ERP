@@ -50,6 +50,12 @@ public sealed class OutgoingPrepareResult
     public int? EGovDocumentId { get; set; }
     public string? SendStatus { get; set; }
     public DateTime? SentAt { get; set; }
+    /// <summary>E-04: e-Arşiv bilgileri (kayıtlı ya da firma varsayılanı)</summary>
+    public EGovInvoiceEArchiveRow? EArchive { get; set; }
+    public bool CancelAllowed { get; set; }
+    public string? CancelBlockReason { get; set; }
+    public DateTime? CancelledAt { get; set; }
+    public string? CancelReason { get; set; }
 }
 
 /// <summary>Gönderim reddi (409): canlı adres kilidi, eksik ayar ya da doğrulama hatası</summary>
@@ -217,6 +223,27 @@ public sealed class EGovOutgoingService
         }
         r.DocKind = r.ReceiverAlias == null ? (byte)2 : (byte)1;
 
+        // E-04: e-Arşiv bilgileri; kimliği bilinmeyen nihai tüketici → GİB'in 11111111111 TCKN'si
+        if (r.DocKind == 2)
+        {
+            var ea = await _repo.GetEArchiveAsync(d, ct);
+            r.EArchive = ea;
+            inv.EArchive = new UblEArchiveInfo
+            {
+                SendType = ea.SendType, IsInternetSale = ea.IsInternetSale, WebAddress = ea.WebAddress, PaymentMethod = ea.PaymentMethod,
+                PaymentNote = ea.PaymentNote, PaymentAgent = ea.PaymentAgent, PaymentDate = ea.PaymentDate, DespatchDate = ea.DespatchDate,
+                CarrierTaxNr = ea.CarrierTaxNr, CarrierName = ea.CarrierName,
+            };
+            if (ea.IsInternetSale && !string.IsNullOrWhiteSpace(ea.WebAddress)) inv.Supplier.Web = ea.WebAddress.Trim();
+            if (!string.IsNullOrWhiteSpace(ea.Email)) inv.Customer.Email = ea.Email.Trim();
+            if (string.IsNullOrWhiteSpace(inv.Customer.TaxNr))
+            {
+                inv.Customer.TaxNr = "11111111111";
+                if (string.IsNullOrWhiteSpace(inv.Customer.Name)) inv.Customer.Name = "Nihai Tüketici";
+                r.Issues.Add(new UblIssue { Level = "warning", Message = "Cari VKN/TCKN boş: nihai tüketici olarak 11111111111 TCKN'si yazıldı." });
+            }
+        }
+
         // Tip: iade → IADE; tevkifatlı satır → TEVKIFAT; istisna kodlu (351 dışı) satır → ISTISNA
         var isReturn = d.InvoiceType is 3 or 4;
         inv.TypeCode = isReturn ? "IADE"
@@ -349,21 +376,60 @@ public sealed class EGovOutgoingService
             r.InvoiceNoIsProjected = false;
         }
 
-        var cred = d.CompanyId is int cid ? (await _elogo.ListCompaniesAsync(ct)).FirstOrDefault(c => c.CompanyId == cid) : null;
+        r.CancelledAt = d.CancelledAt;
+        r.CancelReason = d.CancelReason;
+        var (cred, live, lockWhy) = await IntegratorLockAsync(d.CompanyId, ct);
         r.IntegratorUrl = cred?.IntegratorWsUrl;
-        r.IsLive = IsLiveUrl(cred?.IntegratorWsUrl);
-        var setting = d.CompanyId is int c2 ? await _repo.GetSettingAsync(c2, ct) : new EGovSendSetting();
+        r.IsLive = live;
 
         string? why = null;
         if (d.SendStatus == "Gönderildi") why = "Belge daha önce gönderildi.";
-        else if (cred == null || string.IsNullOrWhiteSpace(cred.IntegratorUser) || string.IsNullOrWhiteSpace(cred.IntegratorPassword))
-            why = "Firmada e-Logo kullanıcısı tanımlı değil.";
-        else if ((cred.IntegratorName ?? "").Trim().ToUpperInvariant() is not ("ELOGO" or "LOGO" or "E-LOGO"))
-            why = "Gönderim yalnız e-Logo entegratörüyle yapılabilir.";
-        else if (r.IsLive && !setting.AllowLiveSend)
-            why = "Canlı entegratör hesabında gönderim kapalı (test hesabıyla deneyin).";
+        else if (lockWhy != null) why = lockWhy;
         else if (r.Issues.Any(i => i.Level == "error")) why = "Doğrulama hataları giderilmeden gönderilemez.";
         r.SendAllowed = why == null;
         r.SendBlockReason = why;
+
+        // E-04: yalnız gönderilmiş e-Arşiv iptal edilir; canlı adreste gönderimle aynı kilit
+        string? cwhy = null;
+        if (d.SendStatus != "Gönderildi" || d.EGovDocumentId == null) cwhy = "Yalnız gönderilmiş belge iptal edilir.";
+        else if (r.DocKind != 2) cwhy = "e-Fatura iptali alıcının RED yanıtıyla ya da GİB portalından yapılır.";
+        else if (lockWhy != null) cwhy = lockWhy.Replace("gönderim", "iptal");
+        r.CancelAllowed = cwhy == null;
+        r.CancelBlockReason = cwhy;
+    }
+
+    /// <summary>Entegratör bilgisi + canlı adres kilidi (gönderim ve iptal ortak)</summary>
+    private async Task<(ELogoCompanyCredentials? Cred, bool IsLive, string? Why)> IntegratorLockAsync(int? companyId, CancellationToken ct)
+    {
+        var cred = companyId is int cid ? (await _elogo.ListCompaniesAsync(ct)).FirstOrDefault(c => c.CompanyId == cid) : null;
+        var live = IsLiveUrl(cred?.IntegratorWsUrl);
+        var setting = companyId is int c2 ? await _repo.GetSettingAsync(c2, ct) : new EGovSendSetting();
+        string? why = null;
+        if (cred == null || string.IsNullOrWhiteSpace(cred.IntegratorUser) || string.IsNullOrWhiteSpace(cred.IntegratorPassword))
+            why = "Firmada e-Logo kullanıcısı tanımlı değil.";
+        else if ((cred.IntegratorName ?? "").Trim().ToUpperInvariant() is not ("ELOGO" or "LOGO" or "E-LOGO"))
+            why = "Gönderim yalnız e-Logo entegratörüyle yapılabilir.";
+        else if (live && !setting.AllowLiveSend)
+            why = "Canlı entegratör hesabında gönderim kapalı (test hesabıyla deneyin).";
+        return (cred, live, why);
+    }
+
+    /// <summary>E-04: gönderilmiş e-Arşiv faturanın iptali — kilit e-Logo çağrısından önce denetlenir</summary>
+    public async Task<OutgoingPrepareResult> CancelAsync(int invoiceId, string reason, int? userId, CancellationToken ct)
+    {
+        if (string.IsNullOrWhiteSpace(reason)) throw new OutgoingSendBlockedException("İptal gerekçesi yazın.");
+        var r = await PreviewAsync(invoiceId, new OutgoingPrepareOptions { Html = false }, ct);
+        if (!r.CancelAllowed) throw new OutgoingSendBlockedException(r.CancelBlockReason ?? "İptal yapılamaz.");
+        var doc = await _repo.GetDocumentAsync(r.EGovDocumentId!.Value, ct) ?? throw new KeyNotFoundException("Belge bulunamadı.");
+        var (cred, _, _) = await IntegratorLockAsync(r.CompanyId, ct);
+
+        var http = _httpFactory.CreateClient("IntegratorEFatura");
+        await using var client = new ELogoPostBoxClient(http, ELogoDocumentSyncService.ResolvePostBoxUrl(cred!.IntegratorWsUrl),
+            cred.IntegratorUser!, cred.IntegratorPassword!, ownsHttp: false);
+        await client.LoginAsync(ct);
+        var (ok, code, msg) = await client.CancelEArchiveInvoiceAsync(doc.Uuid!, ct);
+        if (!ok) throw new OutgoingSendBlockedException($"e-Logo iptali reddetti (resultCode={code}): {msg}");
+        await _repo.MarkCancelledAsync(doc.EGovDocumentID, reason.Trim(), userId, ct);
+        return await PreviewAsync(invoiceId, new OutgoingPrepareOptions { Html = false }, ct);
     }
 }

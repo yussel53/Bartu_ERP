@@ -13,7 +13,30 @@ public sealed class EGovSendSetting
     public string? EDespatchPrefix { get; set; }
     public string DefaultProfile { get; set; } = "TICARIFATURA";
     public bool AllowLiveSend { get; set; }
+    /// <summary>E-04: internet satışında varsayılan web adresi</summary>
+    public string? EArchiveWebAddress { get; set; }
+    /// <summary>E-04: ELEKTRONIK · KAGIT</summary>
+    public string EArchiveSendType { get; set; } = "ELEKTRONIK";
     public DateTime? UpdatedAt { get; set; }
+}
+
+/// <summary>E-04: fatura başına e-Arşiv bilgisi (EGovInvoiceEArchive)</summary>
+public sealed class EGovInvoiceEArchiveRow
+{
+    public int InvoiceID { get; set; }
+    public string SendType { get; set; } = "ELEKTRONIK";
+    public string? Email { get; set; }
+    public bool IsInternetSale { get; set; }
+    public string? WebAddress { get; set; }
+    public string? PaymentMethod { get; set; }
+    public string? PaymentNote { get; set; }
+    public string? PaymentAgent { get; set; }
+    public DateTime? PaymentDate { get; set; }
+    public DateTime? DespatchDate { get; set; }
+    public string? CarrierTaxNr { get; set; }
+    public string? CarrierName { get; set; }
+    /// <summary>false: kayıt yok, firma varsayılanlarıyla dolduruldu</summary>
+    public bool Saved { get; set; }
 }
 
 public sealed class EGovCounterRow
@@ -42,6 +65,8 @@ public sealed class OutgoingInvoiceData
     public string? SentUuid { get; set; }
     public string? SendStatus { get; set; }
     public DateTime? SentAt { get; set; }
+    public DateTime? CancelledAt { get; set; }
+    public string? CancelReason { get; set; }
     /// <summary>Faturanın programdaki toplamları (gidiş-dönüş karşılaştırması)</summary>
     public decimal ProgramTax { get; set; }
     public decimal ProgramTotal { get; set; }
@@ -78,10 +103,12 @@ public sealed class EGovOutgoingRepository
             MERGE dbo.EGovSendSetting AS t
             USING (SELECT @CompanyId AS CompanyId) AS s ON t.CompanyId = s.CompanyId
             WHEN MATCHED THEN UPDATE SET EInvoicePrefix = @EInvoicePrefix, EArchivePrefix = @EArchivePrefix, EDespatchPrefix = @EDespatchPrefix,
-                 DefaultProfile = @DefaultProfile, UpdatedAt = SYSDATETIME(), UpdatedBy = @userId
-            WHEN NOT MATCHED THEN INSERT (CompanyId, EInvoicePrefix, EArchivePrefix, EDespatchPrefix, DefaultProfile, UpdatedAt, UpdatedBy)
-                 VALUES (@CompanyId, @EInvoicePrefix, @EArchivePrefix, @EDespatchPrefix, @DefaultProfile, SYSDATETIME(), @userId);
-            """, new { s.CompanyId, s.EInvoicePrefix, s.EArchivePrefix, s.EDespatchPrefix, s.DefaultProfile, userId }, cancellationToken: ct));
+                 DefaultProfile = @DefaultProfile, EArchiveWebAddress = @EArchiveWebAddress, EArchiveSendType = @EArchiveSendType,
+                 UpdatedAt = SYSDATETIME(), UpdatedBy = @userId
+            WHEN NOT MATCHED THEN INSERT (CompanyId, EInvoicePrefix, EArchivePrefix, EDespatchPrefix, DefaultProfile, EArchiveWebAddress, EArchiveSendType, UpdatedAt, UpdatedBy)
+                 VALUES (@CompanyId, @EInvoicePrefix, @EArchivePrefix, @EDespatchPrefix, @DefaultProfile, @EArchiveWebAddress, @EArchiveSendType, SYSDATETIME(), @userId);
+            """, new { s.CompanyId, s.EInvoicePrefix, s.EArchivePrefix, s.EDespatchPrefix, s.DefaultProfile, s.EArchiveWebAddress, s.EArchiveSendType, userId },
+            cancellationToken: ct));
     }
 
     /// <summary>Firmanın önekleri için sayaçlar + entegratörden çekilmiş giden belgelerde görülen en büyük sıra</summary>
@@ -133,6 +160,9 @@ public sealed class EGovOutgoingRepository
         public string? Uuid { get; set; }
         public string? DocumentNo { get; set; }
         public int? CompanyId { get; set; }
+        public string? SendStatus { get; set; }
+        public DateTime? CancelledAt { get; set; }
+        public DateTime? DocumentDate { get; set; }
     }
 
     /// <summary>Giden belge (durum sorgusu için); firma faturadan</summary>
@@ -140,7 +170,7 @@ public sealed class EGovOutgoingRepository
     {
         Open();
         return await _db.QueryFirstOrDefaultAsync<SentDocRow>(new CommandDefinition("""
-            SELECT d.EGovDocumentID, d.DocKind, d.UUID AS Uuid, d.DocumentNo, i.CompanyID AS CompanyId
+            SELECT d.EGovDocumentID, d.DocKind, d.UUID AS Uuid, d.DocumentNo, i.CompanyID AS CompanyId, d.SendStatus, d.CancelledAt, d.DocumentDate
             FROM dbo.EGovDocument d LEFT JOIN dbo.Invoice i ON i.InvoiceID = d.InvoiceID
             WHERE d.EGovDocumentID = @egovDocumentId AND d.Direction = 2
             """, new { egovDocumentId }, cancellationToken: ct));
@@ -313,7 +343,7 @@ public sealed class EGovOutgoingRepository
         d.ProgramTotal = UblInvoiceWriter.R(d.ProgramTotal);
 
         var sent = await _db.QueryFirstOrDefaultAsync(new CommandDefinition("""
-            SELECT TOP 1 EGovDocumentID, DocumentNo, UUID, SendStatus, SentAt FROM dbo.EGovDocument
+            SELECT TOP 1 EGovDocumentID, DocumentNo, UUID, SendStatus, SentAt, CancelledAt, CancelReason FROM dbo.EGovDocument
             WHERE Direction = 2 AND InvoiceID = @invoiceId AND ISNULL(IsActive, 1) = 1
             ORDER BY EGovDocumentID DESC
             """, new { invoiceId }, cancellationToken: ct));
@@ -324,8 +354,57 @@ public sealed class EGovOutgoingRepository
             d.SentUuid = sent.UUID;
             d.SendStatus = sent.SendStatus;
             d.SentAt = sent.SentAt;
+            d.CancelledAt = sent.CancelledAt;
+            d.CancelReason = sent.CancelReason;
         }
         return d;
+    }
+
+    /// <summary>Faturanın e-Arşiv bilgisi; kayıt yoksa firma varsayılanları (gönderim şekli, web adresi, cari e-postası)</summary>
+    public async Task<EGovInvoiceEArchiveRow> GetEArchiveAsync(OutgoingInvoiceData d, CancellationToken ct)
+    {
+        Open();
+        var row = await _db.QueryFirstOrDefaultAsync<EGovInvoiceEArchiveRow>(new CommandDefinition(
+            "SELECT *, CAST(1 AS bit) AS Saved FROM dbo.EGovInvoiceEArchive WHERE InvoiceID = @InvoiceId", new { d.InvoiceId }, cancellationToken: ct));
+        if (row != null) return row;
+        var s = d.CompanyId is int cid ? await GetSettingAsync(cid, ct) : new EGovSendSetting();
+        return new EGovInvoiceEArchiveRow
+        {
+            InvoiceID = d.InvoiceId,
+            SendType = string.IsNullOrWhiteSpace(s.EArchiveSendType) ? "ELEKTRONIK" : s.EArchiveSendType,
+            Email = d.Invoice.Customer.Email,
+            WebAddress = s.EArchiveWebAddress,
+        };
+    }
+
+    public async Task SaveEArchiveAsync(EGovInvoiceEArchiveRow r, int? userId, CancellationToken ct)
+    {
+        Open();
+        await _db.ExecuteAsync(new CommandDefinition("""
+            MERGE dbo.EGovInvoiceEArchive AS t
+            USING (SELECT @InvoiceID AS InvoiceID) AS s ON t.InvoiceID = s.InvoiceID
+            WHEN MATCHED THEN UPDATE SET SendType = @SendType, Email = @Email, IsInternetSale = @IsInternetSale, WebAddress = @WebAddress,
+                 PaymentMethod = @PaymentMethod, PaymentNote = @PaymentNote, PaymentAgent = @PaymentAgent, PaymentDate = @PaymentDate,
+                 DespatchDate = @DespatchDate, CarrierTaxNr = @CarrierTaxNr, CarrierName = @CarrierName, UpdatedAt = SYSDATETIME(), UpdatedBy = @userId
+            WHEN NOT MATCHED THEN INSERT (InvoiceID, SendType, Email, IsInternetSale, WebAddress, PaymentMethod, PaymentNote, PaymentAgent, PaymentDate,
+                 DespatchDate, CarrierTaxNr, CarrierName, UpdatedAt, UpdatedBy)
+                 VALUES (@InvoiceID, @SendType, @Email, @IsInternetSale, @WebAddress, @PaymentMethod, @PaymentNote, @PaymentAgent, @PaymentDate,
+                 @DespatchDate, @CarrierTaxNr, @CarrierName, SYSDATETIME(), @userId);
+            """, new
+        {
+            r.InvoiceID, r.SendType, r.Email, r.IsInternetSale, r.WebAddress, r.PaymentMethod, r.PaymentNote, r.PaymentAgent,
+            r.PaymentDate, r.DespatchDate, r.CarrierTaxNr, r.CarrierName, userId,
+        }, cancellationToken: ct));
+    }
+
+    /// <summary>e-Arşiv iptali (entegratör onayından sonra)</summary>
+    public async Task MarkCancelledAsync(int egovDocumentId, string reason, int? userId, CancellationToken ct)
+    {
+        Open();
+        await _db.ExecuteAsync(new CommandDefinition("""
+            UPDATE dbo.EGovDocument SET CancelledAt = SYSDATETIME(), CancelledBy = @userId, CancelReason = @reason, SendStatus = N'İptal', Status = N'İptal'
+            WHERE EGovDocumentID = @egovDocumentId AND Direction = 2
+            """, new { egovDocumentId, reason, userId }, cancellationToken: ct));
     }
 
     /// <summary>Satırın e-Belge ek alanları (ProductTrans U_ kolonları)</summary>

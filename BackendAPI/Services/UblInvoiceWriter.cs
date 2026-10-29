@@ -49,6 +49,37 @@ public sealed class UblOutLine
     public decimal Withholding => string.IsNullOrWhiteSpace(WithholdingCode) ? 0 : UblInvoiceWriter.R(Tax * WithholdingRate / 100m);
 }
 
+/// <summary>e-Arşiv'e özgü bilgiler (GİB e-Arşiv kılavuzu 3.3.2.4 gonderimSekli, 3.3.2.17 internetSatisBilgi)</summary>
+public sealed class UblEArchiveInfo
+{
+    /// <summary>ELEKTRONIK · KAGIT</summary>
+    public string SendType { get; set; } = "ELEKTRONIK";
+    public bool IsInternetSale { get; set; }
+    public string? WebAddress { get; set; }
+    /// <summary>KREDIKARTI/BANKAKARTI · EFT/HAVALE · KAPIDAODEME · ODEMEARACISI · DIGER</summary>
+    public string? PaymentMethod { get; set; }
+    /// <summary>DIGER'de ödeme şeklinin açıklaması</summary>
+    public string? PaymentNote { get; set; }
+    public string? PaymentAgent { get; set; }
+    public DateTime? PaymentDate { get; set; }
+    public DateTime? DespatchDate { get; set; }
+    public string? CarrierTaxNr { get; set; }
+    public string? CarrierName { get; set; }
+
+    /// <summary>Ödeme şekli → UN/ECE 4461 ödeme aracı kodu (entegratörlerin e-Arşiv rapor eşlemesi)</summary>
+    public static string? PaymentMeansCode(string? method) => method switch
+    {
+        "ODEMEARACISI" => "1",
+        "KAPIDAODEME" => "10",
+        "EFT/HAVALE" => "30",
+        "KREDIKARTI/BANKAKARTI" => "48",
+        "DIGER" => "97",
+        _ => null,
+    };
+
+    public static readonly string[] PaymentMethods = { "KREDIKARTI/BANKAKARTI", "EFT/HAVALE", "KAPIDAODEME", "ODEMEARACISI", "DIGER" };
+}
+
 public sealed class UblOutInvoice
 {
     public string InvoiceNo { get; set; } = "";
@@ -69,6 +100,8 @@ public sealed class UblOutInvoice
     public UblOutParty Supplier { get; set; } = new();
     public UblOutParty Customer { get; set; } = new();
     public List<UblOutLine> Lines { get; set; } = new();
+    /// <summary>Yalnız EARSIVFATURA'da yazılır</summary>
+    public UblEArchiveInfo? EArchive { get; set; }
 }
 
 /// <summary>
@@ -137,6 +170,18 @@ public static class UblInvoiceWriter
                 new XElement(Cbc + "ID", no),
                 new XElement(Cbc + "IssueDate", date.ToString("yyyy-MM-dd", Inv0))));
 
+        // e-Arşiv gönderim şekli / internet satışı işareti — entegratör bu alanlardan e-Arşiv raporunu üretir
+        var ea = inv.ProfileId == "EARSIVFATURA" ? inv.EArchive : null;
+        if (ea != null)
+        {
+            var day = inv.IssueDate.ToString("yyyy-MM-dd", Inv0);
+            root.Add(new XElement(Cac + "AdditionalDocumentReference",
+                new XElement(Cbc + "ID", "SendType"), new XElement(Cbc + "IssueDate", day), new XElement(Cbc + "DocumentType", ea.SendType)));
+            if (ea.IsInternetSale)
+                root.Add(new XElement(Cac + "AdditionalDocumentReference",
+                    new XElement(Cbc + "ID", "IsInternetSale"), new XElement(Cbc + "IssueDate", day), new XElement(Cbc + "DocumentType", "true")));
+        }
+
         // GİB şematronu cac:Signature ister; asıl imza UBLExtensions içindedir
         root.Add(new XElement(Cac + "Signature",
             new XElement(Cbc + "ID", new XAttribute("schemeID", "VKN_TCKN"), inv.Supplier.TaxNr),
@@ -148,6 +193,40 @@ public static class UblInvoiceWriter
 
         root.Add(new XElement(Cac + "AccountingSupplierParty", Party(inv.Supplier)));
         root.Add(new XElement(Cac + "AccountingCustomerParty", Party(inv.Customer)));
+
+        if (ea is { IsInternetSale: true })
+        {
+            // İnternet satışı: gönderi tarihi + taşıyıcı (Delivery), ödeme şekli / aracı / tarihi (PaymentMeans)
+            var carrier = (ea.CarrierTaxNr ?? "").Trim();
+            var delivery = new XElement(Cac + "Delivery");
+            if (carrier.Length > 0)
+            {
+                var person = carrier.Length == 11;
+                var name = (ea.CarrierName ?? "").Trim();
+                var parts = name.Split(' ', StringSplitOptions.RemoveEmptyEntries);
+                delivery.Add(new XElement(Cac + "CarrierParty",
+                    new XElement(Cac + "PartyIdentification", new XElement(Cbc + "ID", new XAttribute("schemeID", person ? "TCKN" : "VKN"), carrier)),
+                    person ? null : new XElement(Cac + "PartyName", new XElement(Cbc + "Name", name)),
+                    // UBL-TR şeması Party'de adres ister; taşıyıcının adresi tutulmuyor
+                    new XElement(Cac + "PostalAddress",
+                        new XElement(Cbc + "CitySubdivisionName", ""),
+                        new XElement(Cbc + "CityName", ""),
+                        new XElement(Cac + "Country", new XElement(Cbc + "Name", "Türkiye"))),
+                    person ? new XElement(Cac + "Person",
+                        new XElement(Cbc + "FirstName", parts.Length > 1 ? string.Join(' ', parts[..^1]) : name),
+                        new XElement(Cbc + "FamilyName", parts.Length > 1 ? parts[^1] : name)) : null));
+            }
+            if (ea.DespatchDate is DateTime dd)
+                delivery.Add(new XElement(Cac + "Despatch", new XElement(Cbc + "ActualDespatchDate", dd.ToString("yyyy-MM-dd", Inv0))));
+            if (delivery.HasElements) root.Add(delivery);
+
+            if (UblEArchiveInfo.PaymentMeansCode(ea.PaymentMethod) is { } code)
+                root.Add(new XElement(Cac + "PaymentMeans",
+                    new XElement(Cbc + "PaymentMeansCode", code),
+                    ea.PaymentDate is DateTime pd ? new XElement(Cbc + "PaymentDueDate", pd.ToString("yyyy-MM-dd", Inv0)) : null,
+                    string.IsNullOrWhiteSpace(ea.PaymentAgent) ? null : new XElement(Cbc + "PaymentChannelCode", ea.PaymentAgent.Trim()),
+                    code == "97" && !string.IsNullOrWhiteSpace(ea.PaymentNote) ? new XElement(Cbc + "InstructionNote", ea.PaymentNote.Trim()) : null));
+        }
 
         if (cur != "TRY" && inv.ExchangeRate is decimal rate && rate > 0)
             root.Add(new XElement(Cac + "PricingExchangeRate",
