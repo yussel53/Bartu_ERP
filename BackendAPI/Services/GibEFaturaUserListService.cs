@@ -502,7 +502,7 @@ BEGIN
   );
 END
 IF OBJECT_ID(N'dbo.EFaturaMukellefCheck', N'U') IS NULL
-  THROW 50000, N'EFaturaMukellefCheck tablosu yok — Veritabanı Güncelleme ile 20261020221500_egov_mukellef_slim.sql uygulayın.', 1;");
+  THROW 50000, N'EFaturaMukellefCheck tablosu yok — Veritabanı Güncelleme ile 20261020_221500_egov_mukellef_slim.sql uygulayın.', 1;");
     }
 
 
