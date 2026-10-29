@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useState } from 'react';
-import { Check, ChevronDown, Eye, FileText, Link2, Pencil, Plus, RefreshCw, Save, Search, Send, Trash2, UserPlus, X } from 'lucide-react';
+import { Check, ChevronDown, Eye, FileText, Link2, Pencil, Plus, RefreshCw, Save, Scale, Search, Send, Trash2, UserPlus, X } from 'lucide-react';
 import { MenuScreen } from '../types/formTypes';
 import { EGovDocumentList, EGovDocumentRow, listEGovDocuments } from '../api/egovDocumentsApi';
 import { EGOV_INCOMING_INVOICE_TYPES, approveEGovIncoming, rejectEGovIncoming } from '../api/egovIncomingApi';
@@ -8,6 +8,7 @@ import { deleteRecord } from '../api/recordsApi';
 import { EGovIncomingSaveModal } from '../components/EGovIncomingSaveModal';
 import { EGovDespatchSaveModal } from '../components/EGovDespatchSaveModal';
 import { EGovPartyCardModal } from '../components/EGovPartyCardModal';
+import { EGovResponseModal } from '../components/EGovResponseModal';
 import { EGovSendApprovalModal } from '../components/EGovSendApprovalModal';
 import { EGovDirection, EGovDocKindLabels } from '../data/egovTypes';
 import { appConfirm } from '../utils/appConfirm';
@@ -20,7 +21,7 @@ const fmtDate = (v?: string | null) => (v ? isoToDisplay(String(v).slice(0, 10))
 function statusClass(status?: string | null): string {
   const s = (status || '').toLocaleLowerCase('tr-TR');
   if (s.startsWith('onay') || s.startsWith('kabul')) return 'bg-emerald-50 text-emerald-700 border-emerald-200';
-  if (s.startsWith('red') || s.startsWith('hata') || s.startsWith('iptal')) return 'bg-red-50 text-red-700 border-red-200';
+  if (s.startsWith('red') || s.startsWith('hata') || s.startsWith('iptal') || s.startsWith('itiraz')) return 'bg-red-50 text-red-700 border-red-200';
   if (s.startsWith('gönder')) return 'bg-blue-50 text-blue-700 border-blue-200';
   if (s.startsWith('bekl')) return 'bg-amber-50 text-amber-800 border-amber-200';
   return 'bg-slate-50 text-slate-600 border-slate-200';
@@ -75,6 +76,7 @@ export const EGovDocumentListPage: React.FC<EGovDocumentListPageProps> = ({ scre
   const [viewFor, setViewFor] = useState<EGovDocumentRow | null>(null);
   const [sendFor, setSendFor] = useState<EGovDocumentRow | null>(null);
   const [partyFor, setPartyFor] = useState<EGovDocumentRow | null>(null);
+  const [responseFor, setResponseFor] = useState<EGovDocumentRow | null>(null);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -342,6 +344,20 @@ export const EGovDocumentListPage: React.FC<EGovDocumentListPageProps> = ({ scre
                         >
                           <UserPlus className="w-3.5 h-3.5" />
                         </button>
+                        {box.docKind !== 3 && (
+                          <button
+                            type="button"
+                            title={
+                              box.direction === 1 && (r.profileId ?? '').toUpperCase() === 'TICARIFATURA'
+                                ? 'Kabul / red · harici itiraz / iptal'
+                                : 'Harici itiraz / iptal kaydı'
+                            }
+                            onClick={() => setResponseFor(r)}
+                            className={`${iconBtn} ${r.hasObjection || r.responseCode === 'RED' ? 'text-red-600' : r.responseCode === 'KABUL' ? 'text-emerald-600' : ''}`}
+                          >
+                            <Scale className="w-3.5 h-3.5" />
+                          </button>
+                        )}
                         {canDelete(r) && (
                           <button
                             type="button"
@@ -551,6 +567,11 @@ export const EGovDocumentListPage: React.FC<EGovDocumentListPageProps> = ({ scre
             void load();
           }}
         />
+      )}
+
+      {/* Kabul / red · harici itiraz / iptal */}
+      {responseFor && (
+        <EGovResponseModal egovId={responseFor.eGovDocumentID} onClose={() => setResponseFor(null)} onChanged={() => void load()} />
       )}
 
       {/* e-Faturadan cari kart */}

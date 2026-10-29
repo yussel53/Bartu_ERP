@@ -118,6 +118,8 @@ builder.Services.AddScoped<EGovTaxReportRepository>();
 builder.Services.AddScoped<EGovOutgoingRepository>();
 builder.Services.AddScoped<UblValidator>();
 builder.Services.AddScoped<EGovOutgoingService>();
+builder.Services.AddScoped<EGovResponseRepository>();
+builder.Services.AddScoped<EGovResponseService>();
 builder.Services.AddScoped<ApprovalGroupRepository>();
 builder.Services.AddSingleton<AddressSeedService>();
 builder.Services.AddHttpClient("PostSave", client =>

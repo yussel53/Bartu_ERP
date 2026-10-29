@@ -25,11 +25,13 @@ public sealed class EGovIncomingController : ControllerBase
     private readonly ProcessRepository _process;
     private readonly DataScopeService _scope;
     private readonly AccountingPostService _accounting;
+    private readonly EGovResponseService _response;
 
     public EGovIncomingController(
         EGovIncomingRepository repo, PostSaveRepository postSave, ProcessRepository process,
-        DataScopeService scope, AccountingPostService accounting)
+        DataScopeService scope, AccountingPostService accounting, EGovResponseService response)
     {
+        _response = response;
         _repo = repo;
         _postSave = postSave;
         _process = process;
@@ -105,6 +107,8 @@ public sealed class EGovIncomingController : ControllerBase
                     ["WhouseID"] = req.WhouseId,
                 }))
                 return StatusCode(403, new { message = "Seçilen firma / ambar yetki kapsamınızın dışında." });
+            // Reddedilen / itiraz edilen fatura programa alış faturası olarak kaydedilmez
+            if (await _response.SaveBlockReasonAsync(id, ct) is { } blocked) return BadRequest(new { message = blocked });
 
             var (ok, invoiceId, message, body) = await _repo.SaveAsync(id, req, ct);
             if (!ok) return BadRequest(new { message });
