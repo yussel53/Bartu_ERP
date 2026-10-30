@@ -240,7 +240,7 @@ public sealed partial class ImportRepository
             Notes =
             {
                 "Satırlar koddaki seviyeye göre sıralanır; önce üst hesaplar kaydedilir.",
-                "Kodda nokta varsa üst hesap noktadan önceki koddur (100.01 → 100).",
+                "Kodda nokta varsa üst hesap zorunlu (120.01 → 120); üst yoksa satır hata alır.",
                 "Noktasız kodlarda Üst Hesap Kodu kolonu veya önek kuralı kullanılır (1 ← 10 ← 100).",
                 "Hesap tipi boşsa: altı olan hesap Ana, diğerleri Detay.",
             },
@@ -460,6 +460,16 @@ public sealed partial class ImportRepository
             var found = existing.TryGetValue(row.Code, out var ex);
             if (row.Errors.Count == 0 && !found && !row.Values.ContainsKey("Title"))
                 row.Errors.Add("Ad / ünvan zorunlu (yeni kayıt)");
+
+            // Hesap: üst hesap yoksa alt hesap eklenmez (120.01 → 120 zorunlu)
+            if (row.Errors.Count == 0
+                && def.Kind == "account"
+                && accountParents.TryGetValue(row.Code, out var needParent)
+                && !string.IsNullOrEmpty(needParent)
+                && !existing.ContainsKey(needParent!))
+            {
+                row.Errors.Add($"Üst hesap «{needParent}» yok — önce ana hesabı ekleyin");
+            }
 
             if (row.Errors.Count > 0)
             {
@@ -774,15 +784,11 @@ public sealed partial class ImportRepository
 
                 if (accountParents.TryGetValue(row.Code, out var parentCode) && !string.IsNullOrEmpty(parentCode))
                 {
-                    var exists = existing.ContainsKey(parentCode);
-                    if (!exists)
-                        warnings.Add($"Üst hesap {parentCode} bulunamadı — bağlantısız kaydedilir");
-                    else if (!row.Code.Contains('.'))
-                    {
-                        var pid = existing[parentCode].Id;
-                        if (pid > 0) std["MainAccountID"] = pid;
-                        else if (!dryRun) warnings.Add($"Üst hesap {parentCode} bağlanamadı");
-                    }
+                    // Üst yoksa satır zaten hata; burada yalnızca MainAccountID bağla
+                    if (existing.TryGetValue(parentCode!, out var parentRow) && parentRow.Id > 0)
+                        std["MainAccountID"] = parentRow.Id;
+                    else if (!row.Code.Contains('.') && dryRun && existing.ContainsKey(parentCode!))
+                        std["MainAccount"] = false; // dry-run: üst aynı dosyada, ID sonra gelir
                 }
                 break;
         }

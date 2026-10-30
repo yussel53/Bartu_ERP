@@ -1,5 +1,5 @@
 import React from 'react';
-import { FileSpreadsheet, Download, Upload, Eye, CheckCircle2, X, Play, ScrollText } from 'lucide-react';
+import { FileSpreadsheet, Download, Upload, Eye, CheckCircle2, X, Play, ScrollText, Copy } from 'lucide-react';
 import { RowActions } from '../components/RowActions';
 import {
   applyImport,
@@ -509,13 +509,15 @@ export const DataImportPage: React.FC<DataImportPageProps> = () => {
     setScreen('form');
   };
 
-  const openProfile = (p: ImportProfile) => {
+  const openProfile = (p: ImportProfile, opts?: { asCopy?: boolean }) => {
+    const asCopy = Boolean(opts?.asCopy);
     setKind(p.kind);
     setChannel(p.sourceKind === 4 ? 'excel' : String(p.sourceKind) as Channel);
     setScreen('form');
     setLink({ ...emptySource(), ...p.source, password: '' });
-    setProfileId(p.importProfileID);
-    setProfileTitle(p.title);
+    setProfileId(asCopy ? 0 : p.importProfileID);
+    const baseTitle = (p.title || '').trim() || 'Aktarım';
+    setProfileTitle(asCopy ? `${baseTitle} (kopya)` : baseTitle);
     setIntervalMin(p.intervalMinutes ? String(p.intervalMinutes) : '');
     setAfterSql(p.afterSql ?? '');
     setKeepLog(p.keepLog !== false);
@@ -547,7 +549,15 @@ export const DataImportPage: React.FC<DataImportPageProps> = () => {
       .catch(() => { /* şifre alanı boş kalır; kayıtlı değer sunucuda durur */ });
     setSheet(null);
     setLinkTest(null);
-    setInfo(p.lastStatus ? `Son çalışma: ${p.lastStatus}` : 'Profil açıldı. Başlıkları alıp eşlemeyi kontrol edin.');
+    setResult(null);
+    setError(null);
+    setInfo(
+      asCopy
+        ? 'Kopya oluşturuldu. Kaydet ile yeni aktarım kartı yazılır; kaynak eşleme aynı kalır.'
+        : p.lastStatus
+          ? `Son çalışma: ${p.lastStatus}`
+          : 'Profil açıldı. Başlıkları alıp eşlemeyi kontrol edin.',
+    );
   };
 
   const run = async (dryRun: boolean) => {
@@ -744,10 +754,11 @@ export const DataImportPage: React.FC<DataImportPageProps> = () => {
                   <tr key={p.importProfileID} className="border-b border-slate-100 dark:border-slate-800 hover:bg-slate-50 dark:hover:bg-slate-800/40 h-9 group">
                     <td className="px-2 py-1 sticky left-0 bg-white dark:bg-slate-900 group-hover:bg-slate-50 dark:group-hover:bg-slate-800/40">
                       <RowActions
-                        allowed={{ view: true, create: false, update: true, delete: true }}
+                        allowed={{ view: true, create: true, update: true, delete: true }}
                         handlers={{
                           onView: () => openProfile(p),
                           onEdit: () => openProfile(p),
+                          onCopy: () => openProfile(p, { asCopy: true }),
                           onDelete: () => void removeProfile(p),
                         }}
                         extraItems={[
@@ -841,14 +852,33 @@ export const DataImportPage: React.FC<DataImportPageProps> = () => {
           <h2 className="text-[14px] font-semibold text-slate-800 dark:text-slate-100">
             {profileId ? 'Aktarımı düzenle' : 'Yeni aktarım'}
           </h2>
-          <button
-            type="button"
-            disabled={busy}
-            onClick={() => void saveProfile()}
-            className="ml-auto px-3 h-8 text-[12px] font-semibold text-white bg-blue-600 hover:bg-blue-500 rounded-md disabled:opacity-50"
-          >
-            Kaydet
-          </button>
+          <div className="ml-auto flex items-center gap-1.5">
+            {profileId > 0 && (
+              <button
+                type="button"
+                disabled={busy}
+                title="Bu kartı kopyala — Kaydet ile yeni kayıt oluşur"
+                onClick={() => {
+                  const t = (profileTitle || '').trim() || 'Aktarım';
+                  setProfileId(0);
+                  setProfileTitle(/\(\s*kopya\s*\)$/i.test(t) ? t : `${t} (kopya)`);
+                  setInfo('Kopya modu: Kaydet ile yeni aktarım kartı yazılır.');
+                }}
+                className="inline-flex items-center gap-1 px-3 h-8 text-[12px] font-semibold rounded-md border border-slate-300 text-slate-700 hover:bg-slate-50 disabled:opacity-50"
+              >
+                <Copy className="w-3.5 h-3.5" />
+                Kopyala
+              </button>
+            )}
+            <button
+              type="button"
+              disabled={busy}
+              onClick={() => void saveProfile()}
+              className="px-3 h-8 text-[12px] font-semibold text-white bg-blue-600 hover:bg-blue-500 rounded-md disabled:opacity-50"
+            >
+              Kaydet
+            </button>
+          </div>
         </div>
 
       <section className="rounded-md border border-slate-200 dark:border-slate-700 bg-slate-50/60 dark:bg-slate-800/30 p-3 space-y-3">

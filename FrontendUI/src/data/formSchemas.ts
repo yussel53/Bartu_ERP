@@ -1554,7 +1554,7 @@ export const FORM_SCHEMAS: Record<string, FormSchemaDto> = {
         orderIndex: 4,
         useLookup: true,
         helpText:
-          'Kodda nokta (.) varsa üst hesap otomatik bağlanır (100.01 → 100). Noktasız kodlarda manuel seçin (ör. 10 → 1, 100 → 10).',
+          'Kodda nokta (.) varsa üst hesap zorunlu ve otomatik bağlanır (120.01 → 120). Üst hesap yoksa kayıt / aktarım engellenir. Noktasız kodlarda manuel seçin (10 → 1).',
       },
       { fieldId: 203, fieldName: 'MainAccount', label: 'Ana Hesap mı?', fieldType: 'checkbox', isRequired: false, colSpan: 4, orderIndex: 5 },
       { fieldId: 204, fieldName: 'IsActive', label: 'Aktif', fieldType: 'checkbox', isRequired: false, colSpan: 4, orderIndex: 6 },

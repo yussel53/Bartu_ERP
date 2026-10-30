@@ -11,8 +11,10 @@ import { QuickCreateModal, useLookupCreateDepth } from './QuickCreateModal';
 import {
   DEPENDENT_LOOKUPS,
   loadDependentLookupOptions,
+  loadLookupOptions,
   lookupSourceForField,
   reloadLookupOptions,
+  resolveLookupOption,
   type DependentLookupDef,
 } from '../api/lookupApi';
 
@@ -66,7 +68,17 @@ export const LookupField: React.FC<LookupFieldProps> = ({
   const parentId = parentRaw == null || parentRaw === '' ? '' : String(parentRaw);
 
   React.useEffect(() => {
-    if (!dep) setOptions(optionsProp);
+    if (dep) return;
+    // optionsProp her render’da yeni dizi olabilir — seçili Code etiketini silme
+    setOptions((prev) => {
+      const byVal = new Map(optionsProp.map((o) => [o.value, o]));
+      for (const o of prev) {
+        if (byVal.has(o.value)) continue;
+        const bare = !o.label || o.label === o.value || /^#?\d+$/.test(o.label.trim());
+        if (!bare) byVal.set(o.value, o);
+      }
+      return Array.from(byVal.values());
+    });
   }, [optionsProp, dep]);
 
   React.useEffect(() => {
@@ -91,6 +103,30 @@ export const LookupField: React.FC<LookupFieldProps> = ({
   const display = selected?.label ?? (value ? value : '');
 
   const src = fieldName ? lookupSourceForField(fieldName) : null;
+
+  /** Üst hesap (120.01→120): seçili ID yalnız sayıysa Code — Ad getir */
+  React.useEffect(() => {
+    if (!fieldName || !src || !value || value === '0') return;
+    const lbl = selected?.label?.trim() ?? '';
+    const looksLikeBareId = !lbl || lbl === value || /^#?\d+$/.test(lbl);
+    if (!looksLikeBareId) return;
+    let cancelled = false;
+    void (async () => {
+      const cached = await loadLookupOptions(fieldName);
+      const hit = cached?.find((o) => o.value === value);
+      if (cancelled) return;
+      if (hit?.label && hit.label !== value && !/^#?\d+$/.test(hit.label.trim())) {
+        setOptions((prev) => [hit, ...prev.filter((p) => p.value !== hit.value)]);
+        return;
+      }
+      const opt = await resolveLookupOption(fieldName, value);
+      if (cancelled || !opt) return;
+      setOptions((prev) => [opt, ...prev.filter((p) => p.value !== opt.value)]);
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [fieldName, src, value, selected?.label]);
   const canCreate =
     !disabled &&
     Boolean(src?.createFormCode) &&

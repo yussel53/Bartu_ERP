@@ -53,6 +53,7 @@ import { defaultAuxilValueRow, AUXIL_VALUE_KIND } from '../data/auxilCodes';
 import { AuxilCodeAssignmentEditor } from './AuxilCodeAssignmentEditor';
 import { listRecords } from '../api/recordsApi';
 import { accountCodeHasParentDot, parentAccountCode } from '../data/accountParentLink';
+import { appToast } from '../utils/appToast';
 import { appConfirm } from '../utils/appConfirm';
 
 interface DynamicFormEngineProps {
@@ -281,8 +282,18 @@ export const DynamicFormEngine: React.FC<DynamicFormEngineProps> = ({
           const id = Number(r.AccountCardID ?? r.accountCardID ?? r.id);
           return Number.isFinite(id) && id > 0 && id !== selfId;
         });
-        const parentId = row ? Number(row.AccountCardID ?? row.accountCardID ?? row.id) : NaN;
+        if (!row) {
+          setValue('standardFields.MainAccountID', '', { shouldDirty: true });
+          return;
+        }
+        const parentId = Number(row.AccountCardID ?? row.accountCardID ?? row.id);
         if (Number.isFinite(parentId) && parentId > 0) {
+          // 120.01 → üst 120: ID kaydet, ekranda Code — Ad (ham referans değil)
+          const code = String(row.Code ?? row.code ?? parentCode).trim() || parentCode;
+          const title = String(row.Title ?? row.title ?? '').trim();
+          const label = [code, title].filter(Boolean).join(' — ') || code;
+          const { injectLookupOption } = await import('../api/lookupApi');
+          injectLookupOption('MainAccountID', { value: String(parentId), label });
           setValue('standardFields.MainAccountID', String(parentId), { shouldDirty: true });
           setValue('standardFields.MainAccount', false, { shouldDirty: true });
           const curType = String(watch('standardFields.Type_') ?? '').trim();
@@ -668,6 +679,18 @@ export const DynamicFormEngine: React.FC<DynamicFormEngineProps> = ({
         return;
       }
       setAddressError(null);
+    }
+
+    // Hesap kartı: 120.01 için 120 yoksa kaydetme
+    if (schema.tableName === 'AccountCard') {
+      const code = String((data.standardFields as Record<string, unknown>)?.Code ?? '').trim();
+      const needParent = parentAccountCode(code);
+      const mid = Number((data.standardFields as Record<string, unknown>)?.MainAccountID ?? 0);
+      if (needParent && !(mid > 0)) {
+        appToast(`Üst hesap «${needParent}» yok — önce ana hesabı kaydedin.`, { kind: 'error', durationMs: 5000 });
+        setTab('genel');
+        return;
+      }
     }
 
     const payload: DynamicFormDataDto = {

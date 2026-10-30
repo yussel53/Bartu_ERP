@@ -1101,11 +1101,13 @@ GROUP BY t.ItemsID, v.Type_",
 
         var incoming = data.StandardFields ?? new Dictionary<string, object?>();
 
-        // Hesap kartı: kodda '.' varsa üst hesap = son noktadan önceki kod (her zaman)
+        // Hesap kartı: kodda '.' varsa üst hesap zorunlu (yoksa kayıt engellenir)
         if (tableName.Equals("AccountCard", StringComparison.OrdinalIgnoreCase)
             && colSet.Contains("MainAccountID"))
         {
-            await ApplyAccountParentLinkAsync(incoming, data.RecordId, ct);
+            var parentErr = await ApplyAccountParentLinkAsync(incoming, data.RecordId, ct);
+            if (parentErr != null)
+                return (false, data.RecordId, parentErr);
         }
 
         // Masraf boyut kartı: CostDimID → DimNo senkron
@@ -1877,10 +1879,11 @@ VALUES ({string.Join(", ", writeCols.Select(c => "@" + c))});";
     }
 
     /// <summary>
-    /// Hesap kodunda '.' varsa üst hesap = son noktadan önceki kod (her zaman zorlanır).
+    /// Kodda '.' varsa üst hesap = son noktadan önceki kod; üst yoksa kayıt engellenir (120.01 → 120).
     /// Noktasız kodlarda MainAccountID kullanıcı seçimine bırakılır (1 ← 10 ← 100).
     /// </summary>
-    private async Task ApplyAccountParentLinkAsync(
+    /// <returns>Hata mesajı veya null</returns>
+    private async Task<string?> ApplyAccountParentLinkAsync(
         Dictionary<string, object?> incoming,
         int recordId,
         CancellationToken ct)
@@ -1896,13 +1899,13 @@ VALUES ({string.Join(", ", writeCols.Select(c => "@" + c))});";
         }
 
         var code = NormalizeJsonElement(codeRaw)?.ToString()?.Trim();
-        if (string.IsNullOrWhiteSpace(code)) return;
+        if (string.IsNullOrWhiteSpace(code)) return null;
 
         var lastDot = code.LastIndexOf('.');
-        if (lastDot <= 0) return; // manuel üst hesap
+        if (lastDot <= 0) return null; // manuel üst hesap
 
         var parentCode = code[..lastDot].Trim();
-        if (string.IsNullOrWhiteSpace(parentCode)) return;
+        if (string.IsNullOrWhiteSpace(parentCode)) return null;
 
         var parentId = await _db.ExecuteScalarAsync<int?>(new CommandDefinition(
             @"SELECT TOP (1) AccountCardID
@@ -1912,13 +1915,17 @@ VALUES ({string.Join(", ", writeCols.Select(c => "@" + c))});";
             new { parentCode, selfId = recordId },
             cancellationToken: ct));
 
-        SetIncoming(incoming, "MainAccountID", parentId is > 0 ? parentId.Value : null);
+        if (parentId is not > 0)
+            return $"Üst hesap «{parentCode}» yok — önce ana hesabı kaydedin (alt hesap: {code}).";
+
+        SetIncoming(incoming, "MainAccountID", parentId.Value);
         SetIncoming(incoming, "MainAccount", false);
 
         // Noktalı kod = detay hesap
         var hasType = incoming.Keys.Any(k => k.Equals("Type_", StringComparison.OrdinalIgnoreCase));
         if (!hasType || IsIncomingEmpty(incoming, "Type_"))
             SetIncoming(incoming, "Type_", (byte)2);
+        return null;
     }
 
     private static void SetIncoming(Dictionary<string, object?> incoming, string key, object? value)

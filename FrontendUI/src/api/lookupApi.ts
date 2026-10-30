@@ -107,6 +107,7 @@ const FIELD_LOOKUP: Record<string, LookupSource> = {
     pk: 'AccountCardID',
     codeCols: ['Code'],
     titleCols: ['Title'],
+    take: 2000,
     createFormCode: 'AccountCardForm',
     createTitle: 'Yeni Muhasebe Hesabı',
   },
@@ -115,6 +116,7 @@ const FIELD_LOOKUP: Record<string, LookupSource> = {
     pk: 'AccountCardID',
     codeCols: ['Code'],
     titleCols: ['Title'],
+    take: 2000,
     createFormCode: 'AccountCardForm',
     createTitle: 'Yeni Muhasebe Hesabı',
   },
@@ -123,6 +125,7 @@ const FIELD_LOOKUP: Record<string, LookupSource> = {
     pk: 'AccountCardID',
     codeCols: ['Code'],
     titleCols: ['Title'],
+    take: 2000,
     createFormCode: 'AccountCardForm',
     createTitle: 'Yeni Muhasebe Hesabı',
   },
@@ -221,6 +224,7 @@ const FIELD_LOOKUP: Record<string, LookupSource> = {
     pk: 'AccountCardID',
     codeCols: ['Code'],
     titleCols: ['Title'],
+    take: 2000,
     createFormCode: 'AccountCardForm',
     createTitle: 'Yeni Muhasebe Hesabı',
   },
@@ -366,8 +370,64 @@ function pick(row: Record<string, unknown>, cols: string[]): string {
   return '';
 }
 
+/** Kod — Ad (üst hesap vb. seçili satır etiketi) */
+export function formatLookupLabel(
+  row: Record<string, unknown>,
+  src: Pick<LookupSource, 'codeCols' | 'titleCols' | 'pk'>,
+  fallbackId?: string,
+): string {
+  const code = pick(row, src.codeCols);
+  const title = pick(row, src.titleCols);
+  const label = [code, title].filter(Boolean).join(' — ');
+  if (label) return label;
+  const id = fallbackId || String(row[src.pk] ?? row.id ?? '');
+  return id ? `#${id}` : '';
+}
+
+/** Liste sınırlıyken seçili ID listede yoksa tek kayıt çek → Code — Title */
+export async function resolveLookupOption(
+  fieldName: string,
+  id: string,
+): Promise<LookupOption | null> {
+  const src = FIELD_LOOKUP[fieldName];
+  if (!src || !id || id === '0') return null;
+  const n = Number(id);
+  if (!Number.isFinite(n) || n <= 0) return null;
+  try {
+    const { getRecord } = await import('./recordsApi');
+    const rec = await getRecord(src.table, n, src.pk);
+    const row: Record<string, unknown> = {
+      ...(rec.standardFields || {}),
+      [src.pk]: n,
+      id: n,
+    };
+    const label = formatLookupLabel(row, src, String(n));
+    if (!label) return null;
+    const opt: LookupOption = { value: String(n), label };
+    injectLookupOption(fieldName, opt);
+    return opt;
+  } catch {
+    return null;
+  }
+}
+
+/** 120.01 → üst 120: Code — Title’ı seçeneklere yaz (ham ID görünmesin) */
+export function injectLookupOption(fieldName: string, opt: LookupOption): void {
+  const src = FIELD_LOOKUP[fieldName];
+  if (!src || !opt.value) return;
+  const key = cacheKey(src);
+  const prev = cache.get(key);
+  cache.set(
+    key,
+    (prev ?? Promise.resolve([] as LookupOption[])).then((list) => {
+      const rest = list.filter((o) => o.value !== opt.value);
+      return [opt, ...rest];
+    }),
+  );
+}
+
 function cacheKey(src: LookupSource): string {
-  return `${src.table}|${src.pk}|${src.filterColumn || ''}|${src.filterValue ?? ''}`;
+  return `${src.table}|${src.pk}|take:${src.take ?? 500}|${src.filterColumn || ''}|${src.filterValue ?? ''}`;
 }
 
 export function lookupSourceForField(fieldName: string): LookupSource | null {
@@ -446,9 +506,7 @@ export async function loadLookupOptions(
         .map((row) => {
           const r = row as Record<string, unknown>;
           const id = row[src.pk] ?? row.id ?? row.Id;
-          const code = pick(r, src.codeCols);
-          const title = pick(r, src.titleCols);
-          const label = [code, title].filter(Boolean).join(' — ') || String(id ?? '');
+          const label = formatLookupLabel(r, src, id != null ? String(id) : '') || String(id ?? '');
           const opt: LookupOption = { label, value: String(id ?? '') };
           if (src.table === 'CostDimCard') {
             const linked = r.LinkedCostDimCardID ?? r.linkedCostDimCardID;
