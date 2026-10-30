@@ -14,7 +14,9 @@ import { FieldRenderer } from './FieldRenderer';
 import { FormTabs } from './FormTabs';
 import { canField } from '../data/permissions';
 import { getCurrency, getCurrencyRate, LOCAL_CURRENCY_ID, CURRENCIES } from '../data/currencies';
-import { Plus, Minus, RefreshCw, ClipboardPaste, Pencil } from 'lucide-react';
+import { Plus, Minus, RefreshCw, ClipboardPaste, Pencil, Printer, Loader2 } from 'lucide-react';
+import { printDocumentForm } from '../utils/printDocumentForm';
+import { appToast } from '../utils/appToast';
 import { FieldLayoutContext, FormFieldContext, InlineColsContext, InlineFieldGrid } from './FormFieldContext';
 import { useOrgFieldCascade } from '../hooks/useOrgFieldCascade';
 import { allocateDocumentNumber } from '../api/numberTemplateApi';
@@ -122,6 +124,8 @@ interface DocumentFormEngineProps {
   onSubmit: (data: DynamicFormDataDto) => void;
   isLoading?: boolean;
   readOnly?: boolean;
+  /** Muhasebeleşmiş: gövde kilit, ödeme planı serbest */
+  postedLock?: boolean;
   /** Açık fiş tray — form değiştikçe taslak güncelle */
   onLiveChange?: (data: DynamicFormDataDto) => void;
 }
@@ -386,8 +390,12 @@ export const DocumentFormEngine: React.FC<DocumentFormEngineProps> = ({
   onSubmit,
   isLoading = false,
   readOnly = false,
+  postedLock = false,
   onLiveChange,
 }) => {
+  const bodyRo = readOnly || postedLock;
+  const payRo = readOnly; // inceleme; postedLock ödeme serbest
+
   const hasLines = Boolean(schema.lineFields?.length);
   const tradeLayout = schema.documentLayout === 'trade';
   /** İndirim / KDV / Net özeti yalnızca malzeme (veya hizmet) satırı içeren fişlerde */
@@ -469,7 +477,7 @@ export const DocumentFormEngine: React.FC<DocumentFormEngineProps> = ({
   const hasPartyAddress = schema.fields.some((f) => f.fieldName === 'CustomerAdressID');
   const prevAddrCustomer = React.useRef<number | null | undefined>(undefined);
   React.useEffect(() => {
-    if (!hasPartyAddress || readOnly) return;
+    if (!hasPartyAddress || bodyRo) return;
     const first = prevAddrCustomer.current === undefined;
     const changed = prevAddrCustomer.current !== headerCustomerId;
     prevAddrCustomer.current = headerCustomerId;
@@ -509,7 +517,7 @@ export const DocumentFormEngine: React.FC<DocumentFormEngineProps> = ({
     return () => {
       cancelled = true;
     };
-  }, [headerCustomerId, hasPartyAddress, readOnly, setValue, getValues]);
+  }, [headerCustomerId, hasPartyAddress, bodyRo, setValue, getValues]);
 
   const hasLinePrice = Boolean(schema.lineFields?.some((f) => f.fieldName === 'Price'));
   const hasLineUnit = Boolean(schema.lineFields?.some((f) => f.fieldName === 'UnitID'));
@@ -536,13 +544,13 @@ export const DocumentFormEngine: React.FC<DocumentFormEngineProps> = ({
     schema,
     watch,
     setValue,
-    readOnly,
+    readOnly: bodyRo,
     applyDefaultsIfEmpty: isNewRecord,
   });
   const prevCurrency = React.useRef<unknown>(undefined);
   const prevDefaultCurrency = React.useRef<unknown>(undefined);
   React.useEffect(() => {
-    if (readOnly) return;
+    if (bodyRo) return;
     if (prevCurrency.current === undefined) {
       prevCurrency.current = watchedCurrency;
       return;
@@ -553,11 +561,11 @@ export const DocumentFormEngine: React.FC<DocumentFormEngineProps> = ({
       });
     }
     prevCurrency.current = watchedCurrency;
-  }, [watchedCurrency, readOnly, setValue]);
+  }, [watchedCurrency, bodyRo, setValue]);
   /** Muhasebe satırı: ya borç ya alacak — bir tarafa tutar girilince karşı taraf silinir */
   React.useEffect(() => {
     const bal = schema.balanceFields;
-    if (readOnly || !bal) return;
+    if (bodyRo || !bal) return;
     const re = new RegExp(`^lines\\.(\\d+)\\.(${bal.debit}|${bal.credit})$`);
     const sub = watch((values, { name, type }) => {
       if (type !== 'change' || !name) return;
@@ -572,14 +580,14 @@ export const DocumentFormEngine: React.FC<DocumentFormEngineProps> = ({
       setValue(`lines.${m[1]}.${other}`, '', { shouldDirty: true });
     });
     return () => sub.unsubscribe();
-  }, [schema.balanceFields, readOnly, watch, setValue]);
+  }, [schema.balanceFields, bodyRo, watch, setValue]);
   /** Formüllü ek alanlar — değer girildikçe hesaplanır */
   const lineTable = React.useMemo(
     () => (schema.lineFields?.length ? lineTableFor(schema.tableName) : undefined),
     [schema.lineFields, schema.tableName],
   );
   React.useEffect(() => {
-    if (readOnly) return;
+    if (bodyRo) return;
     if (!formulaExtraFields(schema.tableName).length && !(lineTable && formulaExtraFields(lineTable).length)) {
       return;
     }
@@ -605,9 +613,9 @@ export const DocumentFormEngine: React.FC<DocumentFormEngineProps> = ({
       apply(values as Record<string, unknown>);
     });
     return () => sub.unsubscribe();
-  }, [schema.tableName, lineTable, readOnly, watch, setValue, getValues]);
+  }, [schema.tableName, lineTable, bodyRo, watch, setValue, getValues]);
   React.useEffect(() => {
-    if (readOnly) return;
+    if (bodyRo) return;
     if (prevDefaultCurrency.current === undefined) {
       prevDefaultCurrency.current = watchedDefaultCurrency;
       return;
@@ -622,7 +630,7 @@ export const DocumentFormEngine: React.FC<DocumentFormEngineProps> = ({
       });
     }
     prevDefaultCurrency.current = watchedDefaultCurrency;
-  }, [watchedDefaultCurrency, readOnly, setValue]);
+  }, [watchedDefaultCurrency, bodyRo, setValue]);
 
   const { fields, append, remove } = useFieldArray({
     control: control as Control<FieldValues>,
@@ -836,11 +844,11 @@ export const DocumentFormEngine: React.FC<DocumentFormEngineProps> = ({
       : lineMoney?.net ?? grandTotal;
 
   React.useEffect(() => {
-    if (!hasLines || readOnly) return;
+    if (!hasLines || bodyRo) return;
     if (schema.fields.some((f) => f.fieldName === 'Amount')) {
       setValue('standardFields.Amount', payableTotal, { shouldDirty: false });
     }
-  }, [payableTotal, hasLines, readOnly, schema.fields, setValue]);
+  }, [payableTotal, hasLines, bodyRo, schema.fields, setValue]);
 
   /**
    * Satır malzeme kimliği. watch('lines') iç içe alanı kaçırabiliyor;
@@ -893,7 +901,7 @@ export const DocumentFormEngine: React.FC<DocumentFormEngineProps> = ({
         setUnitByProduct({ ...unitInfoRef.current });
         setUnitOptionsTick((t) => t + 1);
       }
-      if (!alive || readOnly) return;
+      if (!alive || bodyRo) return;
 
       // Güncel satırları tekrar oku (fetch sırasında form değişmiş olabilir)
       const rows = (getValues('lines') as Record<string, unknown>[]) || [];
@@ -939,11 +947,11 @@ export const DocumentFormEngine: React.FC<DocumentFormEngineProps> = ({
     return () => {
       alive = false;
     };
-  }, [hasLineUnit, hasLines, readOnly, setValue, getValues, unitModule, lineProductKey]);
+  }, [hasLineUnit, hasLines, bodyRo, setValue, getValues, unitModule, lineProductKey]);
 
   /** Malzeme değişince (veya boş fiyat) önerilen birim fiyatı yaz */
   React.useEffect(() => {
-    if (readOnly || !hasLines || !hasLinePrice) return;
+    if (bodyRo || !hasLines || !hasLinePrice) return;
     const rows = watchedLines || [];
     let cancelled = false;
 
@@ -989,7 +997,7 @@ export const DocumentFormEngine: React.FC<DocumentFormEngineProps> = ({
     hasLines,
     headerCustomerId,
     priceDirection,
-    readOnly,
+    bodyRo,
     setValue,
     watchedLines,
   ]);
@@ -1000,7 +1008,7 @@ export const DocumentFormEngine: React.FC<DocumentFormEngineProps> = ({
    */
   const taxRateCache = React.useRef<Record<string, number>>({});
   React.useEffect(() => {
-    if (readOnly || !hasLines || !schema.lineFields?.length) return;
+    if (bodyRo || !hasLines || !schema.lineFields?.length) return;
     const lf = schema.lineFields;
     const hasQty = lf.some((f) => f.fieldName === 'Quantity');
     const hasPrice = lf.some((f) => f.fieldName === 'Price');
@@ -1122,7 +1130,7 @@ export const DocumentFormEngine: React.FC<DocumentFormEngineProps> = ({
     return () => {
       cancelled = true;
     };
-  }, [hasLines, readOnly, schema.lineFields, setValue, getValues, lineCalcKey]);
+  }, [hasLines, bodyRo, schema.lineFields, setValue, getValues, lineCalcKey]);
 
   const docNumberField = React.useMemo(
     () => DOC_NUMBER_FIELDS.find((n) => schema.fields.some((f) => f.fieldName === n)) || null,
@@ -1172,7 +1180,7 @@ export const DocumentFormEngine: React.FC<DocumentFormEngineProps> = ({
 
   const requestNumber = React.useCallback(
     async (force = false) => {
-      if (readOnly || !docNumberField) return;
+      if (bodyRo || !docNumberField) return;
       if (!force && numberManual.current) return;
       setNumberBusy(true);
       setNumberHint(null);
@@ -1193,11 +1201,11 @@ export const DocumentFormEngine: React.FC<DocumentFormEngineProps> = ({
         setNumberBusy(false);
       }
     },
-    [buildAllocateBody, docNumberField, readOnly, setValue],
+    [buildAllocateBody, docNumberField, bodyRo, setValue],
   );
 
   React.useEffect(() => {
-    if (!isNewRecord || readOnly || !docNumberField) return;
+    if (!isNewRecord || bodyRo || !docNumberField) return;
     const cur = String(watch(`standardFields.${docNumberField}`) ?? '').trim();
     if (cur || numberAllocated.current || numberManual.current) return;
     const t = window.setTimeout(() => {
@@ -1207,7 +1215,7 @@ export const DocumentFormEngine: React.FC<DocumentFormEngineProps> = ({
   }, [
     docNumberField,
     isNewRecord,
-    readOnly,
+    bodyRo,
     requestNumber,
     watch,
     watchedCompanyId,
@@ -1225,7 +1233,7 @@ export const DocumentFormEngine: React.FC<DocumentFormEngineProps> = ({
   };
 
   const handleFormSubmit = (data: FieldValues) => {
-    if (readOnly) return;
+    if (bodyRo) return;
     const rawLines = hasLines ? ((data.lines as Record<string, unknown>[]) || []) : undefined;
     let lines = rawLines
       ?.map((row, i): Record<string, unknown> => {
@@ -1394,7 +1402,7 @@ export const DocumentFormEngine: React.FC<DocumentFormEngineProps> = ({
 
   const watchedAll = watch();
   React.useEffect(() => {
-    if (!onLiveChange || readOnly) return;
+    if (!onLiveChange || readOnly) return; // postedLock'ta ödeme planı taslağı güncellensin
     const t = window.setTimeout(() => {
       const lines = hasLines
         ? ((watchedAll.lines as Record<string, unknown>[]) || [])
@@ -1443,7 +1451,7 @@ export const DocumentFormEngine: React.FC<DocumentFormEngineProps> = ({
       {fieldList.map((field) => {
         const patched = patchField(field);
         const fieldReadOnly =
-          readOnly ||
+          bodyRo ||
           Boolean(field.isReadOnly) ||
           (isCustom && !canField(schema.tableName, field.fieldName, 'edit'));
         return (
@@ -1471,7 +1479,7 @@ export const DocumentFormEngine: React.FC<DocumentFormEngineProps> = ({
         field={patched}
         register={register}
         error={getFieldError(field.fieldName)}
-        disabled={readOnly || Boolean(field.isReadOnly)}
+        disabled={bodyRo || Boolean(field.isReadOnly)}
         watermark
         endAction={opts?.endAction}
       />
@@ -1497,7 +1505,7 @@ export const DocumentFormEngine: React.FC<DocumentFormEngineProps> = ({
               field={patched}
               register={register}
               error={getFieldError(field.fieldName)}
-              disabled={readOnly || Boolean(field.isReadOnly)}
+              disabled={bodyRo || Boolean(field.isReadOnly)}
               hideLabel
             />
           );
@@ -1526,7 +1534,7 @@ export const DocumentFormEngine: React.FC<DocumentFormEngineProps> = ({
   };
 
   const numberAllocateBtn =
-    !readOnly && docNumberField ? (
+    !bodyRo && docNumberField ? (
       <button
         type="button"
         title="Sıradaki fiş no (önizleme — numara kayıtta verilir)"
@@ -1555,7 +1563,7 @@ export const DocumentFormEngine: React.FC<DocumentFormEngineProps> = ({
             Kalemler
             <span className="ml-1.5 text-[11px] font-normal text-slate-400">({fields.length})</span>
           </h3>
-          {!readOnly && (
+          {!bodyRo && (
             <div className="flex items-center gap-1.5">
               {scanProductField && (
                 <input
@@ -1665,7 +1673,7 @@ export const DocumentFormEngine: React.FC<DocumentFormEngineProps> = ({
             opts?.fill ? 'flex-1 min-h-0 overflow-auto' : 'overflow-x-auto'
           } rounded-sm border border-slate-300 dark:border-slate-600`}
           onPaste={(e) => {
-            if (readOnly) return;
+            if (bodyRo) return;
             const text = e.clipboardData.getData('text/plain');
             // Tek hücre → normal yapıştırma; çok hücre / satır → kalemlere dağıt
             if (!/[\t\n]/.test(text.replace(/\r?\n$/, ''))) return;
@@ -1712,7 +1720,7 @@ export const DocumentFormEngine: React.FC<DocumentFormEngineProps> = ({
                   </th>
                   );
                 })}
-                {!readOnly && <th className="w-8 px-1 py-1.5" />}
+                {!bodyRo && <th className="w-8 px-1 py-1.5" />}
               </tr>
             </thead>
             <tbody>
@@ -1768,7 +1776,7 @@ export const DocumentFormEngine: React.FC<DocumentFormEngineProps> = ({
                               registerNameOverride={`lines.${index}.${field.fieldName}`}
                               hideLabel
                               compact
-                              disabled={readOnly}
+                              disabled={bodyRo}
                               error={
                                 get(errors, `lines.${index}.${field.fieldName}`) as
                                   | FieldError
@@ -1776,14 +1784,14 @@ export const DocumentFormEngine: React.FC<DocumentFormEngineProps> = ({
                               }
                             />
                           </div>
-                          {!readOnly && productId ? (
+                          {!bodyRo && productId ? (
                             <UnitPricePicker
                               compact
                               inline
                               productCardId={productId}
                               customerId={headerCustomerId}
                               direction={priceDirection}
-                              disabled={readOnly}
+                              disabled={bodyRo}
                               onApply={(price) => {
                                 setValue(`lines.${index}.Price`, price, {
                                   shouldDirty: true,
@@ -1803,7 +1811,7 @@ export const DocumentFormEngine: React.FC<DocumentFormEngineProps> = ({
                               registerNameOverride={`lines.${index}.${field.fieldName}`}
                               hideLabel
                               compact
-                              disabled={readOnly || Boolean(field.isReadOnly)}
+                              disabled={bodyRo || Boolean(field.isReadOnly)}
                               error={
                                 get(errors, `lines.${index}.${field.fieldName}`) as
                                   | FieldError
@@ -1823,7 +1831,7 @@ export const DocumentFormEngine: React.FC<DocumentFormEngineProps> = ({
                             whouseId={Number(watch('standardFields.WhouseID')) || null}
                             quantity={Number(((watchedLines?.[index] as Record<string, unknown> | undefined)?.Quantity) ?? 0)}
                             value={String(((watchedLines?.[index] as Record<string, unknown> | undefined)?.SerialLotNo) ?? '')}
-                            readOnly={readOnly}
+                            readOnly={bodyRo}
                             onChange={(v) => setValue(`lines.${index}.SerialLotNo`, v, { shouldDirty: true })}
                             onQuantity={(q) => applySerialLotQty(index, q)}
                           />
@@ -1842,7 +1850,7 @@ export const DocumentFormEngine: React.FC<DocumentFormEngineProps> = ({
                           whouseId={Number(watch('standardFields.WhouseID')) || null}
                           quantity={Number(((watchedLines?.[index] as Record<string, unknown> | undefined)?.Quantity) ?? 0)}
                           value={String(((watchedLines?.[index] as Record<string, unknown> | undefined)?.SerialLotNo) ?? '')}
-                          readOnly={readOnly}
+                          readOnly={bodyRo}
                           onChange={(v) => setValue(`lines.${index}.SerialLotNo`, v, { shouldDirty: true })}
                           onQuantity={(q) => applySerialLotQty(index, q)}
                         />
@@ -1853,7 +1861,7 @@ export const DocumentFormEngine: React.FC<DocumentFormEngineProps> = ({
                           registerNameOverride={`lines.${index}.${field.fieldName}`}
                           hideLabel
                           compact
-                          disabled={readOnly || Boolean(field.isReadOnly) || (isUnit && !productId)}
+                          disabled={bodyRo || Boolean(field.isReadOnly) || (isUnit && !productId)}
                           error={
                             get(errors, `lines.${index}.${field.fieldName}`) as
                               | FieldError
@@ -1864,7 +1872,7 @@ export const DocumentFormEngine: React.FC<DocumentFormEngineProps> = ({
                     </td>
                     );
                   })}
-                  {!readOnly && (
+                  {!bodyRo && (
                     <td className="w-8 px-0.5 py-1 align-middle text-center">
                       <button
                         type="button"
@@ -1930,7 +1938,7 @@ export const DocumentFormEngine: React.FC<DocumentFormEngineProps> = ({
         register={register as UseFormRegister<FieldValues>}
         setValue={setValue}
         watch={watch}
-        readOnly={readOnly}
+        readOnly={bodyRo}
         lineCaption={caption || undefined}
         embedded={embedded}
       />
@@ -2113,24 +2121,60 @@ export const DocumentFormEngine: React.FC<DocumentFormEngineProps> = ({
       : []),
   ];
 
-  const saveBar = !readOnly ? (
+  const [printing, setPrinting] = React.useState(false);
+  const handlePrintWithoutSave = async () => {
+    if (printing) return;
+    setPrinting(true);
+    try {
+      const data = getValues();
+      await printDocumentForm({
+        schema,
+        standardFields: (data.standardFields as Record<string, unknown>) || {},
+        lines: hasLines ? ((data.lines as Record<string, unknown>[]) || []) : undefined,
+        paymentPlans: showPaymentPlan
+          ? ((data.paymentPlans as Record<string, unknown>[]) || [])
+          : undefined,
+        recordId: initialData?.recordId,
+      });
+    } catch (e) {
+      appToast(e instanceof Error ? e.message : 'Yazdırılamadı', { kind: 'error' });
+    } finally {
+      setPrinting(false);
+    }
+  };
+
+  const printBtn = (
+    <button
+      type="button"
+      onClick={() => void handlePrintWithoutSave()}
+      disabled={printing}
+      title="Formdaki veriyi kaydetmeden yazdırır / PDF önizler"
+      className="inline-flex items-center gap-1.5 px-3 h-7 text-[12px] font-semibold text-slate-700 bg-white border border-slate-300 hover:bg-slate-50 rounded-sm disabled:opacity-50"
+    >
+      {printing ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Printer className="w-3.5 h-3.5" />}
+      Kaydetmeden yazdır
+    </button>
+  );
+
+  const saveBar = (
     <div className="pt-2 border-t border-slate-100 dark:border-slate-800 flex items-center justify-end gap-3 shrink-0">
       {submitError && (
         <span className="text-[12px] font-medium text-red-600">{submitError}</span>
       )}
-      <button
-        type="submit"
-        disabled={isLoading}
-        className={`inline-flex items-center justify-center px-5 h-7 text-[12px] font-semibold text-white rounded-sm bg-blue-700 hover:bg-blue-600 transition-colors ${
-          isLoading ? 'opacity-70 cursor-not-allowed' : ''
-        }`}
-      >
-        {isLoading ? 'Kaydediliyor...' : 'Kaydet'}
-      </button>
-    </div>
-  ) : (
-    <div className="pt-2 border-t border-slate-100 text-[11px] text-slate-400 text-right shrink-0">
-      İnceleme modu — değişiklik yapılamaz
+      {printBtn}
+      {!readOnly || postedLock ? (
+        <button
+          type="submit"
+          disabled={isLoading}
+          className={`inline-flex items-center justify-center px-5 h-7 text-[12px] font-semibold text-white rounded-sm bg-blue-700 hover:bg-blue-600 transition-colors ${
+            isLoading ? 'opacity-70 cursor-not-allowed' : ''
+          }`}
+        >
+          {isLoading ? 'Kaydediliyor...' : postedLock ? 'Ödeme planını kaydet' : 'Kaydet'}
+        </button>
+      ) : (
+        <span className="text-[11px] text-slate-400">İnceleme modu</span>
+      )}
     </div>
   );
 
@@ -2260,7 +2304,7 @@ export const DocumentFormEngine: React.FC<DocumentFormEngineProps> = ({
                                       type="radio"
                                       name="trade-currency"
                                       className="accent-blue-600"
-                                      disabled={readOnly}
+                                      disabled={bodyRo}
                                       checked={checked}
                                       onChange={() => {
                                         setValue('standardFields.Currency', c.id, {
@@ -2293,7 +2337,7 @@ export const DocumentFormEngine: React.FC<DocumentFormEngineProps> = ({
                                 <h3 className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">
                                   Toplam
                                 </h3>
-                                {!readOnly && (
+                                {!bodyRo && (
                                   <button
                                     type="button"
                                     title={
@@ -2334,7 +2378,7 @@ export const DocumentFormEngine: React.FC<DocumentFormEngineProps> = ({
                                 </div>
                                 <div className="text-slate-500">Toplam KDV</div>
                                 <div className="text-right font-semibold tabular-nums text-slate-800 dark:text-slate-100">
-                                  {taxEditOn && !readOnly ? (
+                                  {taxEditOn && !bodyRo ? (
                                     <input
                                       type="text"
                                       inputMode="decimal"
@@ -2493,7 +2537,7 @@ export const DocumentFormEngine: React.FC<DocumentFormEngineProps> = ({
                             Tek seferde veya birden fazla vadede tutar girin
                           </p>
                         </div>
-                        {!readOnly && (
+                        {!payRo && (
                           <div className="flex flex-wrap items-center gap-1.5">
                             <button
                               type="button"
@@ -2539,14 +2583,14 @@ export const DocumentFormEngine: React.FC<DocumentFormEngineProps> = ({
                               <th className="px-1.5 py-1.5 text-[11px] font-semibold text-slate-600">
                                 Açıklama
                               </th>
-                              {!readOnly && <th className="w-8 px-1 py-1.5" />}
+                              {!payRo && <th className="w-8 px-1 py-1.5" />}
                             </tr>
                           </thead>
                           <tbody>
                             {paymentFields.length === 0 ? (
                               <tr>
                                 <td
-                                  colSpan={readOnly ? 5 : 6}
+                                  colSpan={payRo ? 5 : 6}
                                   className="px-3 py-4 text-[11px] text-slate-400 text-center"
                                 >
                                   Henüz satır yok. «Tek seferde» veya «Satır Ekle» ile başlayın.
@@ -2568,7 +2612,7 @@ export const DocumentFormEngine: React.FC<DocumentFormEngineProps> = ({
                                       register={register}
                                       setValue={setValue}
                                       watch={watch}
-                                      disabled={readOnly}
+                                      disabled={payRo}
                                       placeholder={getSystemDatePlaceholder()}
                                       inputClassName="w-full h-8 px-2 text-[12px] rounded border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-900"
                                     />
@@ -2588,7 +2632,7 @@ export const DocumentFormEngine: React.FC<DocumentFormEngineProps> = ({
                                           step="any"
                                           min={0}
                                           inputMode="decimal"
-                                          disabled={readOnly}
+                                          disabled={payRo}
                                           placeholder="Tutar"
                                           className="w-full h-8 px-2 text-[12px] rounded border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-900 tabular-nums"
                                           {...reg}
@@ -2612,7 +2656,7 @@ export const DocumentFormEngine: React.FC<DocumentFormEngineProps> = ({
                                           step="any"
                                           min={0}
                                           inputMode="decimal"
-                                          disabled={readOnly}
+                                          disabled={payRo}
                                           placeholder="%"
                                           className="w-full h-8 px-2 text-[12px] rounded border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-900 tabular-nums"
                                           {...reg}
@@ -2630,7 +2674,7 @@ export const DocumentFormEngine: React.FC<DocumentFormEngineProps> = ({
                                       return (
                                         <input
                                           type="text"
-                                          disabled={readOnly}
+                                          disabled={payRo}
                                           placeholder="Açıklama"
                                           className="w-full h-8 px-2 text-[12px] rounded border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-900"
                                           {...reg}
@@ -2639,7 +2683,7 @@ export const DocumentFormEngine: React.FC<DocumentFormEngineProps> = ({
                                       );
                                     })()}
                                   </td>
-                                  {!readOnly && (
+                                  {!payRo && (
                                     <td className="w-8 px-0.5 py-1 text-center">
                                       <button
                                         type="button"
@@ -2680,7 +2724,7 @@ export const DocumentFormEngine: React.FC<DocumentFormEngineProps> = ({
                       register={register as UseFormRegister<FieldValues>}
                       setValue={setValue}
                       watch={watch}
-                      readOnly={readOnly}
+                      readOnly={bodyRo}
                       compact
                     />
                   )}
@@ -2720,7 +2764,7 @@ export const DocumentFormEngine: React.FC<DocumentFormEngineProps> = ({
                   register={register as UseFormRegister<FieldValues>}
                   setValue={setValue}
                   watch={watch}
-                  readOnly={readOnly}
+                  readOnly={bodyRo}
                 />
               ) : (
                 <>

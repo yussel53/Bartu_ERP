@@ -34,6 +34,7 @@ import { ProcessDesignerPage } from '../pages/ProcessDesignerPage';
 import { ELogoSyncPage } from '../pages/ELogoSyncPage';
 import { EGovDocumentListPage } from '../pages/EGovDocumentListPage';
 import { CrmWorkspacePage } from '../pages/crm/CrmWorkspacePage';
+import { CrmActionsPage } from '../pages/crm/CrmActionsPage';
 import { CrmSettingsPage } from '../pages/crm/CrmSettingsPage';
 
 interface ModuleWorkspaceProps {
@@ -243,6 +244,9 @@ export const ModuleWorkspace: React.FC<ModuleWorkspaceProps> = ({
     }
     if (activeScreen.isCrmWorkspace) {
       return <CrmWorkspacePage key={activeScreen.id} basePath={activeScreen.path} />;
+    }
+    if (activeScreen.isCrmActionsList) {
+      return <CrmActionsPage key={activeScreen.id} />;
     }
     if (activeScreen.isCrmSettings) {
       return <CrmSettingsPage key={activeScreen.id} />;

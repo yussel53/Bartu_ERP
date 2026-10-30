@@ -17,6 +17,9 @@ export interface LookupOptionMeta {
   lastMoveDate?: string;
   riskGroup?: string;
   overdue?: number;
+  /** CostDimCard: bağlı üst boyut kartı */
+  linkedCostDimCardId?: string;
+  dimNo?: number;
 }
 
 export interface LookupOption {
@@ -138,6 +141,80 @@ const FIELD_LOOKUP: Record<string, LookupSource> = {
     titleCols: ['Title'],
     createFormCode: 'ProjectCardForm',
     createTitle: 'Yeni Proje',
+  },
+  CostDimID: {
+    table: 'CostDim',
+    pk: 'CostDimID',
+    codeCols: ['DimNo', 'Code'],
+    titleCols: ['Title'],
+    createFormCode: 'CostDimForm',
+    createTitle: 'Yeni Masraf Boyutu',
+  },
+  CostDimCardID: {
+    table: 'CostDimCard',
+    pk: 'CostDimCardID',
+    codeCols: ['Code'],
+    titleCols: ['Title'],
+    createFormCode: 'CostDimCardForm',
+    createTitle: 'Yeni Boyut Kartı',
+  },
+  LinkedCostDimCardID: {
+    table: 'CostDimCard',
+    pk: 'CostDimCardID',
+    codeCols: ['Code'],
+    titleCols: ['Title'],
+    createFormCode: 'CostDimCardForm',
+    createTitle: 'Yeni Boyut Kartı',
+  },
+  CostDimCardID1: {
+    table: 'CostDimCard',
+    pk: 'CostDimCardID',
+    codeCols: ['Code'],
+    titleCols: ['Title'],
+    filterColumn: 'DimNo',
+    filterValue: 1,
+    createFormCode: 'CostDimCardForm',
+    createTitle: 'Yeni Boyut Kartı',
+  },
+  CostDimCardID2: {
+    table: 'CostDimCard',
+    pk: 'CostDimCardID',
+    codeCols: ['Code'],
+    titleCols: ['Title'],
+    filterColumn: 'DimNo',
+    filterValue: 2,
+    createFormCode: 'CostDimCardForm',
+    createTitle: 'Yeni Boyut Kartı',
+  },
+  CostDimCardID3: {
+    table: 'CostDimCard',
+    pk: 'CostDimCardID',
+    codeCols: ['Code'],
+    titleCols: ['Title'],
+    filterColumn: 'DimNo',
+    filterValue: 3,
+    createFormCode: 'CostDimCardForm',
+    createTitle: 'Yeni Boyut Kartı',
+  },
+  CostDimCardID4: {
+    table: 'CostDimCard',
+    pk: 'CostDimCardID',
+    codeCols: ['Code'],
+    titleCols: ['Title'],
+    filterColumn: 'DimNo',
+    filterValue: 4,
+    createFormCode: 'CostDimCardForm',
+    createTitle: 'Yeni Boyut Kartı',
+  },
+  CostDimCardID5: {
+    table: 'CostDimCard',
+    pk: 'CostDimCardID',
+    codeCols: ['Code'],
+    titleCols: ['Title'],
+    filterColumn: 'DimNo',
+    filterValue: 5,
+    createFormCode: 'CostDimCardForm',
+    createTitle: 'Yeni Boyut Kartı',
   },
   MainAccountID: {
     table: 'AccountCard',
@@ -305,14 +382,28 @@ export const DEPENDENT_LOOKUPS: Record<string, { parentField: string; filterColu
   CustomerAdressID: { parentField: 'CustomerID', filterColumn: 'CustomerCardID', emptyText: 'Önce cari seçin' },
 };
 
+export type DependentLookupDef = { parentField: string; filterColumn: string; emptyText?: string };
+
 /** Üst alan değerine göre süzülmüş seçenekler (önbellekli) */
 export async function loadDependentLookupOptions(
   fieldName: string,
   parentValue: string | number,
+  depOverride?: DependentLookupDef,
 ): Promise<LookupOption[]> {
-  const dep = DEPENDENT_LOOKUPS[fieldName];
+  const dep = depOverride || DEPENDENT_LOOKUPS[fieldName];
   const base = FIELD_LOOKUP[fieldName];
   if (!dep || !base) return [];
+
+  // Masraf boyutu kartları: DimNo filtresi + bağlı üst kart (istemci süzme)
+  if (/^CostDimCardID[1-5]$/.test(fieldName) && dep.filterColumn === 'LinkedCostDimCardID') {
+    const all = (await loadLookupOptions(fieldName)) || [];
+    const pid = String(parentValue);
+    return all.filter((o) => {
+      const linked = o.meta?.linkedCostDimCardId;
+      return !linked || linked === pid;
+    });
+  }
+
   return (await loadLookupOptions(fieldName, { filterColumn: dep.filterColumn, filterValue: parentValue })) || [];
 }
 
@@ -359,6 +450,18 @@ export async function loadLookupOptions(
           const title = pick(r, src.titleCols);
           const label = [code, title].filter(Boolean).join(' — ') || String(id ?? '');
           const opt: LookupOption = { label, value: String(id ?? '') };
+          if (src.table === 'CostDimCard') {
+            const linked = r.LinkedCostDimCardID ?? r.linkedCostDimCardID;
+            const dimNo = Number(r.DimNo ?? r.dimNo ?? 0);
+            opt.meta = {
+              linkedCostDimCardId:
+                linked != null && linked !== '' && Number(linked) !== 0 ? String(linked) : undefined,
+              dimNo: Number.isFinite(dimNo) && dimNo > 0 ? dimNo : undefined,
+            };
+            if (dimNo > 0 && !src.filterColumn) {
+              opt.label = `${dimNo} · ${label}`;
+            }
+          }
           if (src.productStats) {
             opt.meta = {
               kind: 'product',

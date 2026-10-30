@@ -20,6 +20,15 @@ export interface FormFieldDto {
    * undefined: alan adına göre otomatik
    */
   useLookup?: boolean;
+  /**
+   * Bağlı lookup: üst alan seçilince bu alan süzülür (örn. masraf boyutu 2 ← boyut 1).
+   * Yoksa `DEPENDENT_LOOKUPS[fieldName]` kullanılır.
+   */
+  dependentLookup?: {
+    parentField: string;
+    filterColumn: string;
+    emptyText?: string;
+  };
   /** true → alan salt okunur (ör. mükellef kontrol sonucu) */
   isReadOnly?: boolean;
   /** Alanın altında kısa açıklama */
@@ -284,6 +293,8 @@ export interface MenuScreen {
   isProcessDesigner?: boolean;
   /** CRM / Teklif Yönetimi çalışma alanı (Fırsat → Aksiyon → Teklif) */
   isCrmWorkspace?: boolean;
+  /** CRM → Aksiyonlar listesi (belge + fırsat) */
+  isCrmActionsList?: boolean;
   /** CRM ayarları (Outlook entegrasyonu, SMTP, aksiyon tipleri) */
   isCrmSettings?: boolean;
   /** e-Logo PostBox belge çekme / senkron */

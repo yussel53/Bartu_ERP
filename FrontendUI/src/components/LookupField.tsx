@@ -5,7 +5,7 @@ import {
   UseFormWatch,
   FieldValues,
 } from 'react-hook-form';
-import { MoreHorizontal } from 'lucide-react';
+import { Info, MoreHorizontal } from 'lucide-react';
 import { LookupModal, LookupOption } from './LookupModal';
 import { QuickCreateModal, useLookupCreateDepth } from './QuickCreateModal';
 import {
@@ -13,6 +13,7 @@ import {
   loadDependentLookupOptions,
   lookupSourceForField,
   reloadLookupOptions,
+  type DependentLookupDef,
 } from '../api/lookupApi';
 
 interface LookupFieldProps {
@@ -28,6 +29,8 @@ interface LookupFieldProps {
   disabled?: boolean;
   placeholder?: string;
   inputClassName?: string;
+  /** Şemadan gelen bağlı lookup (masraf boyutları) */
+  dependentLookup?: DependentLookupDef;
 }
 
 /**
@@ -47,14 +50,17 @@ export const LookupField: React.FC<LookupFieldProps> = ({
   disabled = false,
   placeholder,
   inputClassName = '',
+  dependentLookup,
 }) => {
   const [open, setOpen] = React.useState(false);
   const [createOpen, setCreateOpen] = React.useState(false);
+  const [cardOpen, setCardOpen] = React.useState(false);
   const [options, setOptions] = React.useState<LookupOption[]>(optionsProp);
   const createDepth = useLookupCreateDepth();
 
   /** Bağlı liste: üst alan (örn. Cari) aynı satırda / başlıkta — `standardFields.CustomerID`, `lines.3.CustomerID` */
-  const dep = fieldName ? DEPENDENT_LOOKUPS[fieldName] : undefined;
+  const dep =
+    dependentLookup || (fieldName ? DEPENDENT_LOOKUPS[fieldName] : undefined);
   const parentName = dep ? registerName.replace(/[^.]+$/, dep.parentField) : '';
   const parentRaw = dep && watch ? watch(parentName) : undefined;
   const parentId = parentRaw == null || parentRaw === '' ? '' : String(parentRaw);
@@ -70,13 +76,13 @@ export const LookupField: React.FC<LookupFieldProps> = ({
       return;
     }
     let cancelled = false;
-    void loadDependentLookupOptions(fieldName!, parentId).then((next) => {
+    void loadDependentLookupOptions(fieldName!, parentId, dependentLookup).then((next) => {
       if (!cancelled) setOptions(next);
     });
     return () => {
       cancelled = true;
     };
-  }, [dep, parentId, fieldName]);
+  }, [dep, parentId, fieldName, dependentLookup]);
 
   const raw = watch ? watch(registerName) : undefined;
   const value = raw == null || raw === '' ? '' : String(raw);
@@ -88,6 +94,12 @@ export const LookupField: React.FC<LookupFieldProps> = ({
   const canCreate =
     !disabled &&
     Boolean(src?.createFormCode) &&
+    createDepth < 2;
+  /** SAP altın ok benzeri: seçili kartı (i) ile aç */
+  const canOpenCard =
+    Boolean(src?.createFormCode) &&
+    Boolean(value) &&
+    value !== '0' &&
     createDepth < 2;
 
   const openPicker = () => {
@@ -148,6 +160,22 @@ export const LookupField: React.FC<LookupFieldProps> = ({
           }}
           className={`${inputClassName} flex-1 min-w-0 cursor-pointer`}
         />
+        {canOpenCard && (
+          <button
+            type="button"
+            onClick={(e) => {
+              e.preventDefault();
+              e.stopPropagation();
+              setCardOpen(true);
+            }}
+            title={`${label} kartını aç`}
+            aria-label={`${label} kartını aç`}
+            className={`shrink-0 ${inputClassName.includes('h-7') ? 'w-7 h-7' : 'w-8 h-8'} inline-flex items-center justify-center rounded border text-sky-700
+              bg-sky-50 hover:bg-sky-100 border-sky-200 dark:bg-sky-950/40 dark:hover:bg-sky-900/50 dark:border-sky-800 dark:text-sky-300`}
+          >
+            <Info className="w-3.5 h-3.5" strokeWidth={2.25} />
+          </button>
+        )}
         <button
           type="button"
           disabled={disabled}
@@ -199,6 +227,29 @@ export const LookupField: React.FC<LookupFieldProps> = ({
           onCreated={(info) => void applyCreated(info)}
         />
       )}
+
+      {cardOpen && src?.createFormCode && value && (
+        <QuickCreateModal
+          formCode={src.createFormCode}
+          title={src.createTitle?.replace(/^Yeni\s+/i, '') || label}
+          mode="edit"
+          recordId={value}
+          onClose={() => setCardOpen(false)}
+          onSaved={async (info) => {
+            if (!fieldName) return;
+            try {
+              const next = await reloadLookupOptions(fieldName);
+              setOptions(next);
+              const found = next.find((o) => o.value === String(info.recordId));
+              if (found) {
+                /* etiket güncellendi — değer aynı */
+              }
+            } catch {
+              /* ignore */
+            }
+          }}
+        />
+      )}
     </>
   );
 };
@@ -233,6 +284,14 @@ const LOOKUP_FIELD_NAMES = new Set([
   'CostCenterID',
   'ProjectCardID',
   'AccountGroupID',
+  'CostDimID',
+  'CostDimCardID',
+  'LinkedCostDimCardID',
+  'CostDimCardID1',
+  'CostDimCardID2',
+  'CostDimCardID3',
+  'CostDimCardID4',
+  'CostDimCardID5',
 ]);
 
 /** Tip / durum / döviz vb. kısa listeler → klasik select */

@@ -1108,6 +1108,30 @@ GROUP BY t.ItemsID, v.Type_",
             await ApplyAccountParentLinkAsync(incoming, data.RecordId, ct);
         }
 
+        // Masraf boyut kartı: CostDimID → DimNo senkron
+        if (tableName.Equals("CostDimCard", StringComparison.OrdinalIgnoreCase)
+            && colSet.Contains("DimNo")
+            && colSet.Contains("CostDimID"))
+        {
+            object? dimIdRaw = null;
+            foreach (var key in incoming.Keys)
+            {
+                if (key.Equals("CostDimID", StringComparison.OrdinalIgnoreCase))
+                {
+                    dimIdRaw = incoming[key];
+                    break;
+                }
+            }
+            if (dimIdRaw != null && int.TryParse(Convert.ToString(dimIdRaw), out var dimId) && dimId > 0)
+            {
+                var dimNo = await _db.ExecuteScalarAsync<int?>(new CommandDefinition(
+                    "SELECT DimNo FROM dbo.CostDim WHERE CostDimID = @dimId",
+                    new { dimId }, cancellationToken: ct));
+                if (dimNo is > 0)
+                    SetIncoming(incoming, "DimNo", dimNo.Value);
+            }
+        }
+
         if (tableName.Equals("AccountVoucher", StringComparison.OrdinalIgnoreCase))
         {
             // Yevmiye no yalnızca Yevmiye Madde Numaralandırma işlemiyle verilir
@@ -1180,7 +1204,31 @@ GROUP BY t.ItemsID, v.Type_",
                 : JsonSerializer.Serialize(leftoverAdditional));
         }
 
-        if (writeCols.Count == 0)
+        // Muhasebeleşmiş fatura/kasa: başlık+satır kilit; yalnız ödeme planı yazılır
+        var accPosted = false;
+        if (data.RecordId > 0
+            && (tableName.Equals("Invoice", StringComparison.OrdinalIgnoreCase)
+                || tableName.Equals("SafeVoucher", StringComparison.OrdinalIgnoreCase)))
+        {
+            var mod = tableName.Equals("Invoice", StringComparison.OrdinalIgnoreCase) ? 7 : 4;
+            var n = await _db.ExecuteScalarAsync<int>(new CommandDefinition(
+                "SELECT COUNT(1) FROM dbo.AccountVoucher WHERE SourceModule = @mod AND SourceID = @id",
+                new { mod, id = data.RecordId }, cancellationToken: ct));
+            accPosted = n > 0;
+            if (accPosted)
+            {
+                data.Lines = null;
+                data.Distributions = null;
+                data.AuxilCodes = null;
+                data.AuxilValues = null;
+                writeCols.Clear();
+                if (data.PaymentPlans == null)
+                    return (false, data.RecordId,
+                        "Muhasebeleşmiş belge kilitli — yalnız ödeme planı değiştirilebilir. Önce muhasebe fişini geri alın.");
+            }
+        }
+
+        if (writeCols.Count == 0 && !accPosted)
             return (false, data.RecordId, "Yazılacak kolon bulunamadı (şema ↔ tablo uyumsuz)");
 
         // Yeni firma: boşsa 0-Merkez işyeri + 0-Merkez ambar (şablon ID=-1 hariç)
@@ -1251,16 +1299,24 @@ SELECT CAST(SCOPE_IDENTITY() AS INT);";
                 if (string.IsNullOrWhiteSpace(pk))
                     return (false, data.RecordId, "Primary key bulunamadı");
 
-                parameters.Add("__pk", data.RecordId);
-                var sets = string.Join(", ", writeCols.Select(c => $"[{c}] = @{c}"));
-                var upd = $"UPDATE [{tableName}] SET {sets} WHERE [{pk}] = @__pk";
-                var affected = await _db.ExecuteAsync(new CommandDefinition(upd, parameters, tx, cancellationToken: ct));
-                if (affected == 0)
+                if (writeCols.Count == 0)
                 {
-                    tx?.Rollback();
-                    return (false, data.RecordId, "Kayıt bulunamadı");
+                    // Muhasebe kilidi: başlık dokunulmaz, yalnız nested (ödeme planı)
+                    savedId = data.RecordId;
                 }
-                savedId = data.RecordId;
+                else
+                {
+                    parameters.Add("__pk", data.RecordId);
+                    var sets = string.Join(", ", writeCols.Select(c => $"[{c}] = @{c}"));
+                    var upd = $"UPDATE [{tableName}] SET {sets} WHERE [{pk}] = @__pk";
+                    var affected = await _db.ExecuteAsync(new CommandDefinition(upd, parameters, tx, cancellationToken: ct));
+                    if (affected == 0)
+                    {
+                        tx?.Rollback();
+                        return (false, data.RecordId, "Kayıt bulunamadı");
+                    }
+                    savedId = data.RecordId;
+                }
             }
 
             if (savedId != 0 && !headerOnlyTemplate && NestedByParent.TryGetValue(tableName, out var specs))

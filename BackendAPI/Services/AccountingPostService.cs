@@ -292,6 +292,24 @@ ORDER BY CASE WHEN AccountCardID = @acc THEN 0 ELSE 1 END",
         }
     }
 
+    public async Task<object> StatusAsync(string source, int id)
+    {
+        var module = source.ToLowerInvariant() switch { "invoice" => ModuleInvoice, "safevoucher" => ModuleSafe, _ => 0 };
+        if (module == 0 || id <= 0) return new { posted = false };
+        Open();
+        var row = await _db.QueryFirstOrDefaultAsync<(int Id, DateTime? Numbered)?>(
+            @"SELECT TOP 1 AccountVoucherID AS Id, JournalNumberedAt AS Numbered
+FROM dbo.AccountVoucher WHERE SourceModule = @module AND SourceID = @id",
+            new { module, id });
+        if (row is not { } r || r.Id <= 0) return new { posted = false };
+        return new
+        {
+            posted = true,
+            accountVoucherId = r.Id,
+            journalNumbered = r.Numbered != null,
+        };
+    }
+
     public async Task<string?> UnpostAsync(string source, int id)
     {
         var module = source.ToLowerInvariant() switch { "invoice" => ModuleInvoice, "safevoucher" => ModuleSafe, _ => 0 };
@@ -299,6 +317,11 @@ ORDER BY CASE WHEN AccountCardID = @acc THEN 0 ELSE 1 END",
         Open();
         using var tx = _db.BeginTransaction();
         var msg = await DeleteExistingAsync(module, id, tx);
+        if (msg != null)
+        {
+            tx.Rollback();
+            return msg;
+        }
         if (PoolTableExists(_db))
         {
             await _db.ExecuteAsync(
@@ -307,7 +330,7 @@ WHERE SourceModule = @module AND SourceID = @id AND Status_ IN (0, 1, 2)",
                 new { module, id }, tx);
         }
         tx.Commit();
-        return msg;
+        return null;
     }
 
     private async Task<string?> DeleteExistingAsync(int module, int sourceId, IDbTransaction tx)

@@ -23,6 +23,20 @@ public sealed class AccountingController : ControllerBase
         return r.Success ? Ok(r) : BadRequest(r);
     }
 
+    /// <summary>Muhasebe fişi var mı (kilit için)</summary>
+    [HttpGet("status/{source}/{id:int}")]
+    public async Task<IActionResult> Status(string source, int id) =>
+        Ok(await _post.StatusAsync(source, id));
+
+    /// <summary>Muhasebe fişini geri al (yevmiye numarası yoksa)</summary>
+    [HttpPost("unpost/{source}/{id:int}")]
+    public async Task<IActionResult> Unpost(string source, int id)
+    {
+        var err = await _post.UnpostAsync(source, id);
+        if (err != null) return BadRequest(new { message = err });
+        return Ok(new { message = "Muhasebe fişi geri alındı" });
+    }
+
     [HttpGet("pending")]
     public async Task<IActionResult> Pending([FromQuery] DateTime? from, [FromQuery] DateTime? to) =>
         Ok(await _post.PendingAsync(from, to));

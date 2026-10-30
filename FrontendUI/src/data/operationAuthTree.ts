@@ -310,6 +310,7 @@ export function buildOperationAuthTree(): OpTreeNode[] {
             !s.isBudgetReport &&
             !s.isApprovalGroups &&
             !s.isCrmWorkspace &&
+            !s.isCrmActionsList &&
             !s.isCrmSettings &&
             !s.isSqlReportsAdmin &&
             !s.isSqlReportFolder &&

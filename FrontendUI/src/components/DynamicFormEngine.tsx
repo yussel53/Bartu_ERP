@@ -1291,12 +1291,13 @@ export const DynamicFormEngine: React.FC<DynamicFormEngineProps> = ({
                                   />
                                 </div>
                               )}
-                              <div className="grid grid-cols-12 gap-x-3 gap-y-1.5">
+                              {/* 2 sütun: dar (i) modalında 12’lik col-span üst üste binmesin */}
+                              <div className="grid grid-cols-1 sm:grid-cols-2 gap-x-3 gap-y-2">
                                 {af
                                   .filter((f) => f.group === g)
                                   .map((field) =>
                                     field.fieldName === 'MukellefCheckStatus' ? (
-                                      <div key={`${row.id}-${field.fieldId}`} className="col-span-12 md:col-span-4 flex flex-col gap-0.5 min-w-0">
+                                      <div key={`${row.id}-${field.fieldId}`} className="flex flex-col gap-0.5 min-w-0">
                                         <label className="text-[10px] font-semibold text-slate-500 dark:text-slate-400 leading-none">
                                           {field.label}
                                         </label>
@@ -1309,20 +1310,26 @@ export const DynamicFormEngine: React.FC<DynamicFormEngineProps> = ({
                                         />
                                       </div>
                                     ) : (
-                                      <FieldRenderer
-                                        key={`${row.id}-${field.fieldId}`}
-                                        field={{ ...field, colSpan: 4 }}
-                                        register={register as UseFormRegister<FieldValues>}
-                                        registerNameOverride={`addresses.${index}.${field.fieldName}`}
-                                        compact
-                                        watermark={false}
-                                        disabled={readOnly}
-                                        error={get(errors, `addresses.${index}.${field.fieldName}`) as FieldError | undefined}
-                                      />
+                                      <div key={`${row.id}-${field.fieldId}`} className="flex flex-col gap-0.5 min-w-0">
+                                        <label className="text-[10px] font-semibold text-slate-500 dark:text-slate-400 leading-none truncate" title={field.label}>
+                                          {field.label}
+                                          {field.isRequired && <span className="text-red-500 ml-0.5">*</span>}
+                                        </label>
+                                        <FieldRenderer
+                                          field={{ ...field, colSpan: 12 }}
+                                          register={register as UseFormRegister<FieldValues>}
+                                          registerNameOverride={`addresses.${index}.${field.fieldName}`}
+                                          hideLabel
+                                          compact
+                                          watermark={false}
+                                          disabled={readOnly}
+                                          error={get(errors, `addresses.${index}.${field.fieldName}`) as FieldError | undefined}
+                                        />
+                                      </div>
                                     ),
                                   )}
                                 {g === 'e-Fatura Posta Kutusu' && hasEinvoiceEntryDate && index === sel && (
-                                  <div className="col-span-12 md:col-span-4 flex flex-col gap-0.5 min-w-0">
+                                  <div className="flex flex-col gap-0.5 min-w-0">
                                     <label className="text-[10px] font-semibold text-slate-500 dark:text-slate-400 leading-none">
                                       e-Faturaya Geçiş Tarihi
                                     </label>

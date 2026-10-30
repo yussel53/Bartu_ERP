@@ -89,13 +89,15 @@ export interface CrmOffer {
 
 export interface CrmAction {
   actionID: number;
-  opportunityID: number;
+  opportunityID?: number | null;
+  opportunityTitle?: string | null;
   actionTypeID?: number | null;
   actionTypeTitle?: string | null;
   actionTypeIcon?: string | null;
   closeKind?: number;
   actionDate: string;
   dueDate?: string | null;
+  title?: string | null;
   description?: string | null;
   customerContactID?: number | null;
   contactName?: string | null;
@@ -106,6 +108,12 @@ export interface CrmAction {
   createUserName?: string | null;
   createDate?: string;
   offerCount?: number;
+  sourceTable?: string | null;
+  sourceID?: number | null;
+  sourceDocNo?: string | null;
+  customerCardID?: number | null;
+  customerTitle?: string | null;
+  outlookItemId?: string | null;
   newOffer?: Partial<CrmOffer> | null;
 }
 
@@ -338,7 +346,18 @@ export const crmApi = {
   deleteOpportunity: (id: number) => del<{ ok: boolean }>(`/opportunities/${id}`),
 
   listActions: (oppId: number) => crm<CrmAction[]>(`/opportunities/${oppId}/actions`),
+  listActionsBySource: (table: string, id: number) =>
+    crm<CrmAction[]>(`/actions/by-source?table=${encodeURIComponent(table)}&id=${id}`),
+  listAllActions: (opts?: { q?: string; openOnly?: boolean; take?: number }) => {
+    const q = new URLSearchParams();
+    if (opts?.q) q.set('q', opts.q);
+    if (opts?.openOnly) q.set('openOnly', 'true');
+    if (opts?.take) q.set('take', String(opts.take));
+    const s = q.toString();
+    return crm<CrmAction[]>(`/actions${s ? `?${s}` : ''}`);
+  },
   saveAction: (a: Partial<CrmAction>) => post<{ id: number; offerId?: number | null; closed?: string | null }>('/actions', a),
+  saveActionFromOutlook: (a: Partial<CrmAction>) => post<{ id: number }>('/actions/from-outlook', a),
   setActionDone: (id: number, done: boolean) => post<{ ok: boolean }>(`/actions/${id}/done?done=${done}`),
   deleteAction: (id: number) => del<{ ok: boolean }>(`/actions/${id}`),
 

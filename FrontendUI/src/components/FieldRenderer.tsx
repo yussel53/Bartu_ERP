@@ -170,7 +170,8 @@ export const FieldRenderer: React.FC<FieldRendererProps> = ({
           {field.isRequired && <span className="text-red-500 ml-0.5">*</span>}
         </label>
       )}
-      <div className={inline ? 'flex-1 min-w-0 flex flex-col gap-0.5' : 'contents'}>
+      {/* contents kullanma: üst grid’de etiket/input ayrı hücreye kaçıp üst üste biniyor (modal Adresler) */}
+      <div className={inline ? 'flex-1 min-w-0 flex flex-col gap-0.5' : 'w-full min-w-0'}>
       {/* Harici etiket: sadece watermark kapalıysa veya aktif toggle */}
       {!inline && !hideLabel && !useWatermark && (
         <label className="text-[10px] font-semibold text-slate-500 dark:text-slate-400 flex items-center gap-0.5 leading-none">
@@ -329,6 +330,7 @@ export const FieldRenderer: React.FC<FieldRendererProps> = ({
           disabled={disabled}
           placeholder={ph}
           inputClassName={baseInputClass}
+          dependentLookup={field.dependentLookup}
         />
       )}
 

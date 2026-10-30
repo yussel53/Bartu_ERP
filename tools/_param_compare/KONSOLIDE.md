@@ -13,5 +13,7 @@ Ekranda var; bağlanınca upcoming kaldırılır.
 
 ## Sorular
 1. ~~E-belge eşleşme~~ → **Karar:** e-fatura satırı→sipariş/irsaliye; e-irsaliye satırı→sipariş (malzeme bazlı; UI/API sonra)
-2. Hizmet dağıtım — geçildi
-3–8. MM/proje→KDV · ÖTV KDV · belge/virman · Status_ · fiyat KDV hariç/dahil · yazım/sevk/toplu öncelik
+2–3. Hizmet dağıtım · MM/proje→KDV — geçildi
+4. ~~ÖTV KDV~~ → **Vergi kartında** yöntem/seçenek (ayrı dnm param yok)
+5. ~~Muhasebeleşmiş~~ → muhasebe alanları kilit; ödeme planı serbest; detay değişim = fiş çıkar → düzenle → tekrar muhasebeleştir
+5b–8. belge no/virman · Status_ · fiyat KDV hariç/dahil · yazım/sevk/toplu öncelik

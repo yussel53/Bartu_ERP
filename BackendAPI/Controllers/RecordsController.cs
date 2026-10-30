@@ -270,16 +270,28 @@ public sealed class RecordsController : ControllerBase
                     InvoiceType = int.TryParse(F(body.StandardFields, "InvoiceType"), out var it) ? it : 0,
                     Date = DateTime.TryParse(F(body.StandardFields, "InvoiceDate"), System.Globalization.CultureInfo.InvariantCulture, System.Globalization.DateTimeStyles.None, out var dt) ? dt : null,
                     InvoiceId = body.RecordId,
-                    Lines = body.Lines.Select(l => new BudgetLineInput
+                    Lines = body.Lines.Select(l =>
                     {
-                        ProductCardID = int.TryParse(F(l, "ProductCardID") ?? F(l, "ItemsID"), out var p) ? p : null,
-                        Amount = Dec(F(l, "TotalPrice")),
+                        static int? Dim(IDictionary<string, object?> row, string k) =>
+                            int.TryParse(F(row, k), out var d) && d > 0 ? d : null;
+                        return new BudgetLineInput
+                        {
+                            ProductCardID = int.TryParse(F(l, "ProductCardID") ?? F(l, "ItemsID"), out var p) ? p : null,
+                            Amount = Dec(F(l, "TotalPrice")),
+                            CostDimCardID1 = Dim(l, "CostDimCardID1"),
+                            CostDimCardID2 = Dim(l, "CostDimCardID2"),
+                            CostDimCardID3 = Dim(l, "CostDimCardID3"),
+                            CostDimCardID4 = Dim(l, "CostDimCardID4"),
+                            CostDimCardID5 = Dim(l, "CostDimCardID5"),
+                        };
                     }).ToList(),
                 }, ct);
-                var over = bars.Where(b => b.Over && b.OverAction > 0 && b.DocAmount > b.PrevDocAmount).ToList();
+                // OverAction: 0 Devam et · 1 Uyar · 2 Durdur
+                var over = bars.Where(b => b.Over && b.DocAmount > b.PrevDocAmount).ToList();
                 if (over.Any(b => b.OverAction == 2))
-                    return BadRequest(new { success = false, message = "Bütçe aşımı — kayıt engellendi: " + string.Join(" · ", over.Where(b => b.OverAction == 2).Select(BudgetService.Message)) });
-                if (over.Count > 0) budgetWarning = "Bütçe uyarısı: " + string.Join(" · ", over.Select(BudgetService.Message));
+                    return BadRequest(new { success = false, message = "Bütçe aşımı — DURDURULDU: " + string.Join(" · ", over.Where(b => b.OverAction == 2).Select(BudgetService.Message)) });
+                if (over.Any(b => b.OverAction == 1))
+                    budgetWarning = "Bütçe uyarısı: " + string.Join(" · ", over.Where(b => b.OverAction == 1).Select(BudgetService.Message));
             }
 
             // Y-05: yeni fişte numara kayıtta verilir (açılıp vazgeçilen fiş sayaç tüketmez); elle yazılmışsa dokunulmaz
