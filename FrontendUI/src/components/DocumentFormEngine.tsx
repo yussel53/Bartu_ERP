@@ -1,5 +1,6 @@
 import React from 'react';
 import { BudgetBar } from './BudgetBar';
+import { EGovSendPanel } from './EGovSendPanel';
 import {
   useForm,
   useFieldArray,
@@ -2745,6 +2746,10 @@ export const DocumentFormEngine: React.FC<DocumentFormEngineProps> = ({
                   lines={watchedLines}
                   invoiceId={initialData?.recordId}
                 />
+              )}
+              {/* E-03: kayıtlı satış / iade faturasında e-belge önizleme ve gönderim */}
+              {(schema.tableName || '').toLowerCase() === 'invoice' && (
+                <EGovSendPanel invoiceId={initialData?.recordId} invoiceType={watchedInvoiceType} />
               )}
 
               {saveBar}
