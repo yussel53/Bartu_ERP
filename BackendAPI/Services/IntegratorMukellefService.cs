@@ -66,6 +66,64 @@ public sealed class IntegratorMukellefService
         return result;
     }
 
+    /// <summary>
+    /// Birden çok VKN/TCKN'yi tek oturumda sorgular (CheckGibUser listeyi kabul eder; 50'şerlik parçalar).
+    /// Dönen sözlükte sorulan her VKN vardır: mükellef değilse boş liste. Hata olursa istisna fırlatır.
+    /// </summary>
+    public async Task<Dictionary<string, List<EFaturaMukellefRow>>> CheckManyElogoAsync(
+        string? wsUrl, string user, string pass, IReadOnlyCollection<string> taxes, CancellationToken ct = default)
+    {
+        var url = ELogoDocumentSyncService.ResolvePostBoxUrl(wsUrl);
+        var client = _httpFactory.CreateClient("IntegratorEFatura");
+        var result = taxes.Select(NormalizeTax).Where(t => t.Length is 10 or 11).Distinct()
+            .ToDictionary(t => t, _ => new List<EFaturaMukellefRow>());
+        if (result.Count == 0) return result;
+
+        var sessionId = await ElogoLoginAsync(client, url, user, pass, ct)
+                        ?? throw new InvalidOperationException("e-Logo Login başarısız — kullanıcı/şifre veya WS URL kontrol edin");
+        try
+        {
+            foreach (var chunk in result.Keys.ToList().Chunk(50))
+            {
+                var list = string.Concat(chunk.Select(t => $"<arr:string>{XmlEsc(t)}</arr:string>"));
+                var body =
+                    $"""
+                    <soapenv:Envelope xmlns:soapenv="http://schemas.xmlsoap.org/soap/envelope/" xmlns:tem="http://tempuri.org/" xmlns:arr="http://schemas.microsoft.com/2003/10/Serialization/Arrays">
+                      <soapenv:Header/>
+                      <soapenv:Body>
+                        <tem:CheckGibUser>
+                          <tem:sessionID>{XmlEsc(sessionId)}</tem:sessionID>
+                          <tem:vknTcknList>{list}</tem:vknTcknList>
+                        </tem:CheckGibUser>
+                      </soapenv:Body>
+                    </soapenv:Envelope>
+                    """;
+                var doc = XDocument.Parse(await PostSoapAsync(client, url, "http://tempuri.org/IPostBoxService/CheckGibUser", body, ct));
+                var fault = doc.Descendants().FirstOrDefault(e => e.Name.LocalName == "Fault");
+                if (fault != null)
+                    throw new InvalidOperationException("e-Logo CheckGibUser: "
+                        + (fault.Descendants().FirstOrDefault(e => e.Name.LocalName is "faultstring" or "Text")?.Value ?? "SOAP Fault"));
+
+                foreach (var u in doc.Descendants().Where(e => e.Name.LocalName == "GibUserType"))
+                {
+                    // Çoklu sorguda kimlik yanıttan okunur; tek VKN'de yoksa o VKN varsayılır
+                    var id = NormalizeTax(Local(u, "Identifier"));
+                    if (id.Length == 0 && chunk.Length == 1) id = chunk[0];
+                    if (!result.TryGetValue(id, out var rows)) continue;
+                    var title = FirstTitle(u);
+                    AddAliasRows(rows, id, title, u, "InvoicePkList", "PK");
+                    AddAliasRows(rows, id, title, u, "InvoiceGbList", "GB");
+                }
+            }
+            return result;
+        }
+        finally
+        {
+            try { await ElogoLogoutAsync(client, url, sessionId, ct); }
+            catch { /* ignore */ }
+        }
+    }
+
     private async Task<EFaturaMukellefQueryResult> CheckElogoAsync(
         IntegratorMukellefRequest req,
         string tax,

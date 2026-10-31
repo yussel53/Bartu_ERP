@@ -108,12 +108,12 @@ builder.Services.AddScoped<NumberTemplateRepository>();
 builder.Services.AddScoped<DbUpdateRepository>();
 builder.Services.AddScoped<DbBootstrapRepository>();
 builder.Services.AddScoped<EFaturaMukellefRepository>();
+builder.Services.AddScoped<EFaturaMukellefLookupService>();
 builder.Services.AddScoped<EGovMukellefCheckRepository>();
 builder.Services.AddScoped<EGovDocumentRepository>();
 builder.Services.AddSingleton<GibEFaturaUserListService>();
-// GİB mükellef tam liste → EFaturaMukellef (GB) kapalı; NightlySyncEnabled + FullLocalSyncEnabled ile açılır
-if (builder.Configuration.GetValue("GibEFatura:NightlySyncEnabled", false)
-    && builder.Configuration.GetValue("GibEFatura:FullLocalSyncEnabled", false))
+// GİB mükellef gece senkronu (E-06): yalnız carilerin etiketleri yazılır; GibEFatura:NightlySyncEnabled ile açılır
+if (builder.Configuration.GetValue("GibEFatura:NightlySyncEnabled", false))
     builder.Services.AddHostedService<EFaturaMukellefSyncJob>();
 builder.Services.AddScoped<IntegratorMukellefService>();
 builder.Services.AddScoped<ELogoDocumentSyncService>();

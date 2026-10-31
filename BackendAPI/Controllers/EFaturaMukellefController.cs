@@ -15,14 +15,17 @@ public sealed class EFaturaMukellefController : ControllerBase
     private readonly IntegratorMukellefService _integrator;
     private readonly IDbConnection _db;
     private readonly ELogoDocumentSyncService _elogo;
+    private readonly EFaturaMukellefLookupService _lookup;
 
     public EFaturaMukellefController(
         EFaturaMukellefRepository repo,
         GibEFaturaUserListService gib,
         IntegratorMukellefService integrator,
         IDbConnection db,
-        ELogoDocumentSyncService elogo)
+        ELogoDocumentSyncService elogo,
+        EFaturaMukellefLookupService lookup)
     {
+        _lookup = lookup;
         _repo = repo;
         _gib = gib;
         _integrator = integrator;
@@ -32,7 +35,7 @@ public sealed class EFaturaMukellefController : ControllerBase
 
     /// <summary>
     /// VKN/TCKN ile e-Fatura mükellef alias listesi.
-    /// Önce yerel tablo; yoksa (ve liste güncel değilse) GİB PK/GB zip listesinde arar.
+    /// Önce yerel tablo (yalnız carilerin VKN'leri); yoksa ve VKN yakın zamanda kontrol edilmediyse e-Logo'dan anlık sorgu.
     /// </summary>
     [HttpGet]
     public async Task<ActionResult<EFaturaMukellefQueryResult>> Query(
@@ -49,42 +52,32 @@ public sealed class EFaturaMukellefController : ControllerBase
         if (result.Found || !checkExternal || !_gib.Options.AutoExternalLookup)
             return Ok(result);
 
-        // Liste yakın zamanda full sync edildiyse yerel "yok" güvenilir
-        if (_gib.IsLocalListAuthoritative(result.LocalListCount, lastOk))
+        // VKN yakın zamanda (gece listesi ya da e-Logo) kontrol edildiyse yerel "yok" güvenilir
+        if (result.TaxNr.Length is 10 or 11 && (await _lookup.FreshAsync(new[] { result.TaxNr }, ct)).Count > 0)
         {
             result.Source = "GibAuthoritative";
-            result.Message =
-                $"VKN/TCKN {result.TaxNr} güncel GİB listesinde (yerel senkron) bulunamadı — e-Fatura mükellefi değil görünüyor.";
+            result.Message = $"VKN/TCKN {result.TaxNr} GİB listesinde yok — e-Fatura mükellefi değil.";
             return Ok(result);
         }
 
-        // Yerel yok / liste küçük veya eski → GİB zip'inden tara
-        var external = await _gib.LookupAndCacheByTaxNrAsync(result.TaxNr, _db, ct);
-        result.CheckedExternal = true;
-        result.ExternalMessage = external.Message;
-
-        if (!external.Success)
+        // Kontrol edilmemiş / eski → e-Logo anlık sorgu (sonuç tabloya yazılır)
+        var (_, error) = await _lookup.RefreshOnlineAsync(new[] { result.TaxNr }, 1, ct);
+        if (error != null)
         {
-            result.Message =
-                $"{result.Message} | Harici GİB kontrolü başarısız: {external.Message}";
-            return Ok(result);
-        }
-
-        if (external.Matched > 0)
-        {
-            result = await _repo.QueryByTaxNrAsync(result.TaxNr, ct);
-            result.Source = "GibExternal";
             result.CheckedExternal = true;
-            result.ExternalMessage = external.Message;
-            result.LastSyncAt = lastOk;
-            if (result.Found)
-                result.Message = $"{result.Message} (GİB listesinden alındı)";
+            result.ExternalMessage = error;
+            result.Message = $"{result.Message} | {error}";
             return Ok(result);
         }
 
-        result.Source = "GibExternal";
-        result.Message =
-            $"VKN/TCKN {result.TaxNr} yerel ve GİB kayıtlı kullanıcı listesinde bulunamadı.";
+        result = await _repo.QueryByTaxNrAsync(result.TaxNr, ct);
+        result.Source = "ELogo";
+        result.CheckedExternal = true;
+        result.LastSyncAt = lastOk;
+        result.ExternalMessage = result.Found ? "e-Logo'dan sorgulandı" : "e-Logo: e-Fatura mükellefi değil";
+        result.Message = result.Found
+            ? $"{result.Message} (e-Logo'dan sorgulandı)"
+            : $"VKN/TCKN {result.TaxNr} e-Fatura mükellefi değil (e-Logo sorgusu).";
         return Ok(result);
     }
 
@@ -110,13 +103,14 @@ public sealed class EFaturaMukellefController : ControllerBase
         }
 
         var result = await _integrator.CheckAsync(body, ct);
+        if (result.CheckedExternal && result.ExternalMessage?.StartsWith("CheckGibUser OK") == true)
+        {
+            // Mükellef olsun olmasın sonuç yazılır: kontrol zamanı işlenir, gelmeyen etiketler pasif
+            try { await _lookup.SaveOnlineResultAsync(result.TaxNr, result.Rows, ct); }
+            catch { /* yerel yazım opsiyonel */ }
+        }
         if (result.Found && result.Rows.Count > 0)
         {
-            foreach (var row in result.Rows)
-            {
-                try { await _repo.UpsertAsync(row, ct); }
-                catch { /* yerel yazım opsiyonel */ }
-            }
             // ID'leri yerel tablodan tazele
             var local = await _repo.QueryByTaxNrAsync(result.TaxNr, ct);
             if (local.Found)
@@ -159,19 +153,20 @@ public sealed class EFaturaMukellefController : ControllerBase
             lastSyncAt = lastOk,
             lastSyncTotal = total,
             lastSyncMessage = msg,
-            authoritative = _gib.IsLocalListAuthoritative(n, lastOk),
+            authoritative = lastOk != null && DateTime.Now - lastOk.Value <= TimeSpan.FromHours(_gib.Options.SyncFreshHours),
             cacheDirectory = _gib.ResolveCacheDir(),
         });
     }
 
     /// <summary>
-    /// GİB PK+GB zip listelerini indirip yerel tabloya senkron eder (uzun sürebilir).
+    /// GİB PK+GB zip listelerini indirip carilerin VKN'lerini yerel tabloya yazar; liste dosyaları sonra silinir (uzun sürebilir).
     /// GİB adresine erişilemezse liste e-Logo hesabından (getUserListNew) alınır.
     /// </summary>
     [HttpPost("sync")]
     public async Task<ActionResult<GibSyncOutcome>> Sync(CancellationToken ct)
     {
         var outcome = await _gib.SyncFullAsync(_db, ct, await _elogo.FindELogoCompanyAsync(ct));
+        _gib.DeleteCachedZips();
         if (!outcome.Success) return StatusCode(502, outcome);
         return Ok(outcome);
     }
