@@ -10,6 +10,8 @@ public sealed class EGovDesignUpdateDto
     public string Title { get; set; } = "";
     public bool IsActive { get; set; } = true;
     public string? Notes { get; set; }
+    /// <summary>EFATURA · EARSIV · EIRSALIYE · EMM · ESMM (boş = değişmez)</summary>
+    public string? DocGroup { get; set; }
 }
 
 /// <summary>E-Devlet → Tanımlar → Tasarım Şablonları → Tasarımlar (XSLT kütüphanesi).</summary>
@@ -34,7 +36,7 @@ public sealed class EGovDesignsController : ControllerBase
 
     [HttpPost]
     [RequestSizeLimit(EGovXsltService.MaxXsltBytes + 64_000)]
-    public async Task<IActionResult> Upload([FromForm] string? title, [FromForm] string? notes, IFormFile? file, CancellationToken ct)
+    public async Task<IActionResult> Upload([FromForm] string? title, [FromForm] string? notes, [FromForm] string? docGroup, IFormFile? file, CancellationToken ct)
     {
         if (!await _repo.ReadyAsync(ct)) return BadRequest(new { message = EGovDesignRepository.MissingTableMessage });
         var (content, error) = await ReadXsltAsync(file, ct);
@@ -42,7 +44,9 @@ public sealed class EGovDesignsController : ControllerBase
 
         var name = string.IsNullOrWhiteSpace(title) ? file!.FileName : title.Trim();
         if (name.Length > 150) name = name[..150];
-        var id = await _repo.CreateDesignAsync(name, file!.FileName, content!, EGovXsltService.Sha256Hex(content!), notes?.Trim(), ct);
+        var group = string.IsNullOrWhiteSpace(docGroup) ? EGovDesignCodes.GuessDocGroup($"{name} {file!.FileName}", content!) : docGroup.Trim().ToUpperInvariant();
+        if (!EGovDesignCodes.DocGroups.ContainsKey(group)) return BadRequest(new { message = "Geçersiz belge grubu." });
+        var id = await _repo.CreateDesignAsync(name, file!.FileName, content!, EGovXsltService.Sha256Hex(content!), notes?.Trim(), group, ct);
         return Ok(new { success = true, id, message = $"«{name}» yüklendi." });
     }
 
@@ -50,7 +54,13 @@ public sealed class EGovDesignsController : ControllerBase
     public async Task<IActionResult> Update(int id, [FromBody] EGovDesignUpdateDto dto, CancellationToken ct)
     {
         if (string.IsNullOrWhiteSpace(dto.Title)) return BadRequest(new { message = "Tasarım adı zorunlu." });
-        var ok = await _repo.UpdateDesignAsync(id, dto.Title.Trim(), dto.IsActive, dto.Notes?.Trim(), ct);
+        var group = string.IsNullOrWhiteSpace(dto.DocGroup) ? null : dto.DocGroup.Trim().ToUpperInvariant();
+        if (group != null)
+        {
+            if (!EGovDesignCodes.DocGroups.ContainsKey(group)) return BadRequest(new { message = "Geçersiz belge grubu." });
+            if (await _repo.DocGroupConflictAsync(id, group, ct) is { } conflict) return BadRequest(new { message = conflict });
+        }
+        var ok = await _repo.UpdateDesignAsync(id, dto.Title.Trim(), dto.IsActive, dto.Notes?.Trim(), group, ct);
         return ok ? Ok(new { success = true, message = "Tasarım güncellendi." }) : NotFound(new { message = $"Tasarım #{id} bulunamadı." });
     }
 
