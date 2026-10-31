@@ -1,5 +1,10 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { ArrowLeft, LayoutTemplate, X } from 'lucide-react';
+import { ArrowLeft, BookCheck, LayoutTemplate, Loader2, X } from 'lucide-react';
+import { ApiError, apiJson } from '../config/api';
+import { allocateDocumentNumber } from '../api/numberTemplateApi';
+import { CardQuickInfoButton } from '../components/CardQuickInfoButton';
+import { CardStatementModal } from '../components/CardStatementModal';
+import { getCardStatementDef } from '../data/cardStatementKinds';
 import { FormLayoutDesigner } from '../components/FormLayoutDesigner';
 import { FormLayoutRow, resolveFormLayouts } from '../api/formLayoutsApi';
 import {
@@ -23,16 +28,22 @@ import {
 import { FormSchemaDto, DynamicFormDataDto } from '../types/formTypes';
 import { auxilModuleNrForTable } from '../data/auxilCodes';
 import { getRecord, saveRecord } from '../api/recordsApi';
+import { resetUnitCatalog } from '../data/productLineUnits';
 import { clearLookupCache, enrichSchemaLookups } from '../api/lookupApi';
 import { getCurrentProfile } from '../data/permissions';
 import { resolveOrgDefaults } from '../data/orgUnits';
 import { useOpenDocumentsOptional } from '../contexts/OpenDocumentsContext';
-import {
-  CARD_DEFAULT_TABLES,
-  CARD_DEFAULT_TEMPLATE_ID,
-  stripTemplateMeta,
-} from '../data/cardDefaults';
+import { findDefaultTemplate, stripTemplateMeta } from '../data/cardDefaults';
+import { resolveTaxCardForSetting } from '../api/moduleParamsApi';
 import { appConfirm } from '../utils/appConfirm';
+import { appToast } from '../utils/appToast';
+import { RelatedDocumentsBar } from '../components/RelatedDocumentsBar';
+import { DocumentActionsPanel } from '../components/DocumentActionsPanel';
+import { DocumentFilesPanel } from '../components/DocumentFilesPanel';
+import { DocumentCollectionActions } from '../components/DocumentCollectionActions';
+import { PaymentLinkPanel } from '../components/PaymentLinkPanel';
+import { takeCreatePrefill } from '../utils/createPrefill';
+import { applyCostDimsToDistribution, fetchCostDims } from '../data/costDims';
 
 interface EntityFormPageProps {
   formCode: string;
@@ -46,6 +57,11 @@ interface EntityFormPageProps {
   /** Lookup «Yeni ekle» modalında: geri linki gizle, kayıttan sonra onSaved */
   embedded?: boolean;
   onSaved?: (info: { recordId: number; label?: string }) => void;
+  /**
+   * Öndeğer şablonu düzenleniyor (ID < 0): zorunlu alan yok; fişte yalnız başlık
+   * (satır / ödeme planı / özel kod sekmesi gizli, kayda gitmez).
+   */
+  templateMode?: boolean;
 }
 
 function draftLabel(
@@ -190,6 +206,7 @@ export const EntityFormPage: React.FC<EntityFormPageProps> = ({
   screenTitle,
   embedded = false,
   onSaved,
+  templateMode = false,
 }) => {
   const openDocs = useOpenDocumentsOptional();
   const openDocsRef = useRef(openDocs);
@@ -199,7 +216,50 @@ export const EntityFormPage: React.FC<EntityFormPageProps> = ({
   const [initialData, setInitialData] = useState<DynamicFormDataDto | undefined>();
   const [loading, setLoading] = useState(true);
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [postingAcc, setPostingAcc] = useState(false);
+  const [unpostingAcc, setUnpostingAcc] = useState(false);
+  const [accPosted, setAccPosted] = useState(false);
+  const [accJournalNumbered, setAccJournalNumbered] = useState(false);
   const [loadError, setLoadError] = useState<string | null>(null);
+  /** Ödeme linki paneli — form state’e yazılamayan alanları kayda birleştir */
+  const [paymentLinkPatch, setPaymentLinkPatch] = useState<Record<string, unknown>>({});
+
+  const accountingSource = (table?: string): 'invoice' | 'safevoucher' | null => {
+    const t = (table || '').toLowerCase();
+    if (t === 'invoice') return 'invoice';
+    if (t === 'safevoucher') return 'safevoucher';
+    return null;
+  };
+
+  const refreshAccStatus = useCallback(async (table: string, id: number) => {
+    const source = accountingSource(table);
+    if (!source || !(id > 0)) {
+      setAccPosted(false);
+      setAccJournalNumbered(false);
+      return;
+    }
+    try {
+      const st = await apiJson<{
+        posted?: boolean;
+        journalNumbered?: boolean;
+      }>(`/api/accounting/status/${source}/${id}`);
+      setAccPosted(!!st.posted);
+      setAccJournalNumbered(!!st.journalNumbered);
+    } catch {
+      setAccPosted(false);
+      setAccJournalNumbered(false);
+    }
+  }, []);
+
+  const postAccounting = async (table: string, id: number): Promise<string | null> => {
+    const source = accountingSource(table);
+    if (!source || !(id > 0)) return null;
+    const res = await apiJson<{ message?: string; Message?: string }>(
+      `/api/accounting/post/${source}/${id}`,
+      { method: 'POST' },
+    );
+    return res.message || res.Message || 'Muhasebeleştirildi';
+  };
 
   // ── Ekran tasarımları (kullanıcı / rol bazında) ────────────────────
   const layoutUser = useMemo(() => getCurrentProfile(), []);
@@ -209,6 +269,7 @@ export const EntityFormPage: React.FC<EntityFormPageProps> = ({
   const [designOpen, setDesignOpen] = useState(false);
   const [designDef, setDesignDef] = useState<FormLayoutDef | null>(null);
   const [designLayout, setDesignLayout] = useState<FormLayoutRow | null>(null);
+  const [cardStmtOpen, setCardStmtOpen] = useState(false);
 
   const loadLayouts = useCallback(
     async (prefer?: number | null) => {
@@ -290,7 +351,31 @@ export const EntityFormPage: React.FC<EntityFormPageProps> = ({
         }
         await loadExtraFields();
         const withCustom = withCustomFields(mock);
-        const enriched = await enrichSchemaLookups(withCustom);
+        const enrichedRaw = await enrichSchemaLookups(withCustom);
+        let enrichedBase = enrichedRaw;
+        if (
+          !templateMode &&
+          (enrichedRaw.tableName || '').toLowerCase() === 'accountvoucher' &&
+          enrichedRaw.lineDistributionFields?.length
+        ) {
+          const dims = await fetchCostDims();
+          enrichedBase = applyCostDimsToDistribution(enrichedRaw, dims);
+        }
+        const enriched: FormSchemaDto = templateMode
+          ? {
+              ...enrichedBase,
+              fields: enrichedBase.fields.map((f) => ({ ...f, isRequired: false })),
+              customFields: enrichedBase.customFields?.map((f) => ({ ...f, isRequired: false })),
+              ...(enrichedBase.documentLayout === 'trade' || enrichedBase.lineFields?.length
+                ? {
+                    lineFields: [],
+                    lineDistributionFields: undefined,
+                    hidePaymentPlan: true,
+                    enableAuxilCodesTab: false,
+                  }
+                : {}),
+            }
+          : enrichedBase;
         setSchema(enriched);
 
         const parked =
@@ -299,6 +384,18 @@ export const EntityFormPage: React.FC<EntityFormPageProps> = ({
             : undefined;
         if (parked) {
           setInitialData(parked);
+          return;
+        }
+
+        const fromPrefill = mode === 'create' ? takeCreatePrefill(formCode) : undefined;
+        if (fromPrefill) {
+          setInitialData(fromPrefill);
+          if (trackDraft && draftId) {
+            openDocsRef.current?.updateDraft(draftId, {
+              data: fromPrefill,
+              label: draftLabel(titleForTray, mode, fromPrefill, recordId),
+            });
+          }
           return;
         }
 
@@ -329,14 +426,19 @@ export const EntityFormPage: React.FC<EntityFormPageProps> = ({
               recordId: rec.recordId,
               standardFields: standard,
               additionalFields: additional,
+              hasMovements: rec.hasMovements === true,
               addresses: rec.addresses,
               contacts: rec.contacts,
+              ibans: rec.ibans,
               accounts: rec.accounts,
               barcodes: rec.barcodes,
               unitConvs: rec.unitConvs,
               productSubs: rec.productSubs,
               customerAliases: rec.customerAliases,
               variants: rec.variants,
+              serialGroups: rec.serialGroups,
+              serials: rec.serials,
+              lots: rec.lots,
               accountLinks: rec.accountLinks,
               lines: rec.lines,
               workplaces: rec.workplaces,
@@ -348,9 +450,11 @@ export const EntityFormPage: React.FC<EntityFormPageProps> = ({
             };
             setInitialData(data);
             seedDraft(data);
+            void refreshAccStatus(enriched.tableName, Number(recordId));
           } catch (e) {
             setLoadError(e instanceof Error ? e.message : 'Kayıt okunamadı');
             setInitialData(undefined);
+            setAccPosted(false);
           }
         } else {
           const dates = defaultDocDatesForCreate(enriched);
@@ -358,26 +462,47 @@ export const EntityFormPage: React.FC<EntityFormPageProps> = ({
           let standardFields: Record<string, unknown> = { ...dates, ...org };
           let additionalFields: Record<string, unknown> = {};
 
-          // Kart öndeğeri: ID=-1 şablondan alanları kopyala
-          if (CARD_DEFAULT_TABLES.has(enriched.tableName)) {
+          // Öndeğer: kartta ID=-1, fişte türüne göre -1 / -2 … şablondan alanları kopyala
+          const tplKind = findDefaultTemplate(enriched.formCode || formCode, enriched.tableName);
+          if (tplKind) {
             try {
               const tpl = await getRecord(
                 enriched.tableName,
-                CARD_DEFAULT_TEMPLATE_ID,
+                tplKind.templateId,
                 enriched.primaryKeyColumn,
               );
               const fromTpl = stripTemplateMeta(
                 normalizeDateFieldsForForm(enriched, { ...tpl.standardFields }),
                 enriched.primaryKeyColumn,
+                tplKind.group,
               );
               standardFields = { ...fromTpl, ...standardFields };
               const add: Record<string, unknown> = { ...tpl.additionalFields };
               for (const [k, v] of Object.entries(tpl.standardFields)) {
                 if (k.startsWith('U_')) add[k] = v;
               }
-              additionalFields = add;
+              additionalFields =
+                tplKind.group === 'voucher'
+                  ? stripTemplateMeta(add, undefined, 'voucher')
+                  : add;
             } catch {
               /* şablon yoksa boş form */
+            }
+          }
+
+          // Malzeme kartı: STK_KDV_SAL öndeğerinden Vergi Kartı (TaxCardID)
+          if (
+            enriched.tableName === 'ProductCard' &&
+            !templateMode &&
+            (standardFields.TaxCardID == null ||
+              standardFields.TaxCardID === '' ||
+              standardFields.TaxCardID === 0)
+          ) {
+            try {
+              const { taxCardId } = await resolveTaxCardForSetting('STK_KDV_SAL');
+              if (taxCardId) standardFields.TaxCardID = taxCardId;
+            } catch {
+              /* vergi kartı eşleşmezse boş kalsın */
             }
           }
 
@@ -398,7 +523,7 @@ export const EntityFormPage: React.FC<EntityFormPageProps> = ({
     };
 
     void load();
-  }, [formCode, recordId, mode, draftId, trackDraft, titleForTray]);
+  }, [formCode, recordId, mode, draftId, trackDraft, titleForTray, templateMode]);
 
   const handleLiveChange = useCallback(
     (data: DynamicFormDataDto) => {
@@ -445,6 +570,7 @@ export const EntityFormPage: React.FC<EntityFormPageProps> = ({
             : data.recordId,
       standardFields: {
         ...data.standardFields,
+        ...paymentLinkPatch,
         ...(schema.fixedStandardFields || {}),
       },
     };
@@ -469,6 +595,10 @@ export const EntityFormPage: React.FC<EntityFormPageProps> = ({
         }
       }
       const standard = normalizeDateFieldsForSave(schema, standardRaw);
+      if (schema.tableName === 'UnitCard') {
+        const g = String(standard.GlobalCode ?? '').trim().toUpperCase();
+        if (g) standard.GlobalCode = g;
+      }
 
       // Formüllü ek alanlar kaydetmeden önce hesaplanır
       Object.assign(additional, computeFormulaValues(schema.tableName, { ...standard, ...additional }));
@@ -477,16 +607,55 @@ export const EntityFormPage: React.FC<EntityFormPageProps> = ({
         ? merged.lines!.map((row) => ({ ...row, ...computeFormulaValues(lineTable, row) }))
         : merged.lines;
 
-      const result = await saveRecord(
-        schema.tableName,
-        { ...merged, lines, standardFields: standard, additionalFields: additional },
-        {
-          pk: schema.primaryKeyColumn,
+      const saveOpts = {
+        pk: schema.primaryKeyColumn,
+        formCode: schema.formCode,
+        postSave: schema.postSave,
+      };
+      let savePayload = { ...merged, lines, standardFields: standard, additionalFields: additional };
+      let result = await saveRecord(schema.tableName, savePayload, saveOpts).catch(async (e) => {
+        // Eşzamanlı kayıt: fiş no çakışması → yeni numara sor
+        const body =
+          e instanceof ApiError
+            ? (e.body as { code?: string; number?: string; field?: string; message?: string } | null)
+            : null;
+        if (!(e instanceof ApiError) || e.status !== 409 || body?.code !== 'DUPLICATE_DOC_NUMBER') throw e;
+        const oldNo = body.number || '';
+        const field =
+          body.field ||
+          (['DocumentNumber', 'OrderSlipNo', 'VoucherNo'] as const).find((f) =>
+            schema.fields.some((x) => x.fieldName === f),
+          ) ||
+          'DocumentNumber';
+        const ok = await appConfirm(
+          `«${oldNo}» fiş numarası zaten kullanılıyor (aynı anda başka kullanıcı kaydetmiş olabilir).\n\nYeni fiş numarası alınsın mı?`,
+          { title: 'Fiş numarası', okLabel: 'Yeni numara ile kaydet', cancelLabel: 'İptal' },
+        );
+        if (!ok) throw e;
+        const alloc = await allocateDocumentNumber({
           formCode: schema.formCode,
-          postSave: schema.postSave,
-        },
-      );
+          tableName: schema.tableName,
+          peek: false,
+          documentDate: String(
+            standard.InvoiceDate ||
+              standard.VoucherDate ||
+              standard.OrderDate ||
+              standard.TransDate ||
+              '',
+          ).trim() || undefined,
+          companyId: String(standard.CompanyID ?? '') || undefined,
+          workplaceId: String(standard.DepartmentID ?? standard.WorkplaceID ?? '') || undefined,
+          whouseId: String(standard.WhouseID ?? '') || undefined,
+        });
+        if (!alloc.success || !alloc.number) {
+          throw new Error(alloc.message || 'Yeni fiş numarası alınamadı');
+        }
+        standard[field] = alloc.number;
+        savePayload = { ...savePayload, standardFields: { ...standard } };
+        return saveRecord(schema.tableName, savePayload, saveOpts);
+      });
       clearLookupCache();
+      if (schema.tableName === 'UnitCard') resetUnitCatalog();
 
       const code = String(standard.Code ?? standard.WhouseCode ?? standard.CompanyCode ?? standard.DocumentNumber ?? standard.VoucherNo ?? '').trim();
       const title = String(standard.Title ?? standard.Name ?? '').trim();
@@ -499,21 +668,75 @@ export const EntityFormPage: React.FC<EntityFormPageProps> = ({
 
       if (trackDraft && draftId) openDocsRef.current?.closeDocument(draftId);
 
-      const idNote = `ID=${result.recordId}${code ? ` · Kod=${code}` : ''}`;
-      const postNote =
-        result.postSave && result.postSave.length
-          ? `\nPostSave: ${result.postSave.map((p) => `${p.title || p.type}: ${p.message}`).join('; ')}`
-          : '';
-      alert(
-        (result.message || (mode === 'edit' ? 'Güncellendi' : 'Kaydedildi')) +
-          `\n${idNote}` +
-          postNote,
-      );
+      const failedPost = (result.postSave || []).filter((p) => !p.success);
+      appToast(mode === 'edit' ? 'Güncellendi' : 'Kaydedildi');
+      if (failedPost.length > 0) {
+        appToast(
+          failedPost.map((p) => `${p.title || p.type}: ${p.message}`).join('\n'),
+          { kind: 'error' },
+        );
+      }
+      // Sunucu kayıt sonrası havuza yazar / parametreye göre muhasebeleştirir — mesajı göster
+      const saveMsg = result.message || '';
+      if (/Havuza alındı|Muhasebe fişi oluşturuldu|eksik bağlantı|Muhasebe havuzu/i.test(saveMsg)) {
+        const accPart = saveMsg
+          .split(' · ')
+          .filter((p) => /Havuza|Muhasebe|eksik bağlantı/i.test(p))
+          .join(' · ');
+        if (accPart) {
+          const err = /eksik|hatası|Muhasebeleştirilmedi/i.test(accPart);
+          appToast(accPart, { kind: err ? 'error' : 'info', durationMs: err ? 5000 : 3200 });
+        }
+      }
       onBack();
     } catch (e) {
-      alert(e instanceof Error ? e.message : 'Kayıt başarısız');
+      appToast(e instanceof Error ? e.message : 'Kayıt başarısız', { kind: 'error' });
     } finally {
       setIsSubmitting(false);
+    }
+  };
+
+  const handlePostAccountingClick = async () => {
+    if (!schema || postingAcc) return;
+    const id = Number(recordId);
+    if (!(id > 0) || !accountingSource(schema.tableName)) return;
+    setPostingAcc(true);
+    try {
+      const msg = await postAccounting(schema.tableName, id);
+      appToast(msg || 'Muhasebeleştirildi');
+      await refreshAccStatus(schema.tableName, id);
+    } catch (e) {
+      appToast(e instanceof Error ? e.message : 'Muhasebeleştirilemedi', { kind: 'error', durationMs: 5000 });
+    } finally {
+      setPostingAcc(false);
+    }
+  };
+
+  const handleUnpostAccountingClick = async () => {
+    if (!schema || unpostingAcc) return;
+    const id = Number(recordId);
+    const source = accountingSource(schema.tableName);
+    if (!(id > 0) || !source) return;
+    if (accJournalNumbered) {
+      appToast('Yevmiye numarası alınmış — muhasebe fişi geri alınamaz', { kind: 'error' });
+      return;
+    }
+    const ok = await appConfirm(
+      'Muhasebe fişi silinip belge düzenlemeye açılacak. Devam?',
+      { okLabel: 'Geri al', danger: true },
+    );
+    if (!ok) return;
+    setUnpostingAcc(true);
+    try {
+      const res = await apiJson<{ message?: string }>(`/api/accounting/unpost/${source}/${id}`, {
+        method: 'POST',
+      });
+      appToast(res.message || 'Muhasebe fişi geri alındı');
+      await refreshAccStatus(schema.tableName, id);
+    } catch (e) {
+      appToast(e instanceof Error ? e.message : 'Geri alınamadı', { kind: 'error', durationMs: 5000 });
+    } finally {
+      setUnpostingAcc(false);
     }
   };
 
@@ -544,6 +767,15 @@ export const EntityFormPage: React.FC<EntityFormPageProps> = ({
     !useAccountLinkEngine &&
     (schema.documentLayout === 'trade' || Boolean(schema.lineFields?.length));
   const modeLabel = mode === 'view' ? 'İncele' : mode === 'edit' ? 'Değiştir' : 'Yeni';
+  const cardStmtDef = getCardStatementDef(schema.tableName);
+  const cardRecId = Number(recordId) > 0 ? Number(recordId) : 0;
+  const cardLabel = [
+    initialData?.standardFields?.Code,
+    initialData?.standardFields?.Title,
+  ]
+    .map((v) => String(v ?? '').trim())
+    .filter(Boolean)
+    .join(' · ');
 
   return (
     <div className={`relative ${designOpen ? 'sm:pr-[420px]' : ''}`}>
@@ -613,6 +845,76 @@ export const EntityFormPage: React.FC<EntityFormPageProps> = ({
                 Tasarla
               </button>
             )}
+          {schema && Number(recordId) > 0 && mode !== 'create' && (
+            <DocumentCollectionActions
+              tableName={schema.tableName}
+              recordId={Number(recordId)}
+              customerId={
+                Number(initialData?.standardFields?.CustomerID) > 0
+                  ? Number(initialData?.standardFields?.CustomerID)
+                  : null
+              }
+              documentNumber={
+                String(
+                  initialData?.standardFields?.DocumentNumber ??
+                    initialData?.standardFields?.OrderSlipNo ??
+                    '',
+                ) || null
+              }
+              amount={
+                Number(initialData?.standardFields?.NetTotal) > 0
+                  ? Number(initialData?.standardFields?.NetTotal)
+                  : Number(initialData?.standardFields?.Amount) > 0
+                    ? Number(initialData?.standardFields?.Amount)
+                    : null
+              }
+              description={String(initialData?.standardFields?.Description ?? '') || null}
+            />
+          )}
+          {schema &&
+            accountingSource(schema.tableName) &&
+            Number(recordId) > 0 &&
+            mode !== 'create' &&
+            !accPosted && (
+              <button
+                type="button"
+                disabled={postingAcc}
+                onClick={() => void handlePostAccountingClick()}
+                title="Bu belge için muhasebe fişi oluştur"
+                className="inline-flex items-center gap-1 px-2 h-7 text-[11px] font-semibold text-emerald-800 bg-emerald-50 border border-emerald-300 hover:bg-emerald-100 rounded-sm disabled:opacity-50"
+              >
+                {postingAcc ? (
+                  <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                ) : (
+                  <BookCheck className="w-3.5 h-3.5" />
+                )}
+                Muhasebeleştir
+              </button>
+            )}
+          {schema &&
+            accountingSource(schema.tableName) &&
+            Number(recordId) > 0 &&
+            mode !== 'create' &&
+            accPosted && (
+              <button
+                type="button"
+                disabled={unpostingAcc || accJournalNumbered || mode === 'view'}
+                onClick={() => void handleUnpostAccountingClick()}
+                title={
+                  accJournalNumbered
+                    ? 'Yevmiye numarası alınmış — geri alınamaz'
+                    : 'Muhasebe fişini sil, belgeyi düzenlemeye aç'
+                }
+                className="inline-flex items-center gap-1 px-2 h-7 text-[11px] font-semibold text-amber-900 bg-amber-50 border border-amber-300 hover:bg-amber-100 rounded-sm disabled:opacity-50"
+              >
+                {unpostingAcc ? (
+                  <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                ) : (
+                  <BookCheck className="w-3.5 h-3.5" />
+                )}
+                Muhasebe geri al
+              </button>
+            )}
           {trackDraft && (
             <button
               type="button"
@@ -627,15 +929,97 @@ export const EntityFormPage: React.FC<EntityFormPageProps> = ({
         </div>
       )}
       {!embedded && (
-        <p className="mb-2 text-[10px] font-semibold uppercase tracking-wide text-slate-400">
-          {modeLabel}
-          {recordId ? ` · #${recordId}` : ''}
-          {` · ${schema.tableName}`}
+        <p className="mb-2 text-[10px] font-semibold uppercase tracking-wide text-slate-400 inline-flex items-center gap-1.5">
+          <span>
+            {modeLabel}
+            {recordId ? ` · #${recordId}` : ''}
+            {` · ${schema.tableName}`}
+          </span>
+          {cardStmtDef && cardRecId > 0 && mode !== 'create' && (
+            <CardQuickInfoButton
+              kind={cardStmtDef.kind}
+              cardId={cardRecId}
+              label={cardLabel || undefined}
+              onOpenStatement={() => setCardStmtOpen(true)}
+            />
+          )}
         </p>
+      )}
+      {cardStmtOpen && cardStmtDef && cardRecId > 0 && (
+        <CardStatementModal
+          kind={cardStmtDef.kind}
+          cardId={cardRecId}
+          kindTitle={cardStmtDef.title}
+          onClose={() => setCardStmtOpen(false)}
+          reportTitle={cardStmtDef.items.find((i) => i.key === 'ekstre')?.label ?? `${cardStmtDef.title} Ekstresi`}
+          initialTab="ekstre"
+        />
       )}
       {loadError && (
         <div className="mb-2 rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-[12px] text-amber-800">
           DB kayıt okunamadı: {loadError}
+        </div>
+      )}
+      {!embedded && Number(recordId) > 0 && mode !== 'create' && (
+        <RelatedDocumentsBar tableName={schema.tableName} recordId={Number(recordId)} />
+      )}
+      {!embedded && schema.tableName === 'CustomerVoucher' && mode !== 'view' && (
+        <PaymentLinkPanel
+          recordId={Number(recordId) || Number(initialData?.recordId) || 0}
+          voucherType={
+            paymentLinkPatch.Type ??
+            initialData?.standardFields?.Type ??
+            initialData?.standardFields?.Type_
+          }
+          paymentLinkUrl={
+            (paymentLinkPatch.PaymentLinkUrl as string | undefined) ??
+            (initialData?.standardFields?.PaymentLinkUrl as string | undefined)
+          }
+          paymentProvider={
+            (paymentLinkPatch.PaymentProvider as string | undefined) ??
+            (initialData?.standardFields?.PaymentProvider as string | undefined)
+          }
+          paymentLinkStatus={
+            (paymentLinkPatch.PaymentLinkStatus as number | string | undefined) ??
+            (initialData?.standardFields?.PaymentLinkStatus as number | string | undefined)
+          }
+          readOnly={readOnly}
+          onUrlChange={(url, meta) => {
+            setPaymentLinkPatch((p) => ({
+              ...p,
+              PaymentLinkUrl: url,
+              ...(meta.provider ? { PaymentProvider: meta.provider } : {}),
+              ...(meta.status != null ? { PaymentLinkStatus: meta.status } : {}),
+            }));
+            setInitialData((prev) =>
+              prev
+                ? {
+                    ...prev,
+                    standardFields: {
+                      ...prev.standardFields,
+                      PaymentLinkUrl: url,
+                      ...(meta.provider ? { PaymentProvider: meta.provider } : {}),
+                      ...(meta.status != null ? { PaymentLinkStatus: meta.status } : {}),
+                    },
+                  }
+                : prev,
+            );
+          }}
+        />
+      )}
+      {!embedded && Number(recordId) > 0 && mode !== 'create' && (
+        <DocumentFilesPanel
+          tableName={schema.tableName}
+          recordId={Number(recordId)}
+          readOnly={readOnly}
+        />
+      )}
+      {!embedded && accPosted && mode !== 'view' && accountingSource(schema.tableName) && (
+        <div className="mb-2 rounded-md border border-amber-200 bg-amber-50 px-3 py-1.5 text-[11px] text-amber-900">
+          Muhasebeleşmiş — başlık ve satırlar kilitli; ödeme planı düzenlenebilir.
+          {accJournalNumbered
+            ? ' Yevmiye numarası alınmış; muhasebe geri alınamaz.'
+            : ' Kapsamlı değişiklik için «Muhasebe geri al».'}
         </div>
       )}
 
@@ -656,6 +1040,29 @@ export const EntityFormPage: React.FC<EntityFormPageProps> = ({
           onLiveChange={trackDraft ? handleLiveChange : undefined}
           isLoading={isSubmitting}
           readOnly={readOnly}
+          postedLock={accPosted && mode !== 'view'}
+          documentActionsSlot={
+            !embedded && Number(recordId) > 0 && mode !== 'create' ? (
+              <DocumentActionsPanel
+                tableName={schema.tableName}
+                recordId={Number(recordId)}
+                documentNumber={
+                  String(
+                    initialData?.standardFields?.DocumentNumber ??
+                      initialData?.standardFields?.OrderSlipNo ??
+                      initialData?.standardFields?.VoucherNo ??
+                      '',
+                  ) || null
+                }
+                customerCardID={
+                  Number(initialData?.standardFields?.CustomerID) > 0
+                    ? Number(initialData?.standardFields?.CustomerID)
+                    : null
+                }
+                readOnly={readOnly}
+              />
+            ) : undefined
+          }
         />
       ) : (
         <DynamicFormEngine

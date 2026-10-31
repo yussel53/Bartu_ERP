@@ -547,7 +547,11 @@ export const DatabaseAdminPage: React.FC<Props> = ({ onBack, initialTab = 'conne
           <SystemMaintenancePanel />
           <div className="flex items-start justify-between gap-3">
             <p className="text-[12px] text-slate-500">
-              Numaralı scriptler: <code className="text-[11px] bg-slate-100 px-1 rounded">SqlUpdates/01_xxx.sql</code>
+              Scriptler:{' '}
+              <code className="text-[11px] bg-slate-100 px-1 rounded">
+                SqlUpdates/yyyyMMdd_HHmmss_xxx.sql
+              </code>
+              <span className="text-slate-400"> (eski NN_xxx korunur)</span>
             </p>
             <div className="flex items-center gap-2">
               <button

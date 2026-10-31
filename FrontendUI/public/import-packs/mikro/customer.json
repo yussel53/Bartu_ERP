@@ -1,0 +1,40 @@
+{
+  "title": "Mikro — Cari kartlar",
+  "kind": "customer",
+  "sourceKind": 1,
+  "source": {
+    "sourceType": 1,
+    "sql": "SELECT\n  LTRIM(RTRIM(cari_kod)) AS Code,\n  LTRIM(RTRIM(cari_unvan1)) AS Title,\n  N'Alıcı / Satıcı' AS Type_,\n  COALESCE(NULLIF(LTRIM(RTRIM(cari_vdaire_no)), N''), NULLIF(LTRIM(RTRIM(cari_tckimlik_no)), N'')) AS TaxNr,\n  LTRIM(RTRIM(cari_vdaire_adi)) AS TaxOffice,\n  LTRIM(RTRIM(cari_Tel_bolge_kodu + cari_Tel_no1)) AS U_Phone,\n  LTRIM(RTRIM(cari_EMail)) AS U_Email,\n  LTRIM(RTRIM(cari_adr1_il)) AS Addr_City,\n  LTRIM(RTRIM(cari_adr1_ilce)) AS Addr_Town,\n  LTRIM(RTRIM(ISNULL(cari_adr1_cadde, N'') + N' ' + ISNULL(cari_adr1_sokak, N''))) AS Addr_Address,\n  CASE WHEN ISNULL(cari_hareket_tipi, 0) = 0 THEN N'Evet' ELSE N'Hayır' END AS Active\nFROM dbo.CARI_HESAPLAR WITH (NOLOCK)\nWHERE cari_kod IS NOT NULL\n  AND LTRIM(RTRIM(cari_kod)) <> N''\nORDER BY cari_kod",
+    "server": "",
+    "port": "1433",
+    "database": "",
+    "user": "sa",
+    "windowsAuth": false,
+    "trustCertificate": true,
+    "apiUrl": "",
+    "apiMethod": "GET",
+    "apiHeaders": "",
+    "jsonPath": "",
+    "body": ""
+  },
+  "map": [
+    { "header": "Code", "field": "Code", "literal": false },
+    { "header": "Title", "field": "Title", "literal": false },
+    { "header": "Type_", "field": "Type_", "literal": false },
+    { "header": "TaxNr", "field": "TaxNr", "literal": false },
+    { "header": "TaxOffice", "field": "TaxOffice", "literal": false },
+    { "header": "U_Phone", "field": "U_Phone", "literal": false },
+    { "header": "U_Email", "field": "U_Email", "literal": false },
+    { "header": "Addr_City", "field": "Addr_City", "literal": false },
+    { "header": "Addr_Town", "field": "Addr_Town", "literal": false },
+    { "header": "Addr_Address", "field": "Addr_Address", "literal": false },
+    { "header": "Active", "field": "Active", "literal": false }
+  ],
+  "mode": "upsert",
+  "createMissingCards": false,
+  "productType": null,
+  "intervalMinutes": null,
+  "afterSql": null,
+  "keepLog": true,
+  "isActive": true
+}

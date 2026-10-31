@@ -32,6 +32,21 @@ public sealed class CardStatementController : ControllerBase
         _scope = scope;
     }
 
+    /// <summary>Hesap kartları listesi: seçilen yıl bakiyesi (borç / alacak / bakiye)</summary>
+    [HttpGet("account-summaries")]
+    public async Task<IActionResult> AccountSummaries([FromQuery] int? year, CancellationToken ct)
+    {
+        try
+        {
+            var y = year is >= 1900 and <= 2100 ? year.Value : DateTime.Now.Year;
+            return Ok(await _repo.AccountSummariesAsync(y, ct));
+        }
+        catch (Exception ex)
+        {
+            return StatusCode(500, new { message = ex.Message });
+        }
+    }
+
     /// <summary>Cari listesi: bakiye + son hareket + açık sipariş + il/ilçe + iletişim + risk grubu</summary>
     [HttpGet("customer-summaries")]
     public async Task<IActionResult> CustomerSummaries(CancellationToken ct)

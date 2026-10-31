@@ -17,12 +17,16 @@ export interface RecordGetResult {
   additionalFields: Record<string, unknown>;
   addresses?: Record<string, unknown>[];
   contacts?: Record<string, unknown>[];
+  ibans?: Record<string, unknown>[];
   accounts?: Record<string, unknown>[];
   barcodes?: Record<string, unknown>[];
   unitConvs?: Record<string, unknown>[];
   productSubs?: Record<string, unknown>[];
   customerAliases?: Record<string, unknown>[];
   variants?: Record<string, unknown>[];
+  serialGroups?: Record<string, unknown>[];
+  serials?: Record<string, unknown>[];
+  lots?: Record<string, unknown>[];
   accountLinks?: Record<string, unknown>[];
   lines?: Record<string, unknown>[];
   workplaces?: Record<string, unknown>[];
@@ -31,6 +35,8 @@ export interface RecordGetResult {
   distributions?: Record<string, unknown>[];
   auxilCodes?: Record<string, unknown>[];
   auxilValues?: Record<string, unknown>[];
+  /** AccountCard: muhasebe hareketi varsa kod kilitli / altına alt hesap açılamaz */
+  hasMovements?: boolean;
 }
 
 export async function listRecords(
@@ -91,12 +97,16 @@ export async function saveRecord(
       additionalFields: data.additionalFields || {},
       addresses: data.addresses,
       contacts: data.contacts,
+      ibans: data.ibans,
       accounts: data.accounts,
       barcodes: data.barcodes,
       unitConvs: data.unitConvs,
       productSubs: data.productSubs,
       customerAliases: data.customerAliases,
       variants: data.variants,
+      serialGroups: data.serialGroups,
+      serials: data.serials,
+      lots: data.lots,
       accountLinks: data.accountLinks,
       lines: data.lines,
       workplaces: data.workplaces,

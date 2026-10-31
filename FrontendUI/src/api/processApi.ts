@@ -48,6 +48,8 @@ export interface ProcessInstance {
   startedAt: string;
   completedAt?: string | null;
   lastComment?: string | null;
+  /** belge, cari, adres, satir */
+  dataJson?: string | null;
 }
 
 export interface ProcessTask {
@@ -103,6 +105,52 @@ function unwrapList<T>(data: unknown): T[] {
 export async function listProcessDefs(includeInactive = true): Promise<ProcessDef[]> {
   const data = await apiJson<unknown>(`/api/process/defs?includeInactive=${includeInactive ? 'true' : 'false'}`);
   return unwrapList<ProcessDef>(data);
+}
+
+export interface ProcessSourceTest {
+  ok: boolean;
+  message: string;
+  databases?: string[];
+}
+
+export async function testProcessSource(cfg: Record<string, unknown>): Promise<ProcessSourceTest> {
+  return apiJson<ProcessSourceTest>('/api/process/source/test', {
+    method: 'POST',
+    body: JSON.stringify(cfg),
+  });
+}
+
+export async function previewProcessSource(cfg: Record<string, unknown>): Promise<string[]> {
+  const data = await apiJson<{ columns?: string[] }>('/api/process/source/columns', {
+    method: 'POST',
+    body: JSON.stringify(cfg),
+  });
+  return data.columns ?? [];
+}
+
+export async function previewBankColumns(cfg: { bankAccountCardId?: number; gun?: number; jsonPath?: string }): Promise<string[]> {
+  const data = await apiJson<{ columns?: string[] }>('/api/process/bank/columns', {
+    method: 'POST',
+    body: JSON.stringify(cfg),
+  });
+  return data.columns ?? [];
+}
+
+export async function describeProcessSelect(sql: string): Promise<string[]> {
+  const data = await apiJson<{ columns?: string[] }>('/api/process/columns', {
+    method: 'POST',
+    body: JSON.stringify({ sql }),
+  });
+  return data.columns ?? [];
+}
+
+export async function runProcessScans(defId?: number): Promise<{ started: number; skipped: number; messages: string[] }> {
+  const q = defId ? `?defId=${defId}` : '';
+  return apiJson(`/api/process/scan${q}`, { method: 'POST' });
+}
+
+export async function deleteProcessDef(id: number): Promise<void> {
+  await apiJson(`/api/process/defs/${id}`, { method: 'DELETE' });
 }
 
 export async function saveProcessDef(def: ProcessDef): Promise<ProcessDef> {

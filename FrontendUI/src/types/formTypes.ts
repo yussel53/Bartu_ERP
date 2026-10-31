@@ -20,6 +20,15 @@ export interface FormFieldDto {
    * undefined: alan adına göre otomatik
    */
   useLookup?: boolean;
+  /**
+   * Bağlı lookup: üst alan seçilince bu alan süzülür (örn. masraf boyutu 2 ← boyut 1).
+   * Yoksa `DEPENDENT_LOOKUPS[fieldName]` kullanılır.
+   */
+  dependentLookup?: {
+    parentField: string;
+    filterColumn: string;
+    emptyText?: string;
+  };
   /** true → alan salt okunur (ör. mükellef kontrol sonucu) */
   isReadOnly?: boolean;
   /** Alanın altında kısa açıklama */
@@ -54,8 +63,10 @@ export interface FormSchemaDto {
   lineFields?: FormFieldDto[];
   /** Cari adres satır alanları (CustomerAdress) */
   addressFields?: FormFieldDto[];
-  /** Cari yetkili satır alanları (CustomerContact) — kart içinde sekme */
+  /** Cari iletişim satır alanları (CustomerContact) — kart içinde sekme, N kayıt */
   contactFields?: FormFieldDto[];
+  /** Cari IBAN / banka hesap satırları (CustomerIban) — kart içinde sekme, N kayıt */
+  ibanFields?: FormFieldDto[];
   /** Banka hesap satır alanları (BankAccountCard) — banka kartı içinde sekme */
   accountFields?: FormFieldDto[];
   /** Malzeme barkod satırları (ProductBarcode) — birim çevirimi altında */
@@ -66,6 +77,12 @@ export interface FormSchemaDto {
   productSubFields?: FormFieldDto[];
   /** Cariye özel malzeme kodu/adı (ProductCustomerAlias) — malzeme kartı içinde sekme */
   customerAliasFields?: FormFieldDto[];
+  /** Seri grubu satırları (ProductSerialGroup) */
+  serialGroupFields?: FormFieldDto[];
+  /** Seri satırları (ProductSerial) */
+  serialFields?: FormFieldDto[];
+  /** Lot satırları (ProductLot) */
+  lotFields?: FormFieldDto[];
   /** Varyant satırları (VariantCard) — malzeme kartı içinde sekme */
   variantFields?: FormFieldDto[];
   /** Malzeme kartı varyant sekmesinde şablon seçimi (VariantTemplate) */
@@ -91,8 +108,10 @@ export interface FormSchemaDto {
   enableCustomFieldsTab?: boolean;
   /** true ise Adresler sekmesi açılır (en az bir adres zorunlu) */
   enableAddressesTab?: boolean;
-  /** true ise Yetkililer sekmesi açılır (cari kart içinde) */
+  /** true ise İletişim sekmesi açılır (cari kart içinde, N kişi) */
   enableContactsTab?: boolean;
+  /** true ise IBAN sekmesi açılır (cari kart içinde, N hesap) */
+  enableIbansTab?: boolean;
   /** true ise Hesaplar sekmesi açılır (banka kartı içinde) */
   enableAccountsTab?: boolean;
   /** true ise Barkodlar sekmesi açılır (eski; birim çevirimi tercih edilir) */
@@ -105,6 +124,8 @@ export interface FormSchemaDto {
   enableCustomerAliasesTab?: boolean;
   /** true ise Varyantlar sekmesi açılır (VariantCard) */
   enableVariantsTab?: boolean;
+  /** true ise Seri / Lot sekmesi (ProductSerialGroup, ProductSerial, ProductLot) */
+  enableTrackingTab?: boolean;
   /** true ise Muhasebe Hesapları sekmesi açılır (AccountLinkDetail) */
   enableAccountLinksTab?: boolean;
   /** true ise Özel Kodlar sekmesi (AuxilCodeTrans) */
@@ -151,11 +172,15 @@ export interface DynamicFormDataDto {
   recordId: number;
   standardFields: Record<string, unknown>;
   additionalFields: Record<string, unknown>;
+  /** AccountCard: hareket görmüşse kod değiştirilemez */
+  hasMovements?: boolean;
   lines?: Record<string, unknown>[];
   /** Cari kart adresleri → CustomerAdress */
   addresses?: Record<string, unknown>[];
-  /** Cari kart yetkilileri → CustomerContact */
+  /** Cari kart iletişim → CustomerContact */
   contacts?: Record<string, unknown>[];
+  /** Cari kart IBAN → CustomerIban */
+  ibans?: Record<string, unknown>[];
   /** Banka kartı hesapları → BankAccountCard */
   accounts?: Record<string, unknown>[];
   /** Malzeme barkodları → ProductBarcode */
@@ -168,6 +193,12 @@ export interface DynamicFormDataDto {
   customerAliases?: Record<string, unknown>[];
   /** Varyantlar → VariantCard (ProductCardID = kart) */
   variants?: Record<string, unknown>[];
+  /** Seri grupları → ProductSerialGroup */
+  serialGroups?: Record<string, unknown>[];
+  /** Seriler → ProductSerial */
+  serials?: Record<string, unknown>[];
+  /** Lotlar → ProductLot */
+  lots?: Record<string, unknown>[];
   /** Kart muhasebe bağlantıları → AccountLinkDetail */
   accountLinks?: Record<string, unknown>[];
   /** Firma → işyerleri (SYS_Workplace) */
@@ -205,6 +236,11 @@ export interface MenuScreen {
   documentTypeFilter?: string;
   /** Birden fazla belge tipi (örn. malzeme fişleri: Devir/Transfer/Sarf…) — istemci tarafı filtre */
   documentTypeFilters?: string[];
+  /**
+   * Satış / satınalma grubu (Invoice / ProductVoucher.TradeGroup)
+   * 1 Satış · 2 Satınalma · 0 Diğer — sunucu listesinde TradeGroup = değer
+   */
+  tradeGroupFilter?: 0 | 1 | 2;
   /** Özel Alanlar admin ekranı — hedef tablo adı */
   customFieldsTable?: string;
   /** Bu ekran özel alan yönetim UI'sı mı */
@@ -219,6 +255,14 @@ export interface MenuScreen {
   isStockCosting?: boolean;
   /** Genel Muhasebe → Muhasebeleştirme (fatura / kasa fişi → muhasebe fişi) */
   isAccountingPost?: boolean;
+  /** Genel Muhasebe → Muhasebe Havuzu (SYS_AccPool) */
+  isAccountingPool?: boolean;
+  /** Genel Muhasebe → Muhasebe Parametreleri (otomatik / havuz kaynakları) */
+  isAccountingParams?: boolean;
+  /** Sistem → Parametreler → Kasa (eski bayrak; moduleParamKey tercih edilir) */
+  isKasaParams?: boolean;
+  /** Sistem → Parametreler → Mikro tarzı grid (kasa|fatura|stok|cari) */
+  moduleParamKey?: 'kasa' | 'fatura' | 'stok' | 'cari';
   /** Finans → Raporlar → Cari Yaşlandırma (açık kalemler, vade dağılımı) */
   isCustomerAging?: boolean;
   /** Finans → Çek / Senet Portföyü (bordrolar, konum, vade takvimi) */
@@ -237,7 +281,7 @@ export interface MenuScreen {
   isEGovConsole?: boolean;
   /** E-Devlet → Raporlar → KDV ve Ba / Bs (E-08) */
   isEGovTaxReport?: boolean;
-  /** Veritabanı SqlUpdates (01_xxx.sql) güncelleme ekranı */
+  /** Veritabanı SqlUpdates (yyyyMMdd_HHmmss_xxx.sql) güncelleme ekranı */
   isDbUpdatesAdmin?: boolean;
   /** Muhasebe → Yevmiye madde numaralandırma işlemi */
   isJournalNumbering?: boolean;
@@ -249,6 +293,9 @@ export interface MenuScreen {
   isUserPermissionsAdmin?: boolean;
   /** Adres tanımları (ülke/il/ilçe/mahalle) */
   isAddressAdmin?: boolean;
+  /** Banka / şube kataloğu (SYS_Bank) */
+  isBankCatalogAdmin?: boolean;
+  bankCatalogTab?: 'bank' | 'branch';
   addressLevel?: 'country' | 'province' | 'district' | 'neighborhood';
   /** Öndeğerler (ID=-1 şablon kartlar) */
   isCardDefaultsAdmin?: boolean;
@@ -262,6 +309,8 @@ export interface MenuScreen {
   isProcessDesigner?: boolean;
   /** CRM / Teklif Yönetimi çalışma alanı (Fırsat → Aksiyon → Teklif) */
   isCrmWorkspace?: boolean;
+  /** CRM → Aksiyonlar listesi (belge + fırsat) */
+  isCrmActionsList?: boolean;
   /** CRM ayarları (Outlook entegrasyonu, SMTP, aksiyon tipleri) */
   isCrmSettings?: boolean;
   /** e-Logo PostBox belge çekme / senkron */

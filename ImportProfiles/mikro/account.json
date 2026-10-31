@@ -1,0 +1,31 @@
+{
+  "title": "Mikro — Muhasebe hesapları",
+  "kind": "account",
+  "sourceKind": 1,
+  "source": {
+    "sourceType": 1,
+    "sql": "SELECT\n  LTRIM(RTRIM(muh_kod)) AS CODE,\n  LTRIM(RTRIM(muh_hesap_adi)) AS DESCRIPTION\nFROM dbo.MUHASEBE_HESAPLARI WITH (NOLOCK)\nWHERE muh_kod IS NOT NULL\n  AND LTRIM(RTRIM(muh_kod)) <> N''\nORDER BY muh_kod",
+    "server": "",
+    "port": "1433",
+    "database": "",
+    "user": "sa",
+    "windowsAuth": false,
+    "trustCertificate": true,
+    "apiUrl": "",
+    "apiMethod": "GET",
+    "apiHeaders": "",
+    "jsonPath": "",
+    "body": ""
+  },
+  "map": [
+    { "header": "CODE", "field": "Code", "literal": false },
+    { "header": "DESCRIPTION", "field": "Title", "literal": false }
+  ],
+  "mode": "upsert",
+  "createMissingCards": false,
+  "productType": null,
+  "intervalMinutes": null,
+  "afterSql": null,
+  "keepLog": true,
+  "isActive": true
+}

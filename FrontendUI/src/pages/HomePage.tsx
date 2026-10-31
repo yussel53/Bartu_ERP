@@ -71,7 +71,7 @@ export const HomePage: React.FC<HomePageProps> = ({ onNavigate }) => {
     <div className="max-w-5xl mx-auto space-y-4">
       <div className="flex flex-col sm:flex-row sm:items-end sm:justify-between gap-3">
         <div>
-          <h1 className="text-lg font-semibold text-slate-900 dark:text-white">KaviSoft</h1>
+          <h1 className="text-lg font-semibold text-slate-900 dark:text-white">Kavi Soft</h1>
           <p className="mt-0.5 text-[12px] text-slate-500 dark:text-slate-400">
             Malzeme, finans, satış, satınalma, muhasebe, e-devlet, personel, raporlama ve sistem
           </p>

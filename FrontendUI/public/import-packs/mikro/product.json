@@ -1,0 +1,34 @@
+{
+  "title": "Mikro — Stok kartları",
+  "kind": "product",
+  "sourceKind": 1,
+  "source": {
+    "sourceType": 1,
+    "sql": "SELECT\n  LTRIM(RTRIM(sto_kod)) AS Code,\n  LTRIM(RTRIM(sto_isim)) AS Title,\n  N'1' AS ProductType,\n  CASE WHEN ISNULL(sto_pasif_fl, 0) = 0 THEN N'Evet' ELSE N'Hayır' END AS IsActive,\n  N'Adet' AS DefaultUnitID\nFROM dbo.STOKLAR WITH (NOLOCK)\nWHERE sto_kod IS NOT NULL\n  AND LTRIM(RTRIM(sto_kod)) <> N''\nORDER BY sto_kod",
+    "server": "",
+    "port": "1433",
+    "database": "",
+    "user": "sa",
+    "windowsAuth": false,
+    "trustCertificate": true,
+    "apiUrl": "",
+    "apiMethod": "GET",
+    "apiHeaders": "",
+    "jsonPath": "",
+    "body": ""
+  },
+  "map": [
+    { "header": "Code", "field": "Code", "literal": false },
+    { "header": "Title", "field": "Title", "literal": false },
+    { "header": "ProductType", "field": "ProductType", "literal": false },
+    { "header": "IsActive", "field": "IsActive", "literal": false },
+    { "header": "DefaultUnitID", "field": "DefaultUnitID", "literal": false }
+  ],
+  "mode": "upsert",
+  "createMissingCards": false,
+  "productType": 1,
+  "intervalMinutes": null,
+  "afterSql": null,
+  "keepLog": true,
+  "isActive": true
+}

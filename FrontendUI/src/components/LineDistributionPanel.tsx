@@ -174,7 +174,7 @@ export const LineDistributionPanel: React.FC<LineDistributionPanelProps> = ({
                   colSpan={fields.length + (readOnly ? 1 : 2)}
                   className="px-3 py-3 text-[11px] text-slate-400 text-center"
                 >
-                  Bu satır için dağıtım yok. «Dağıtım Ekle» ile masraf merkezi / proje bazında bölün.
+                  Bu satır için dağıtım yok. «Dağıtım Ekle» ile 5 boyuta (işyeri, kişiler, araçlar…) göre bölün.
                 </td>
               </tr>
             ) : (

@@ -78,7 +78,7 @@ public sealed class MaillerController : ControllerBase
     {
         var (ok, prefix) = await CheckKeyAsync();
         if (!ok) return Unauthorized(new { ok = false, mesaj = "API anahtarı geçersiz." });
-        return Ok(new { ok = true, sistem = "KaviSoft ERP", onek = prefix, zaman = DateTime.Now });
+        return Ok(new { ok = true, sistem = "Kavi Soft ERP", onek = prefix, zaman = DateTime.Now });
     }
 
     [HttpPost]

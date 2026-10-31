@@ -62,6 +62,17 @@ public sealed class CardStatementResult
     public List<string> Warnings { get; set; } = new();
 }
 
+/// <summary>Hesap kartı listesi özet satırı (yıl bakiyesi)</summary>
+public sealed class AccountListSummary
+{
+    public int AccountCardID { get; set; }
+    public decimal Debit { get; set; }
+    public decimal Credit { get; set; }
+    /// <summary>Borç − Alacak (pozitif: borçlu / B · negatif: alacaklı / A)</summary>
+    public decimal Balance { get; set; }
+    public int Year { get; set; }
+}
+
 /// <summary>Cari listesi özet satırı (bakiye ve önemli bilgiler)</summary>
 public sealed class AgingMove
 {
@@ -600,7 +611,7 @@ SELECT
   i.CustomerID AS CustId
 FROM dbo.Invoice i
 {await InvoiceTotalsJoinAsync(ct)}
-{Where("i.CustomerID")}");
+{Where("i.CustomerID")} AND i.InvoiceID > 0");
         }
 
         // 3) Banka satırları (havale / EFT)
@@ -861,6 +872,46 @@ GROUP BY CustomerID", cancellationToken: ct)))
         return map.Values.ToList();
     }
 
+    /// <summary>
+    /// Hesap kartları listesi: seçilen yıldaki borç / alacak / bakiye (AccountTrans · fiş tarihi veya TransDate).
+    /// </summary>
+    public async Task<List<AccountListSummary>> AccountSummariesAsync(int year, CancellationToken ct = default)
+    {
+        if (_db.State != ConnectionState.Open) _db.Open();
+        if (!await HasAsync("AccountTrans", ct)) return new();
+        year = year is >= 1900 and <= 2100 ? year : DateTime.Now.Year;
+        var hv = await HasColAsync("AccountTrans", "AccountVoucherID", ct) && await HasAsync("AccountVoucher", ct);
+        var (debit, credit) = await AccountAmountExprAsync(ct);
+        var dateExpr = hv
+            ? "COALESCE(av.VoucherDate, at.TransDate)"
+            : "at.TransDate";
+        var sql = $@"
+SELECT at.AccountCardID AS Id,
+  SUM(CAST(({debit}) AS decimal(19,2))) AS Debit,
+  SUM(CAST(({credit}) AS decimal(19,2))) AS Credit
+FROM dbo.AccountTrans at
+{(hv ? "LEFT JOIN dbo.AccountVoucher av ON av.AccountVoucherID = at.AccountVoucherID" : "")}
+WHERE at.AccountCardID IS NOT NULL
+  AND {dateExpr} IS NOT NULL
+  AND YEAR({dateExpr}) = @year
+GROUP BY at.AccountCardID";
+        var list = new List<AccountListSummary>();
+        foreach (var r in await _db.QueryAsync(new CommandDefinition(sql, new { year }, cancellationToken: ct)))
+        {
+            var d = (decimal)(r.Debit ?? 0m);
+            var c = (decimal)(r.Credit ?? 0m);
+            list.Add(new AccountListSummary
+            {
+                AccountCardID = (int)r.Id,
+                Debit = d,
+                Credit = c,
+                Balance = d - c,
+                Year = year,
+            });
+        }
+        return list;
+    }
+
     private async Task<CardSection?> CustomerDocumentsAsync(int id, CancellationToken ct)
     {
         var parts = new List<string>();
@@ -886,7 +937,7 @@ SELECT i.InvoiceDate, 'Invoice', CAST(i.[{invType}] AS int),
   CAST(s.Tot AS float), i.InvoiceID
 FROM dbo.Invoice i
 {await InvoiceTotalsJoinAsync(ct)}
-WHERE i.CustomerID = @id");
+WHERE i.CustomerID = @id AND i.InvoiceID > 0");
         }
 
         if (await HasColAsync("OrderVoucher", "CustomerID", ct) && await HasAsync("OrderTrans", ct))
@@ -899,7 +950,7 @@ SELECT o.OrderDate, 'OrderVoucher', CAST(o.Type_ AS int), CAST(o.OrderSlipNo AS 
   CAST((SELECT SUM(ISNULL(t.TotalPrice, 0)) FROM dbo.OrderTrans t WHERE {fk} = o.OrderVoucherID) AS float),
   o.OrderVoucherID
 FROM dbo.OrderVoucher o
-WHERE o.CustomerID = @id");
+WHERE o.CustomerID = @id AND o.OrderVoucherID > 0");
         }
 
         if (await HasColAsync("ProductVoucher", "CustomerID", ct))
@@ -909,7 +960,7 @@ SELECT p.VoucherDate, 'ProductVoucher', CAST(p.VoucherType AS int), CAST(p.Docum
   CAST((SELECT SUM(ISNULL(t.TotalPrice, 0)) FROM dbo.ProductTrans t WHERE t.ProductVoucherID = p.ProductVoucherID) AS float),
   p.ProductVoucherID
 FROM dbo.ProductVoucher p
-WHERE p.CustomerID = @id");
+WHERE p.CustomerID = @id AND p.ProductVoucherID > 0");
 
         if (await HasColAsync("BankTrans", "CustomerID", ct) && await HasColAsync("BankTrans", "BankVoucherID", ct)
             && await HasColAsync("BankVoucher", "DocumentNumber", ct))
@@ -961,7 +1012,7 @@ SELECT TOP 1000
 FROM dbo.OrderVoucher o
 OUTER APPLY (SELECT COUNT(1) AS Lines, SUM(ISNULL(t.Quantity, 0)) AS Qty, SUM(ISNULL(t.TotalPrice, 0)) AS Total
              FROM dbo.OrderTrans t WHERE {fk} = o.OrderVoucherID) x
-WHERE o.CustomerID = @id
+WHERE o.CustomerID = @id AND o.OrderVoucherID > 0
 ORDER BY o.OrderDate DESC, o.OrderVoucherID DESC", new { id }, ct);
         LabelRows(rows);
         return new CardSection

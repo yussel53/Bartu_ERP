@@ -190,7 +190,7 @@ OUTPUT INSERTED.Id VALUES (@ReportId, @Title, @Recipients, @Frequency, @RunHour,
             if (send)
             {
                 var body = $"{title}\n\nÇalışma: {NowTr():dd.MM.yyyy HH:mm} · {res.RowCount} satır\nParametreler: " +
-                           string.Join(", ", p.Select(x => $"{x.Key} = {x.Value}")) + "\n\nBu e-posta KaviSoft zamanlanmış rapor görevi ile gönderildi.";
+                           string.Join(", ", p.Select(x => $"{x.Key} = {x.Value}")) + "\n\nBu e-posta Kavi Soft zamanlanmış rapor görevi ile gönderildi.";
                 await SendAsync(s.OwnerUserID ?? 0, s.Recipients, title, body, file, fileName);
                 status = $"Gönderildi ({res.RowCount} satır)";
             }

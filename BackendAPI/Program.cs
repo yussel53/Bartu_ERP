@@ -22,6 +22,12 @@ builder.Services.AddScoped<AuthService>();
 builder.Services.AddScoped<DataScopeService>();
 builder.Services.AddScoped<StockService>();
 builder.Services.AddScoped<AccountingPostService>();
+builder.Services.AddScoped<SafeParamsService>();
+builder.Services.AddScoped<ModuleParamsService>();
+builder.Services.AddScoped<InvoiceParamsService>();
+builder.Services.AddScoped<DocumentLinksService>();
+builder.Services.AddScoped<PaymentLinkService>();
+builder.Services.AddScoped<DocumentFileService>();
 builder.Services.AddScoped<CustomerAgingService>();
 builder.Services.AddScoped<BoundPortfolioService>();
 builder.Services.AddScoped<RiskService>();
@@ -88,6 +94,8 @@ builder.Services.AddScoped<ModuleOverviewRepository>();
 builder.Services.AddScoped<ProductPricesRepository>();
 builder.Services.AddScoped<JournalNumberingRepository>();
 builder.Services.AddScoped<ImportRepository>();
+builder.Services.AddScoped<ImportProfileService>();
+builder.Services.AddHostedService<ImportProfileJob>();
 builder.Services.AddScoped<ExtraFieldsRepository>();
 builder.Services.AddScoped<ProcessRepository>();
 builder.Services.AddScoped<CrmRepository>();
@@ -104,8 +112,10 @@ builder.Services.AddScoped<EFaturaMukellefLookupService>();
 builder.Services.AddScoped<EGovMukellefCheckRepository>();
 builder.Services.AddScoped<EGovDocumentRepository>();
 builder.Services.AddSingleton<GibEFaturaUserListService>();
-// GİB mükellef listesi gece senkronu (E-06) — GibEFatura:NightlySyncEnabled / NightlySyncHour
-builder.Services.AddHostedService<EFaturaMukellefSyncJob>();
+// GİB mükellef tam liste → EFaturaMukellef (GB) kapalı; NightlySyncEnabled + FullLocalSyncEnabled ile açılır
+if (builder.Configuration.GetValue("GibEFatura:NightlySyncEnabled", false)
+    && builder.Configuration.GetValue("GibEFatura:FullLocalSyncEnabled", false))
+    builder.Services.AddHostedService<EFaturaMukellefSyncJob>();
 builder.Services.AddScoped<IntegratorMukellefService>();
 builder.Services.AddScoped<ELogoDocumentSyncService>();
 builder.Services.AddScoped<EGovDesignRepository>();
@@ -118,6 +128,7 @@ builder.Services.AddScoped<EGovConsoleRepository>();
 builder.Services.AddScoped<EGovTaxReportRepository>();
 builder.Services.AddScoped<ApprovalGroupRepository>();
 builder.Services.AddSingleton<AddressSeedService>();
+builder.Services.AddSingleton<BankSeedService>();
 builder.Services.AddHttpClient("PostSave", client =>
 {
     client.Timeout = TimeSpan.FromSeconds(60);

@@ -22,7 +22,7 @@ Menü, ekran ve form içerikleri **`Create_DB.sql`** tablolarına göre tanımla
 
 1. Ekran `subtitle` içinde gerçek tablo adını yaz (örn. `CustomerAdress`, `BankVoucher`)
 2. Aynı tablo farklı tiplerle kullanılıyorsa tek tablo + `Type_` / `VoucherType` / `InvoiceType` / `ProductType` filtresi
-3. Şemada olmayan tablo uydurma; gerekirse önce `SqlUpdates/NN_xxx.sql`
+3. Şemada olmayan tablo uydurma; gerekirse önce `SqlUpdates/yyyyMMdd_HHmmss_xxx.sql`
 4. `CustomerAdress`: cariye N adres; `AdressType` (Merkez/Sevkiyat/Fatura/Diğer)
 5. `ProductVoucher.VoucherType` (şema notu): 1 Devir, 2 Alım, 3… — satış/alış/iade/transfer ayrı kodlarla tutulur
 6. Detaylı eşleme: `FrontendUI/src/data/schemaModuleMap.ts`

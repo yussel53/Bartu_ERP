@@ -1,30 +1,32 @@
 ---
-description: Yeni tablo / şema değişikliği için numaralı SqlUpdates script zorunlu
+description: Yeni tablo / şema değişikliği için zaman damgalı SqlUpdates script zorunlu
 alwaysApply: true
 ---
 
 # Veritabanı güncelleme kuralı
 
-Yeni tablo, kolon, index veya şema değişikliği eklendiğinde **mutlaka** `SqlUpdates/` altına numaralı script yaz:
+Yeni tablo, kolon, index veya şema değişikliği eklendiğinde **mutlaka** `SqlUpdates/` altına zaman damgalı script yaz:
 
 ```
-SqlUpdates/NN_kisa_aciklama.sql
+SqlUpdates/yyyyMMdd_HHmmss_kisa_aciklama.sql
 ```
 
-Örnek: `07_invoice_line_udf.sql`, `08_sys_audit_log.sql`
+Örnek: `20261028_115800_acc_pool.sql`, `20261028_143015_fin_risk_limit.sql`
 
 ## Kurallar
 
-1. Dosya adı: iki (veya daha fazla) haneli sıra + alt çizgi + snake_case + `.sql` → `01_xxx.sql`
+1. Dosya adı: **yıl ay gün** + `_` + **saat dakika saniye** + `_` + snake_case + `.sql`  
+   → `20261028_115800_modul_konu.sql` (yerel saat; 24 saat)
 2. Script **idempotent** olsun (`IF OBJECT_ID ... IS NULL`, `COL_LENGTH ... IS NULL`)
 3. `GO` batch ayırıcıları kullanılabilir; API `GO` ile böler
-4. Sıra numarası mevcut en yüksek `NN` + 1 olsun; araya sıkıştırma
+4. Damga çakışmasın: aynı saniyede ikinci script için bir saniye ileri alın
 5. `Create_DB.sql` / `SYS_Tables_And_UDF.sql` tek başına yetmez — canlı DB için `SqlUpdates` şart
 6. Yeni tablo/ekran eklenirken Sistem Yönetimi → **Veritabanı Güncelleme** ekranında görünecek şekilde script klasöre konur (UI `api/db-updates` ile listeler)
 7. İlk script `01_sys_db_updates.sql` takip tablosunu (`SYS_DbUpdates`) oluşturur; bozulmamalı
+8. Eski `NN_xxx.sql` (01–110…) dosyaları olduğu gibi kalır; **yeni scriptler yalnızca zaman damgası** kullanır
 
 ## Yasak
 
 - Sadece kodda tablo varsayıp SQL script atlamak
-- Numarasız / tarihli rastgele dosya adları (`new_table.sql`, `update.sql`)
-- Uygulanmış scripti içeriğini değiştirerek yeniden yazmak (yeni `NN_` aç)
+- Numarasız / rastgele adlar (`new_table.sql`, `update.sql`)
+- Uygulanmış scripti içeriğini değiştirerek veya yeniden adlandırarak yazmak (düzeltme için **yeni** `yyyyMMdd_HHmmss_…` aç)

@@ -1,6 +1,6 @@
 # Başlarken
 
-KaviSoft (Bartu ERP), malzeme, finans, satış, satınalma, CRM, genel muhasebe, e-Devlet (e-Fatura / e-Arşiv / e-İrsaliye) ve
+Kavi Soft, malzeme, finans, satış, satınalma, CRM, genel muhasebe, e-Devlet (e-Fatura / e-Arşiv / e-İrsaliye) ve
 sistem yönetimini tek ekranda toplayan web tabanlı bir ERP'dir. Tarayıcıdan açılır; kurulum gerektirmez.
 
 ## Giriş

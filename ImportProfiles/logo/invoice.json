@@ -1,0 +1,40 @@
+{
+  "title": "Logo — Faturalar (satır)",
+  "kind": "invoice",
+  "sourceKind": 1,
+  "source": {
+    "sourceType": 1,
+    "sql": "SELECT\n  INV.FICHENO AS DocumentNumber,\n  CONVERT(varchar(10), INV.DATE_, 23) AS InvoiceDate,\n  CASE INV.TRCODE\n    WHEN 1 THEN N'Alış Faturası'\n    WHEN 2 THEN N'Satış İade Faturası'\n    WHEN 3 THEN N'Satış İade Faturası'\n    WHEN 4 THEN N'Alınan Hizmet'\n    WHEN 6 THEN N'Alış İade Faturası'\n    WHEN 7 THEN N'Satış Faturası'\n    WHEN 8 THEN N'Satış Faturası'\n    WHEN 9 THEN N'Satış Faturası'\n    WHEN 13 THEN N'Satınalma Fiyat Farkı'\n    WHEN 14 THEN N'Satış Fiyat Farkı'\n    ELSE N'Satış Faturası'\n  END AS InvoiceType,\n  LTRIM(RTRIM(CLC.CODE)) AS CustomerCode,\n  ISNULL(LTRIM(RTRIM(ITM.CODE)), LTRIM(RTRIM(SRV.CODE))) AS ProductCode,\n  CAST(STL.AMOUNT AS float) AS Quantity,\n  CAST(STL.PRICE AS float) AS Price,\n  CAST(STL.TOTAL AS float) AS LineAmount,\n  CAST(ISNULL(STL.DISTDISC, 0) AS float) AS Discount,\n  CAST(ISNULL(STL.VAT, 0) AS float) AS TaxRate,\n  LTRIM(RTRIM(STL.LINEEXP)) AS LineDescription\nFROM dbo.LG_421_01_STLINE STL WITH (NOLOCK)\nINNER JOIN dbo.LG_421_01_INVOICE INV WITH (NOLOCK) ON STL.INVOICEREF = INV.LOGICALREF\nLEFT JOIN dbo.LG_421_CLCARD CLC WITH (NOLOCK) ON STL.CLIENTREF = CLC.LOGICALREF\nLEFT JOIN dbo.LG_421_ITEMS ITM WITH (NOLOCK) ON STL.STOCKREF = ITM.LOGICALREF AND STL.LINETYPE = 0\nLEFT JOIN dbo.LG_421_SRVCARD SRV WITH (NOLOCK) ON STL.STOCKREF = SRV.LOGICALREF AND STL.LINETYPE = 4\nWHERE STL.CANCELLED = 0\n  AND ISNULL(INV.CANCELLED, 0) = 0\n  AND STL.LINETYPE IN (0, 4)\n  AND INV.LOGICALREF > 0\n  AND INV.FICHENO IS NOT NULL\n  AND LTRIM(RTRIM(INV.FICHENO)) <> N''\n  AND ISNULL(ITM.CODE, SRV.CODE) IS NOT NULL\nORDER BY INV.DATE_, INV.FICHENO, STL.LOGICALREF",
+    "server": "",
+    "port": "1433",
+    "database": "LOGODB",
+    "user": "",
+    "windowsAuth": true,
+    "trustCertificate": true,
+    "apiUrl": "",
+    "apiMethod": "GET",
+    "apiHeaders": "",
+    "jsonPath": "",
+    "body": ""
+  },
+  "map": [
+    { "header": "DocumentNumber", "field": "DocumentNumber", "literal": false },
+    { "header": "InvoiceDate", "field": "InvoiceDate", "literal": false },
+    { "header": "InvoiceType", "field": "InvoiceType", "literal": false },
+    { "header": "CustomerCode", "field": "CustomerCode", "literal": false },
+    { "header": "ProductCode", "field": "ProductCode", "literal": false },
+    { "header": "Quantity", "field": "Quantity", "literal": false },
+    { "header": "Price", "field": "Price", "literal": false },
+    { "header": "LineAmount", "field": "LineAmount", "literal": false },
+    { "header": "Discount", "field": "Discount", "literal": false },
+    { "header": "TaxRate", "field": "TaxRate", "literal": false },
+    { "header": "LineDescription", "field": "LineDescription", "literal": false }
+  ],
+  "mode": "upsert",
+  "createMissingCards": true,
+  "productType": null,
+  "intervalMinutes": null,
+  "afterSql": null,
+  "keepLog": true,
+  "isActive": true
+}

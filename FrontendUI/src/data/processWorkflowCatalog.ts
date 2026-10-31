@@ -9,6 +9,8 @@ export interface TriggerOption {
   needsDocKind?: boolean;
   needsDirection?: boolean;
   needsTypeFilter?: boolean;
+  /** Tetik için SELECT alanı */
+  needsSql?: boolean;
 }
 
 export const TRIGGER_OPTIONS: TriggerOption[] = [
@@ -37,7 +39,7 @@ export const TRIGGER_OPTIONS: TriggerOption[] = [
   },
   { value: 6, label: 'Yinelemeli / zamanlanmış', hint: 'Zamanlayıcı ile periyodik' },
   { value: 7, label: 'E-posta kontrol', hint: 'Gelen kutusu tarama tetikleyicisi' },
-  { value: 8, label: 'DB tarama', hint: 'Veritabanı koşulu sağlandığında' },
+  { value: 8, label: 'DB tarama', hint: 'Veritabanı koşulu sağlandığında', needsSql: true },
 ];
 
 export const DOC_KIND_OPTIONS = [
@@ -70,11 +72,15 @@ export const WORKFLOW_NODES: WorkflowNodeDef[] = [
   { nodeType: 'Manual', label: 'Manuel', actionType: 'Approve', tone: 'green', group: 'tetik' },
   { nodeType: 'Scheduled', label: 'Yinelemeli', actionType: 'Approve', tone: 'green', group: 'tetik' },
   { nodeType: 'EmailCheck', label: 'E-Posta Kontrol', actionType: 'Approve', tone: 'green', group: 'tetik' },
+  { nodeType: 'DataFetch', label: 'Veri Çek', actionType: 'Approve', tone: 'blue', group: 'veri' },
+  { nodeType: 'ModuleTransfer', label: 'Modüle Aktar', actionType: 'Transfer', tone: 'gold', group: 'veri' },
+  { nodeType: 'ImportRun', label: 'Veri Aktarımı', actionType: 'Transfer', tone: 'gold', group: 'veri' },
   { nodeType: 'DbScan', label: 'DB Tarama', actionType: 'Approve', tone: 'blue', group: 'veri' },
   { nodeType: 'DbScanLoop', label: 'Yinelemeli DB Tarama', actionType: 'Approve', tone: 'blue', group: 'veri' },
   { nodeType: 'EInvoiceCheck', label: 'E-Fatura Kontrol', actionType: 'Review', tone: 'blue', group: 'veri', needsApprover: true },
   { nodeType: 'Terminate', label: 'Sonlandır', actionType: 'Approve', tone: 'red', group: 'akis' },
   { nodeType: 'SubProcess', label: 'Alt Süreç', actionType: 'Approve', tone: 'purple', group: 'akis' },
+  { nodeType: 'BankFetch', label: 'Banka Entegrasyonu', actionType: 'Approve', tone: 'gold', group: 'entegrasyon' },
   { nodeType: 'WebApi', label: 'Web Api', actionType: 'Approve', tone: 'gold', group: 'entegrasyon', dualOut: true },
   { nodeType: 'WebService', label: 'Web Servis', actionType: 'Approve', tone: 'gold', group: 'entegrasyon', dualOut: true },
   { nodeType: 'RestService', label: 'Rest Servis', actionType: 'Approve', tone: 'gold', group: 'entegrasyon', dualOut: true },

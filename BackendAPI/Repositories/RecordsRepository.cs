@@ -1,4 +1,5 @@
 using System.Data;
+using System.Globalization;
 using System.Text.Json;
 using System.Text.RegularExpressions;
 using Dapper;
@@ -24,12 +25,16 @@ public sealed class RecordGetResult
     public Dictionary<string, object?> AdditionalFields { get; set; } = new();
     public List<Dictionary<string, object?>>? Addresses { get; set; }
     public List<Dictionary<string, object?>>? Contacts { get; set; }
+    public List<Dictionary<string, object?>>? Ibans { get; set; }
     public List<Dictionary<string, object?>>? Accounts { get; set; }
     public List<Dictionary<string, object?>>? Barcodes { get; set; }
     public List<Dictionary<string, object?>>? UnitConvs { get; set; }
     public List<Dictionary<string, object?>>? ProductSubs { get; set; }
     public List<Dictionary<string, object?>>? CustomerAliases { get; set; }
     public List<Dictionary<string, object?>>? Variants { get; set; }
+    public List<Dictionary<string, object?>>? SerialGroups { get; set; }
+    public List<Dictionary<string, object?>>? Serials { get; set; }
+    public List<Dictionary<string, object?>>? Lots { get; set; }
     public List<Dictionary<string, object?>>? AccountLinks { get; set; }
     public List<Dictionary<string, object?>>? Lines { get; set; }
     public List<Dictionary<string, object?>>? Workplaces { get; set; }
@@ -38,6 +43,24 @@ public sealed class RecordGetResult
     public List<Dictionary<string, object?>>? Distributions { get; set; }
     public List<Dictionary<string, object?>>? AuxilCodes { get; set; }
     public List<Dictionary<string, object?>>? AuxilValues { get; set; }
+    public List<Dictionary<string, object?>>? Prices { get; set; }
+    /// <summary>AccountCard: AccountTrans hareketi varsa true (kod kilit / alt hesap yasağı).</summary>
+    public bool? HasMovements { get; set; }
+}
+
+public sealed class SerialLotOptionDto
+{
+    public int ProductSerialLotID { get; set; }
+    public string Code { get; set; } = "";
+    public byte Kind { get; set; }
+    public byte Status { get; set; }
+    public int? WhouseID { get; set; }
+    public double? Qty { get; set; }
+    /// <summary>Seri grubunun seri numaraları (virgül).</summary>
+    public string? Serials { get; set; }
+    public DateTime? ExpireDate { get; set; }
+    public string? Description { get; set; }
+    public int? StockLocationID { get; set; }
 }
 
 public sealed class RecordSaveRequest
@@ -47,12 +70,16 @@ public sealed class RecordSaveRequest
     public Dictionary<string, object?>? AdditionalFields { get; set; }
     public List<Dictionary<string, object?>>? Addresses { get; set; }
     public List<Dictionary<string, object?>>? Contacts { get; set; }
+    public List<Dictionary<string, object?>>? Ibans { get; set; }
     public List<Dictionary<string, object?>>? Accounts { get; set; }
     public List<Dictionary<string, object?>>? Barcodes { get; set; }
     public List<Dictionary<string, object?>>? UnitConvs { get; set; }
     public List<Dictionary<string, object?>>? ProductSubs { get; set; }
     public List<Dictionary<string, object?>>? CustomerAliases { get; set; }
     public List<Dictionary<string, object?>>? Variants { get; set; }
+    public List<Dictionary<string, object?>>? SerialGroups { get; set; }
+    public List<Dictionary<string, object?>>? Serials { get; set; }
+    public List<Dictionary<string, object?>>? Lots { get; set; }
     public List<Dictionary<string, object?>>? AccountLinks { get; set; }
     public List<Dictionary<string, object?>>? Lines { get; set; }
     public List<Dictionary<string, object?>>? Workplaces { get; set; }
@@ -61,6 +88,7 @@ public sealed class RecordSaveRequest
     public List<Dictionary<string, object?>>? Distributions { get; set; }
     public List<Dictionary<string, object?>>? AuxilCodes { get; set; }
     public List<Dictionary<string, object?>>? AuxilValues { get; set; }
+    public List<Dictionary<string, object?>>? Prices { get; set; }
     /** Form kodu — SYS_FormPostSave + şema postSave birleşimi */
     public string? FormCode { get; set; }
     /** Şemadan gelen kaydet-sonrası komutlar */
@@ -86,6 +114,7 @@ internal sealed class NestedChildSpec
 public sealed class RecordsRepository
 {
     private static readonly Regex SafeIdent = new(@"^[A-Za-z_][A-Za-z0-9_]*$", RegexOptions.Compiled);
+    private static readonly Regex UdfName = new(@"^U_[A-Za-z0-9_]{1,60}$", RegexOptions.Compiled);
     private readonly IDbConnection _db;
 
     /// <summary>
@@ -100,6 +129,7 @@ public sealed class RecordsRepository
             ["SystemUser"] = ["Password"],
             ["SYS_Users"] = ["PasswordHash"],
             ["CRM_MailProfile"] = ["SmtpPassword"],
+            ["BankAccountCard"] = ["IntegSecret"],
         };
 
     /// <summary>Ana kart → nested çocuk tablolar</summary>
@@ -121,6 +151,13 @@ public sealed class RecordsRepository
                     TableName = "CustomerContact",
                     ParentFkColumn = "CustomerCardID",
                     PrimaryKeyColumn = "CustomerContactID",
+                },
+                new NestedChildSpec
+                {
+                    PayloadKey = "ibans",
+                    TableName = "CustomerIban",
+                    ParentFkColumn = "CustomerCardID",
+                    PrimaryKeyColumn = "CustomerIbanID",
                 },
                 new NestedChildSpec
                 {
@@ -180,6 +217,27 @@ public sealed class RecordsRepository
                 },
                 new NestedChildSpec
                 {
+                    PayloadKey = "serialGroups",
+                    TableName = "ProductSerialGroup",
+                    ParentFkColumn = "ProductCardID",
+                    PrimaryKeyColumn = "ProductSerialGroupID",
+                },
+                new NestedChildSpec
+                {
+                    PayloadKey = "serials",
+                    TableName = "ProductSerial",
+                    ParentFkColumn = "ProductCardID",
+                    PrimaryKeyColumn = "ProductSerialID",
+                },
+                new NestedChildSpec
+                {
+                    PayloadKey = "lots",
+                    TableName = "ProductLot",
+                    ParentFkColumn = "ProductCardID",
+                    PrimaryKeyColumn = "ProductLotID",
+                },
+                new NestedChildSpec
+                {
                     PayloadKey = "accountLinks",
                     TableName = "AccountLinkDetail",
                     ParentFkColumn = "SourceCardID",
@@ -195,6 +253,13 @@ public sealed class RecordsRepository
                     PrimaryKeyColumn = "AuxilCodeTransID",
                     FixedColumns = new Dictionary<string, object?> { ["ModuleNr"] = 1 },
                     FilterColumns = new Dictionary<string, object?> { ["ModuleNr"] = 1 },
+                },
+                new NestedChildSpec
+                {
+                    PayloadKey = "prices",
+                    TableName = "ProductPrice",
+                    ParentFkColumn = "ProductCardID",
+                    PrimaryKeyColumn = "ProductPriceID",
                 },
             ],
             ["BankCard"] =
@@ -503,7 +568,8 @@ public sealed class RecordsRepository
             return new RecordListResult { TableName = tableName, PrimaryKeyColumn = pk, Warning = "Kolon yok" };
         }
 
-        take = Math.Clamp(take, 1, 2000);
+        // Lookup (cari/malzeme) 10k’ya kadar; liste sayfaları genelde 50–500 ister
+        take = Math.Clamp(take, 1, 10000);
         skip = Math.Max(0, skip);
         var selectList = BuildSelectList(tableName, cols);
         var sql = $"SELECT {selectList} FROM [{tableName}]";
@@ -550,9 +616,18 @@ public sealed class RecordsRepository
         sql += where;
         var total = await _db.ExecuteScalarAsync<int>(new CommandDefinition($"SELECT COUNT(1) FROM [{tableName}]{where}", parameters, cancellationToken: ct));
 
-        sql += !string.IsNullOrWhiteSpace(pk) && cols.Contains(pk, StringComparer.OrdinalIgnoreCase)
-            ? $" ORDER BY [{pk}] DESC"
-            : " ORDER BY (SELECT NULL)";
+        // Hesap planı: kod artan (UI ayrıca 100 → 100.01 → 100.01.00001 hiyerarşik sıralar)
+        if (tableName.Equals("AccountCard", StringComparison.OrdinalIgnoreCase)
+            && cols.Contains("Code", StringComparer.OrdinalIgnoreCase))
+        {
+            sql += " ORDER BY [Code] ASC";
+        }
+        else
+        {
+            sql += !string.IsNullOrWhiteSpace(pk) && cols.Contains(pk, StringComparer.OrdinalIgnoreCase)
+                ? $" ORDER BY [{pk}] DESC"
+                : " ORDER BY (SELECT NULL)";
+        }
         sql += $" OFFSET {skip} ROWS FETCH NEXT {take} ROWS ONLY";
 
         var raw = await _db.QueryAsync(new CommandDefinition(sql, parameters, cancellationToken: ct));
@@ -598,6 +673,13 @@ public sealed class RecordsRepository
             ApplyProductCardStatsToRows(rows, stats);
         }
 
+        if (tableName.Equals("Invoice", StringComparison.OrdinalIgnoreCase)
+            || tableName.Equals("OrderVoucher", StringComparison.OrdinalIgnoreCase)
+            || tableName.Equals("ProductVoucher", StringComparison.OrdinalIgnoreCase)
+            || tableName.Equals("CustomerVoucher", StringComparison.OrdinalIgnoreCase)
+            || tableName.Equals("BankVoucher", StringComparison.OrdinalIgnoreCase))
+            await EnrichDocumentPartyRowsAsync(tableName, rows, ct);
+
         return new RecordListResult
         {
             TableName = tableName,
@@ -605,6 +687,89 @@ public sealed class RecordsRepository
             Total = Math.Max(total, skip + rows.Count),
             Rows = rows,
         };
+    }
+
+    /// <summary>Belge listeleri: CustomerID → kod — ünvan; faturalarda satır NetTotal toplamı.</summary>
+    private async Task EnrichDocumentPartyRowsAsync(string tableName, List<Dictionary<string, object?>> rows, CancellationToken ct)
+    {
+        if (rows.Count == 0) return;
+
+        object? Pick(Dictionary<string, object?> row, params string[] keys)
+        {
+            foreach (var k in keys)
+            {
+                if (row.TryGetValue(k, out var v) && v is not null and not DBNull && Convert.ToString(v)?.Trim() != "")
+                    return v;
+            }
+            return null;
+        }
+
+        var customerIds = rows
+            .Select(r => ToInt(Pick(r, "CustomerID", "customerID")))
+            .Where(id => id is > 0)
+            .Select(id => id!.Value)
+            .Distinct()
+            .ToList();
+
+        var titles = new Dictionary<int, string>();
+        if (customerIds.Count > 0 && await TableExistsAsync("CustomerCard"))
+        {
+            var custRows = await _db.QueryAsync<(int Id, string? Code, string? Title)>(new CommandDefinition(
+                @"SELECT CustomerCardID AS Id, Code, Title FROM dbo.CustomerCard WHERE CustomerCardID IN @ids",
+                new { ids = customerIds }, cancellationToken: ct));
+            foreach (var c in custRows)
+            {
+                var t = (c.Title ?? "").Trim();
+                var code = (c.Code ?? "").Trim();
+                if (t.Length == 0) titles[c.Id] = code;
+                else if (code.Length == 0 || string.Equals(t, code, StringComparison.OrdinalIgnoreCase))
+                    titles[c.Id] = t;
+                else
+                    titles[c.Id] = $"{code} — {t}";
+            }
+        }
+
+        var nets = new Dictionary<int, decimal>();
+        if (tableName.Equals("Invoice", StringComparison.OrdinalIgnoreCase)
+            && await TableExistsAsync("ProductTrans")
+            && (await GetColumnsAsync("ProductTrans")).Contains("NetTotal", StringComparer.OrdinalIgnoreCase))
+        {
+            var invIds = rows
+                .Select(r => ToInt(Pick(r, "InvoiceID", "id", "Id")))
+                .Where(id => id is > 0)
+                .Select(id => id!.Value)
+                .Distinct()
+                .ToList();
+            if (invIds.Count > 0)
+            {
+                var netRows = await _db.QueryAsync<(int InvoiceID, decimal NetSum)>(new CommandDefinition(
+                    @"SELECT InvoiceID, SUM(ISNULL(NetTotal, 0)) AS NetSum
+                      FROM dbo.ProductTrans
+                      WHERE InvoiceID IN @ids
+                      GROUP BY InvoiceID",
+                    new { ids = invIds }, cancellationToken: ct));
+                foreach (var n in netRows)
+                    nets[n.InvoiceID] = n.NetSum;
+            }
+        }
+
+        foreach (var row in rows)
+        {
+            var custId = ToInt(Pick(row, "CustomerID", "customerID"));
+            if (custId is > 0 && titles.TryGetValue(custId.Value, out var title) && title.Length > 0)
+            {
+                row["CustomerTitle"] = title;
+                row["customer"] = title;
+                row["customerTitle"] = title;
+            }
+            var invId = ToInt(Pick(row, "InvoiceID", "id", "Id"));
+            if (invId is > 0 && nets.TryGetValue(invId.Value, out var net))
+            {
+                row["NetTotal"] = net;
+                row["netTotal"] = net;
+                row["total"] = net;
+            }
+        }
     }
 
     private sealed class ProductCardStats
@@ -639,7 +804,8 @@ public sealed class RecordsRepository
         foreach (var id in ids)
             result[id] = new ProductCardStats();
 
-        // Ana birim
+        // Ana birim adı, birim kartındaki UnitID karşılığıdır
+        var unitTitles = await LoadUnitTitlesAsync(ct);
         if (await TableExistsAsync("ProductUnit"))
         {
             var unitRows = await _db.QueryAsync<(int ProductCardID, int? UnitID)>(new CommandDefinition(
@@ -654,7 +820,7 @@ ORDER BY CASE WHEN IsMain = 1 THEN 0 ELSE 1 END, LineNr, ProductUnitID",
             {
                 if (!result.TryGetValue(u.ProductCardID, out var st)) continue;
                 if (!string.IsNullOrEmpty(st.MainUnitName)) continue;
-                st.MainUnitName = UnitCatalogLabel(u.UnitID);
+                st.MainUnitName = UnitTitle(unitTitles, u.UnitID);
             }
         }
         var defRows = await _db.QueryAsync<(int ProductCardID, int? DefaultUnitID)>(new CommandDefinition(
@@ -665,7 +831,7 @@ ORDER BY CASE WHEN IsMain = 1 THEN 0 ELSE 1 END, LineNr, ProductUnitID",
         {
             if (!result.TryGetValue(d.ProductCardID, out var st)) continue;
             if (!string.IsNullOrEmpty(st.MainUnitName) || d.DefaultUnitID is null or <= 0) continue;
-            st.MainUnitName = UnitCatalogLabel(d.DefaultUnitID);
+            st.MainUnitName = UnitTitle(unitTitles, d.DefaultUnitID);
         }
 
         // Stok
@@ -833,6 +999,57 @@ GROUP BY t.ItemsID, v.Type_",
     }
 
     /// <summary>
+    /// <summary>
+    /// Invoice.InvoiceType / ProductVoucher.VoucherType → TradeGroup (1 Satış · 2 Satınalma · 0 Diğer).
+    /// </summary>
+    private static void StampTradeGroup(string tableName, Dictionary<string, object?> incoming)
+    {
+        static int? ReadInt(Dictionary<string, object?> row, params string[] keys)
+        {
+            foreach (var k in keys)
+            {
+                if (!row.TryGetValue(k, out var v) || v == null || v is DBNull) continue;
+                if (v is int i) return i;
+                if (v is byte b) return b;
+                if (v is short s) return s;
+                if (v is long l) return (int)l;
+                if (int.TryParse(Convert.ToString(v, CultureInfo.InvariantCulture), out var n)) return n;
+            }
+            // case-insensitive
+            foreach (var kv in row)
+            {
+                if (!keys.Any(k => k.Equals(kv.Key, StringComparison.OrdinalIgnoreCase))) continue;
+                if (kv.Value == null || kv.Value is DBNull) continue;
+                if (int.TryParse(Convert.ToString(kv.Value, CultureInfo.InvariantCulture), out var n)) return n;
+            }
+            return null;
+        }
+
+        if (tableName.Equals("Invoice", StringComparison.OrdinalIgnoreCase))
+        {
+            var t = ReadInt(incoming, "InvoiceType") ?? 0;
+            incoming["TradeGroup"] = t switch
+            {
+                1 or 3 or 7 => (byte)1,
+                2 or 4 or 5 or 6 => (byte)2,
+                _ => (byte)0,
+            };
+            return;
+        }
+
+        if (tableName.Equals("ProductVoucher", StringComparison.OrdinalIgnoreCase))
+        {
+            var t = ReadInt(incoming, "VoucherType") ?? 0;
+            incoming["TradeGroup"] = t switch
+            {
+                3 or 5 => (byte)1,
+                2 or 4 => (byte)2,
+                _ => (byte)0,
+            };
+        }
+    }
+
+    /// <summary>
     /// ProductVoucher başlık alanlarını ProductTrans satırlarına işler (VoucherType, depo, tarih, ana birim miktarı).
     /// </summary>
     private static void StampProductTransLinesFromHeader(
@@ -862,8 +1079,8 @@ GROUP BY t.ItemsID, v.Type_",
         var aimWhouse = Pick("AimWhouseID");
         var status = Pick("Status_", "Status");
         var dept = Pick("DepartmentID");
-        var voucherDate = Pick("VoucherDate");
-        var lineNo = 0;
+            var voucherDate = Pick("VoucherDate", "InvoiceDate");
+            var lineNo = 0;
 
         foreach (var line in lines)
         {
@@ -917,6 +1134,68 @@ GROUP BY t.ItemsID, v.Type_",
         8 => "Gün",
         _ => unitId?.ToString() ?? "",
     };
+
+    private async Task<Dictionary<int, string>> LoadUnitTitlesAsync(CancellationToken ct)
+    {
+        var map = new Dictionary<int, string>();
+        var exists = await _db.ExecuteScalarAsync<int?>(new CommandDefinition(
+            "SELECT OBJECT_ID(N'dbo.UnitCard', N'U')", cancellationToken: ct));
+        if (exists is not null)
+        {
+            var rows = await _db.QueryAsync<(int UnitID, string? Title)>(new CommandDefinition(
+                "SELECT UnitID, Title FROM dbo.UnitCard", cancellationToken: ct));
+            foreach (var r in rows)
+            {
+                if (r.UnitID <= 0 || string.IsNullOrWhiteSpace(r.Title)) continue;
+                map[r.UnitID] = r.Title.Trim();
+            }
+        }
+        return map;
+    }
+
+    private static string UnitTitle(Dictionary<int, string> titles, int? unitId)
+    {
+        if (unitId is > 0 && titles.TryGetValue(unitId.Value, out var title)) return title;
+        return UnitCatalogLabel(unitId);
+    }
+
+    /// <summary>U_ alanı tabloda yoksa gerçek kolon açar. AdditionalFields JSON'una yazılmaz.</summary>
+    private async Task EnsureUdfColumnAsync(
+        string tableName,
+        string key,
+        object? sample,
+        List<string> cols,
+        HashSet<string> colSet,
+        Dictionary<string, string> colTypes,
+        CancellationToken ct)
+    {
+        if (!UdfName.IsMatch(key) || colSet.Contains(key)) return;
+        if (!await TableExistsAsync(tableName)) return;
+        var (ddl, typeName) = UdfColumnType(key, sample);
+        await _db.ExecuteAsync(new CommandDefinition(
+            $"ALTER TABLE [dbo].[{tableName}] ADD [{key}] {ddl} NULL",
+            cancellationToken: ct));
+        cols.Add(key);
+        colSet.Add(key);
+        colTypes[key] = typeName;
+    }
+
+    private static (string Ddl, string TypeName) UdfColumnType(string key, object? sample)
+    {
+        sample = NormalizeJsonElement(sample);
+        if (key.Equals("U_UnitPrice", StringComparison.OrdinalIgnoreCase) || sample is decimal or double or float)
+            return ("FLOAT", "float");
+        if (sample is bool) return ("BIT", "bit");
+        if (sample is int or long or short or byte) return ("INT", "int");
+        if (sample is DateTime) return ("DATETIME", "datetime");
+        if (key.Equals("U_DueDate", StringComparison.OrdinalIgnoreCase)) return ("DATETIME", "datetime");
+        var text = sample?.ToString() ?? "";
+        if (key.Equals("U_Description", StringComparison.OrdinalIgnoreCase) || key.Equals("U_Note", StringComparison.OrdinalIgnoreCase) || text.Length > 400)
+            return ("NVARCHAR(MAX)", "nvarchar");
+        if (key.Equals("U_MaterialKind", StringComparison.OrdinalIgnoreCase) || key.Equals("U_PaymentType", StringComparison.OrdinalIgnoreCase))
+            return ("NVARCHAR(40)", "nvarchar");
+        return ("NVARCHAR(500)", "nvarchar");
+    }
 
     public async Task<RecordGetResult?> GetAsync(
         string tableName,
@@ -973,7 +1252,44 @@ GROUP BY t.ItemsID, v.Type_",
         };
 
         await AttachNestedChildrenAsync(result, tableName, recordId, ct);
+        if (tableName.Equals("AccountCard", StringComparison.OrdinalIgnoreCase) && recordId > 0)
+            result.HasMovements = await AccountHasMovementsAsync(recordId, ct);
         return result;
+    }
+
+    private static readonly string[] DocNumberFieldNames =
+        { "DocumentNumber", "OrderSlipNo", "VoucherNo" };
+
+    /// <summary>Aynı fiş no başka kayıtta var mı? (eşzamanlı kayıt çakışması)</summary>
+    public async Task<(string Field, string Number)?> FindDuplicateDocNumberAsync(
+        string tableName,
+        string? primaryKeyHint,
+        int recordId,
+        Dictionary<string, object?>? standardFields,
+        CancellationToken ct = default)
+    {
+        if (standardFields == null || standardFields.Count == 0) return null;
+        EnsureSafe(tableName);
+        if (_db.State != ConnectionState.Open) _db.Open();
+        if (!await TableExistsAsync(tableName)) return null;
+        var cols = await GetColumnsAsync(tableName);
+        var pk = await ResolvePrimaryKeyAsync(tableName, primaryKeyHint);
+        foreach (var field in DocNumberFieldNames)
+        {
+            if (!cols.Contains(field, StringComparer.OrdinalIgnoreCase)) continue;
+            var key = standardFields.Keys.FirstOrDefault(k => k.Equals(field, StringComparison.OrdinalIgnoreCase));
+            if (key == null) continue;
+            var num = NormalizeJsonElement(standardFields[key])?.ToString()?.Trim();
+            if (string.IsNullOrWhiteSpace(num)) continue;
+            var real = cols.First(c => c.Equals(field, StringComparison.OrdinalIgnoreCase));
+            var sql = string.IsNullOrWhiteSpace(pk)
+                ? $"SELECT CASE WHEN EXISTS (SELECT 1 FROM [{tableName}] WHERE [{real}] = @num) THEN 1 ELSE 0 END"
+                : $"SELECT CASE WHEN EXISTS (SELECT 1 FROM [{tableName}] WHERE [{real}] = @num AND [{pk}] <> @id AND [{pk}] > 0) THEN 1 ELSE 0 END";
+            var hit = await _db.ExecuteScalarAsync<int>(new CommandDefinition(
+                sql, new { num, id = recordId }, cancellationToken: ct));
+            if (hit == 1) return (real, num);
+        }
+        return null;
     }
 
     public async Task<(bool Ok, int RecordId, string Message)> SaveAsync(
@@ -994,15 +1310,50 @@ GROUP BY t.ItemsID, v.Type_",
 
         var incoming = data.StandardFields ?? new Dictionary<string, object?>();
 
-        // Hesap kartı: kodda '.' varsa üst hesap = son noktadan önceki kod (her zaman)
-        if (tableName.Equals("AccountCard", StringComparison.OrdinalIgnoreCase)
-            && colSet.Contains("MainAccountID"))
+        // Hesap kartı: kodda '.' varsa üst hesap zorunlu; tip koda göre (Bilanço/Ana/Alt/Detay)
+        if (tableName.Equals("AccountCard", StringComparison.OrdinalIgnoreCase))
         {
-            await ApplyAccountParentLinkAsync(incoming, data.RecordId, ct);
+            if (colSet.Contains("MainAccountID"))
+            {
+                var parentErr = await ApplyAccountParentLinkAsync(incoming, data.RecordId, ct);
+                if (parentErr != null)
+                    return (false, data.RecordId, parentErr);
+            }
+            var moveErr = await EnsureAccountCardMovementRulesAsync(incoming, data.RecordId, ct);
+            if (moveErr != null)
+                return (false, data.RecordId, moveErr);
+            ApplyAccountTypeFromCode(incoming);
+        }
+
+        // Masraf boyut kartı: CostDimID → DimNo senkron
+        if (tableName.Equals("CostDimCard", StringComparison.OrdinalIgnoreCase)
+            && colSet.Contains("DimNo")
+            && colSet.Contains("CostDimID"))
+        {
+            object? dimIdRaw = null;
+            foreach (var key in incoming.Keys)
+            {
+                if (key.Equals("CostDimID", StringComparison.OrdinalIgnoreCase))
+                {
+                    dimIdRaw = incoming[key];
+                    break;
+                }
+            }
+            if (dimIdRaw != null && int.TryParse(Convert.ToString(dimIdRaw), out var dimId) && dimId > 0)
+            {
+                var dimNo = await _db.ExecuteScalarAsync<int?>(new CommandDefinition(
+                    "SELECT DimNo FROM dbo.CostDim WHERE CostDimID = @dimId",
+                    new { dimId }, cancellationToken: ct));
+                if (dimNo is > 0)
+                    SetIncoming(incoming, "DimNo", dimNo.Value);
+            }
         }
 
         if (tableName.Equals("AccountVoucher", StringComparison.OrdinalIgnoreCase))
         {
+            var leafErr = await EnsureVoucherLeafAccountsAsync(data, ct);
+            if (leafErr != null)
+                return (false, data.RecordId, leafErr);
             // Yevmiye no yalnızca Yevmiye Madde Numaralandırma işlemiyle verilir
             foreach (var key in incoming.Keys.Where(k => k.Equals("journalNO", StringComparison.OrdinalIgnoreCase)).ToList())
                 incoming.Remove(key);
@@ -1010,61 +1361,106 @@ GROUP BY t.ItemsID, v.Type_",
             if (ruleError != null) return (false, data.RecordId, ruleError);
         }
 
-        var writeCols = new List<string>();
-        var parameters = new DynamicParameters();
+        // Satış / satınalma listeleri TradeGroup ile süzülür
+        StampTradeGroup(tableName, incoming);
+
+        var colTypes = await GetColumnTypesAsync(tableName);
+        // Aynı kolon Code ve code diye iki kez gelirse şema adı (Code) kazansın
+        var pending = new Dictionary<string, object?>(StringComparer.OrdinalIgnoreCase);
+        var stagedExact = new HashSet<string>(StringComparer.Ordinal);
+
+        void Stage(string key, object? raw)
+        {
+            if (string.IsNullOrWhiteSpace(key) || !SafeIdent.IsMatch(key)) return;
+            if (key.Equals("AdditionalFields", StringComparison.OrdinalIgnoreCase)) return;
+            if (key.Equals(pk, StringComparison.OrdinalIgnoreCase)) return;
+            if (!colSet.Contains(key)) return;
+            var real = cols.First(c => c.Equals(key, StringComparison.OrdinalIgnoreCase));
+            var exact = key.Equals(real, StringComparison.Ordinal);
+            if (stagedExact.Contains(real) && !exact) return;
+            if (pending.ContainsKey(real) && !exact) return;
+            if (data.RecordId != 0 && IsSecretColumn(tableName, real) && IsBlank(raw)) return;
+            colTypes.TryGetValue(real, out var sqlType);
+            pending[real] = CoerceForColumn(sqlType, raw);
+            if (exact) stagedExact.Add(real);
+        }
 
         foreach (var kv in incoming)
-        {
-            if (string.IsNullOrWhiteSpace(kv.Key) || !SafeIdent.IsMatch(kv.Key)) continue;
-            if (kv.Key.Equals(pk, StringComparison.OrdinalIgnoreCase)) continue;
-            if (!colSet.Contains(kv.Key)) continue;
-            var real = cols.First(c => c.Equals(kv.Key, StringComparison.OrdinalIgnoreCase));
-            if (writeCols.Contains(real, StringComparer.OrdinalIgnoreCase)) continue;
-            // Gizli kolon yanıtta dönmez: güncellemede boş gelirse mevcut değeri koru
-            if (data.RecordId != 0 && IsSecretColumn(tableName, real) && IsBlank(kv.Value)) continue;
-            writeCols.Add(real);
-            parameters.Add(real, CoerceDbValue(kv.Value));
-        }
+            Stage(kv.Key, kv.Value);
 
         // NOT NULL AccountGroupID vb. için öndeğer
-        if (colSet.Contains("AccountGroupID") && !writeCols.Contains("AccountGroupID", StringComparer.OrdinalIgnoreCase))
-        {
-            writeCols.Add(cols.First(c => c.Equals("AccountGroupID", StringComparison.OrdinalIgnoreCase)));
-            parameters.Add("AccountGroupID", 1);
-        }
+        if (colSet.Contains("AccountGroupID") && !pending.ContainsKey("AccountGroupID"))
+            pending["AccountGroupID"] = 1;
 
-        // Ek alanlar: tabloda gerçek U_ kolonu varsa oraya yaz, yoksa JSON'da kalsın
+        // U_ alanları JSON'a yazılmaz. Kolon yoksa açılır ve değer oraya gider.
+        var incomingAdditional = data.AdditionalFields ?? new Dictionary<string, object?>();
+        var hadAdditional = incomingAdditional.Count > 0;
         var leftoverAdditional = new Dictionary<string, object?>();
-        foreach (var kv in data.AdditionalFields ?? new Dictionary<string, object?>())
+        foreach (var kv in incomingAdditional)
         {
             if (string.IsNullOrWhiteSpace(kv.Key) || !SafeIdent.IsMatch(kv.Key)) continue;
+            if (UdfName.IsMatch(kv.Key)
+                && !colSet.Contains(kv.Key)
+                && !kv.Key.Equals(pk, StringComparison.OrdinalIgnoreCase))
+            {
+                await EnsureUdfColumnAsync(tableName, kv.Key, kv.Value, cols, colSet, colTypes, ct);
+            }
             if (!colSet.Contains(kv.Key) || kv.Key.Equals(pk, StringComparison.OrdinalIgnoreCase))
             {
                 leftoverAdditional[kv.Key] = kv.Value;
                 continue;
             }
-            var real = cols.First(c => c.Equals(kv.Key, StringComparison.OrdinalIgnoreCase));
-            if (writeCols.Contains(real, StringComparer.OrdinalIgnoreCase)) continue;
-            if (data.RecordId != 0 && IsSecretColumn(tableName, real) && IsBlank(kv.Value)) continue;
-            writeCols.Add(real);
-            parameters.Add(real, CoerceDbValue(kv.Value));
+            Stage(kv.Key, kv.Value);
         }
 
-        if (hasAdditional)
+        var writeCols = pending.Keys.ToList();
+        var parameters = new DynamicParameters();
+        foreach (var col in writeCols)
+            parameters.Add(col, pending[col]);
+
+        if (hasAdditional && hadAdditional)
         {
-            var json = JsonSerializer.Serialize(leftoverAdditional);
-            writeCols.Add("AdditionalFields");
-            parameters.Add("AdditionalFields", json);
+            var addCol = cols.First(c => c.Equals("AdditionalFields", StringComparison.OrdinalIgnoreCase));
+            writeCols.Add(addCol);
+            parameters.Add(addCol, leftoverAdditional.Count == 0
+                ? null
+                : JsonSerializer.Serialize(leftoverAdditional));
         }
 
-        if (writeCols.Count == 0)
+        // Muhasebeleşmiş fatura/kasa: başlık+satır kilit; yalnız ödeme planı yazılır
+        var accPosted = false;
+        if (data.RecordId > 0
+            && (tableName.Equals("Invoice", StringComparison.OrdinalIgnoreCase)
+                || tableName.Equals("SafeVoucher", StringComparison.OrdinalIgnoreCase)))
+        {
+            var mod = tableName.Equals("Invoice", StringComparison.OrdinalIgnoreCase) ? 7 : 4;
+            var n = await _db.ExecuteScalarAsync<int>(new CommandDefinition(
+                "SELECT COUNT(1) FROM dbo.AccountVoucher WHERE SourceModule = @mod AND SourceID = @id",
+                new { mod, id = data.RecordId }, cancellationToken: ct));
+            accPosted = n > 0;
+            if (accPosted)
+            {
+                data.Lines = null;
+                data.Distributions = null;
+                data.AuxilCodes = null;
+                data.AuxilValues = null;
+                writeCols.Clear();
+                if (data.PaymentPlans == null)
+                    return (false, data.RecordId,
+                        "Muhasebeleşmiş belge kilitli — yalnız ödeme planı değiştirilebilir. Önce muhasebe fişini geri alın.");
+            }
+        }
+
+        if (writeCols.Count == 0 && !accPosted)
             return (false, data.RecordId, "Yazılacak kolon bulunamadı (şema ↔ tablo uyumsuz)");
 
         // Yeni firma: boşsa 0-Merkez işyeri + 0-Merkez ambar (şablon ID=-1 hariç)
         if (tableName.Equals("SYS_Companies", StringComparison.OrdinalIgnoreCase) && data.RecordId == 0)
             EnsureDefaultCompanyOrg(data);
 
-        var hasNested = NestedByParent.ContainsKey(tableName) && HasAnyNestedPayload(data);
+        // Fiş öndeğeri (ID < 0): yalnız başlık — satır / ödeme planı / dağıtım / özel kod yazılmaz (stok ve cari etkilenmez)
+        var headerOnlyTemplate = data.RecordId < 0 && TemplateHeaderOnlyTables.Contains(tableName);
+        var hasNested = !headerOnlyTemplate && NestedByParent.ContainsKey(tableName) && HasAnyNestedPayload(data);
         IDbTransaction? tx = null;
         if (hasNested && _db is SqlConnection)
             tx = _db.BeginTransaction();
@@ -1126,22 +1522,31 @@ SELECT CAST(SCOPE_IDENTITY() AS INT);";
                 if (string.IsNullOrWhiteSpace(pk))
                     return (false, data.RecordId, "Primary key bulunamadı");
 
-                parameters.Add("__pk", data.RecordId);
-                var sets = string.Join(", ", writeCols.Select(c => $"[{c}] = @{c}"));
-                var upd = $"UPDATE [{tableName}] SET {sets} WHERE [{pk}] = @__pk";
-                var affected = await _db.ExecuteAsync(new CommandDefinition(upd, parameters, tx, cancellationToken: ct));
-                if (affected == 0)
+                if (writeCols.Count == 0)
                 {
-                    tx?.Rollback();
-                    return (false, data.RecordId, "Kayıt bulunamadı");
+                    // Muhasebe kilidi: başlık dokunulmaz, yalnız nested (ödeme planı)
+                    savedId = data.RecordId;
                 }
-                savedId = data.RecordId;
+                else
+                {
+                    parameters.Add("__pk", data.RecordId);
+                    var sets = string.Join(", ", writeCols.Select(c => $"[{c}] = @{c}"));
+                    var upd = $"UPDATE [{tableName}] SET {sets} WHERE [{pk}] = @__pk";
+                    var affected = await _db.ExecuteAsync(new CommandDefinition(upd, parameters, tx, cancellationToken: ct));
+                    if (affected == 0)
+                    {
+                        tx?.Rollback();
+                        return (false, data.RecordId, "Kayıt bulunamadı");
+                    }
+                    savedId = data.RecordId;
+                }
             }
 
-            if (savedId != 0 && NestedByParent.TryGetValue(tableName, out var specs))
+            if (savedId != 0 && !headerOnlyTemplate && NestedByParent.TryGetValue(tableName, out var specs))
             {
-                // Malzeme / irsaliye: satırları ProductTrans'a yazmadan önce fiş başlığından tip/depo/tarih aktar
-                if (tableName.Equals("ProductVoucher", StringComparison.OrdinalIgnoreCase)
+                // Malzeme / irsaliye / fatura: satırları ProductTrans'a yazmadan önce fiş başlığından tip/depo/tarih aktar
+                if ((tableName.Equals("ProductVoucher", StringComparison.OrdinalIgnoreCase)
+                        || tableName.Equals("Invoice", StringComparison.OrdinalIgnoreCase))
                     && data.Lines != null)
                 {
                     StampProductTransLinesFromHeader(data.Lines, incoming);
@@ -1151,7 +1556,32 @@ SELECT CAST(SCOPE_IDENTITY() AS INT);";
                 {
                     var rows = GetNestedPayload(data, spec.PayloadKey);
                     if (rows == null) continue; // null = dokunma; [] = hepsini sil
+                    if (tableName.Equals("ProductVoucher", StringComparison.OrdinalIgnoreCase)
+                        && spec.PayloadKey == "lines"
+                        && savedId > 0)
+                    {
+                        await ReleaseSerialLotsForVoucherAsync(savedId, tx, ct);
+                    }
+                    if (tableName.Equals("Invoice", StringComparison.OrdinalIgnoreCase)
+                        && spec.PayloadKey == "lines"
+                        && savedId > 0)
+                    {
+                        await ReleaseSerialLotsForInvoiceAsync(savedId, tx, ct);
+                    }
                     await ReplaceChildrenAsync(spec, savedId, rows, tx, ct);
+                }
+
+                if (tableName.Equals("ProductVoucher", StringComparison.OrdinalIgnoreCase)
+                    && data.Lines != null
+                    && savedId > 0)
+                {
+                    await ApplySerialLotsAsync(savedId, tx, ct);
+                }
+                if (tableName.Equals("Invoice", StringComparison.OrdinalIgnoreCase)
+                    && data.Lines != null
+                    && savedId > 0)
+                {
+                    await ApplySerialLotsForInvoiceAsync(savedId, tx, ct);
                 }
             }
 
@@ -1311,12 +1741,16 @@ SELECT CAST(SCOPE_IDENTITY() AS INT);";
             {
                 case "addresses": result.Addresses = rows; break;
                 case "contacts": result.Contacts = rows; break;
+                case "ibans": result.Ibans = rows; break;
                 case "accounts": result.Accounts = rows; break;
                 case "barcodes": result.Barcodes = rows; break;
                 case "unitConvs": result.UnitConvs = rows; break;
                 case "productSubs": result.ProductSubs = rows; break;
                 case "customerAliases": result.CustomerAliases = rows; break;
                 case "variants": result.Variants = rows; break;
+                case "serialGroups": result.SerialGroups = rows; break;
+                case "serials": result.Serials = rows; break;
+                case "lots": result.Lots = rows; break;
                 case "accountLinks": result.AccountLinks = rows; break;
                 case "lines": result.Lines = rows; break;
                 case "workplaces": result.Workplaces = rows; break;
@@ -1324,6 +1758,7 @@ SELECT CAST(SCOPE_IDENTITY() AS INT);";
                 case "distributions": result.Distributions = rows; break;
                 case "auxilCodes": result.AuxilCodes = rows; break;
                 case "auxilValues": result.AuxilValues = rows; break;
+                case "prices": result.Prices = rows; break;
                 case "whouses":
                     await EnrichWhouseWorkplaceCodesAsync(rows, recordId, ct);
                     result.Whouses = rows;
@@ -1435,6 +1870,7 @@ SELECT CAST(SCOPE_IDENTITY() AS INT);";
             if (IsEmptyChildRow(rawRow, spec)) continue;
 
             var row = new Dictionary<string, object?>(rawRow, StringComparer.OrdinalIgnoreCase);
+            NormalizeCustomerAlias(spec, colSet, row);
 
             // CustomerTrans: Amount → LocalAmount yedek
             // Satır sırası: LineNo (form) → TransLineNo (AccountTrans, AccountTransDetail)
@@ -1624,15 +2060,27 @@ VALUES ({string.Join(", ", writeCols.Select(c => "@" + c))});";
         await _db.ExecuteAsync(new CommandDefinition(sql, p, tx, cancellationToken: ct));
     }
 
+    /// <summary>Öndeğer şablonu yalnız başlık olarak saklanan fiş tabloları (ID &lt; 0).</summary>
+    private static readonly HashSet<string> TemplateHeaderOnlyTables = new(StringComparer.OrdinalIgnoreCase)
+    {
+        "OrderVoucher",
+        "ProductVoucher",
+        "Invoice",
+    };
+
     private static bool HasAnyNestedPayload(RecordSaveRequest data) =>
         data.Addresses != null
         || data.Contacts != null
+        || data.Ibans != null
         || data.Accounts != null
         || data.Barcodes != null
         || data.UnitConvs != null
         || data.ProductSubs != null
         || data.CustomerAliases != null
         || data.Variants != null
+        || data.SerialGroups != null
+        || data.Serials != null
+        || data.Lots != null
         || data.AccountLinks != null
         || data.Lines != null
         || data.Workplaces != null
@@ -1640,7 +2088,8 @@ VALUES ({string.Join(", ", writeCols.Select(c => "@" + c))});";
         || data.PaymentPlans != null
         || data.Distributions != null
         || data.AuxilCodes != null
-        || data.AuxilValues != null;
+        || data.AuxilValues != null
+        || data.Prices != null;
 
     private static string ResolveNestedPk(string preferred, HashSet<string> colSet)
     {
@@ -1656,10 +2105,11 @@ VALUES ({string.Join(", ", writeCols.Select(c => "@" + c))});";
     }
 
     /// <summary>
-    /// Hesap kodunda '.' varsa üst hesap = son noktadan önceki kod (her zaman zorlanır).
+    /// Kodda '.' varsa üst hesap = son noktadan önceki kod; üst yoksa kayıt engellenir (120.01 → 120).
     /// Noktasız kodlarda MainAccountID kullanıcı seçimine bırakılır (1 ← 10 ← 100).
     /// </summary>
-    private async Task ApplyAccountParentLinkAsync(
+    /// <returns>Hata mesajı veya null</returns>
+    private async Task<string?> ApplyAccountParentLinkAsync(
         Dictionary<string, object?> incoming,
         int recordId,
         CancellationToken ct)
@@ -1675,13 +2125,13 @@ VALUES ({string.Join(", ", writeCols.Select(c => "@" + c))});";
         }
 
         var code = NormalizeJsonElement(codeRaw)?.ToString()?.Trim();
-        if (string.IsNullOrWhiteSpace(code)) return;
+        if (string.IsNullOrWhiteSpace(code)) return null;
 
         var lastDot = code.LastIndexOf('.');
-        if (lastDot <= 0) return; // manuel üst hesap
+        if (lastDot <= 0) return null; // manuel üst hesap
 
         var parentCode = code[..lastDot].Trim();
-        if (string.IsNullOrWhiteSpace(parentCode)) return;
+        if (string.IsNullOrWhiteSpace(parentCode)) return null;
 
         var parentId = await _db.ExecuteScalarAsync<int?>(new CommandDefinition(
             @"SELECT TOP (1) AccountCardID
@@ -1691,13 +2141,185 @@ VALUES ({string.Join(", ", writeCols.Select(c => "@" + c))});";
             new { parentCode, selfId = recordId },
             cancellationToken: ct));
 
-        SetIncoming(incoming, "MainAccountID", parentId is > 0 ? parentId.Value : null);
-        SetIncoming(incoming, "MainAccount", false);
+        if (parentId is not > 0)
+            return $"Üst hesap «{parentCode}» yok — önce ana hesabı kaydedin (alt hesap: {code}).";
 
-        // Noktalı kod = detay hesap
-        var hasType = incoming.Keys.Any(k => k.Equals("Type_", StringComparison.OrdinalIgnoreCase));
-        if (!hasType || IsIncomingEmpty(incoming, "Type_"))
-            SetIncoming(incoming, "Type_", (byte)2);
+        SetIncoming(incoming, "MainAccountID", parentId.Value);
+        SetIncoming(incoming, "MainAccount", false);
+        return null;
+    }
+
+    /// <summary>
+    /// 1 Bilanço (1, 10) · 2 Ana (100) · 3 Alt (100.01) · 4 Detay (100.01.001)
+    /// </summary>
+    private static byte InferAccountType(string code)
+    {
+        var c = code.Trim();
+        var parts = c.Split('.', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+        if (parts.Length >= 3) return 4;
+        if (parts.Length == 2) return 3;
+        var head = parts.Length == 1 ? parts[0] : c;
+        if (head.Length is >= 1 and <= 2 && head.All(char.IsDigit)) return 1;
+        return 2;
+    }
+
+    private static void ApplyAccountTypeFromCode(Dictionary<string, object?> incoming)
+    {
+        object? codeRaw = null;
+        foreach (var key in incoming.Keys)
+        {
+            if (key.Equals("Code", StringComparison.OrdinalIgnoreCase))
+            {
+                codeRaw = incoming[key];
+                break;
+            }
+        }
+        var code = NormalizeJsonElement(codeRaw)?.ToString()?.Trim();
+        if (string.IsNullOrWhiteSpace(code)) return;
+        var type = InferAccountType(code);
+        SetIncoming(incoming, "Type_", type);
+        SetIncoming(incoming, "MainAccount", type is 1 or 2);
+    }
+
+    private async Task<bool> AccountHasMovementsAsync(int accountCardId, CancellationToken ct)
+    {
+        if (accountCardId <= 0) return false;
+        if (!await TableExistsAsync("AccountTrans")) return false;
+        if (!await ColumnExistsAsync("AccountTrans", "AccountCardID")) return false;
+        var n = await _db.ExecuteScalarAsync<int>(new CommandDefinition(
+            "SELECT CASE WHEN EXISTS (SELECT 1 FROM dbo.AccountTrans WHERE AccountCardID = @id) THEN 1 ELSE 0 END",
+            new { id = accountCardId }, cancellationToken: ct));
+        return n == 1;
+    }
+
+    private async Task<bool> ColumnExistsAsync(string table, string column)
+    {
+        var cols = await GetColumnsAsync(table);
+        return cols.Contains(column, StringComparer.OrdinalIgnoreCase);
+    }
+
+    /// <summary>
+    /// Hareket görmüş hesap: kod değiştirilemez; altına yeni alt hesap açılamaz.
+    /// </summary>
+    private async Task<string?> EnsureAccountCardMovementRulesAsync(
+        Dictionary<string, object?> incoming,
+        int recordId,
+        CancellationToken ct)
+    {
+        // 1) Bu kart hareket görmüşse kod değişmesin
+        if (recordId > 0 && await AccountHasMovementsAsync(recordId, ct))
+        {
+            var newCode = GetIncomingString(incoming, "Code");
+            var oldCode = await _db.ExecuteScalarAsync<string?>(new CommandDefinition(
+                "SELECT TOP (1) LTRIM(RTRIM(Code)) FROM dbo.AccountCard WHERE AccountCardID = @id",
+                new { id = recordId }, cancellationToken: ct));
+            if (!string.IsNullOrWhiteSpace(newCode)
+                && !string.Equals(newCode.Trim(), (oldCode ?? "").Trim(), StringComparison.OrdinalIgnoreCase))
+            {
+                return $"«{oldCode}» hareket görmüş — hesap kodu değiştirilemez.";
+            }
+        }
+
+        // 2) Üst hesap hareket görmüşse yeni alt hesap tanıtılamaz
+        var parentId = 0;
+        var parentRaw = GetIncomingObject(incoming, "MainAccountID");
+        if (parentRaw != null)
+            int.TryParse(Convert.ToString(parentRaw), out parentId);
+
+        if (parentId <= 0)
+        {
+            var code = GetIncomingString(incoming, "Code");
+            var lastDot = code?.LastIndexOf('.') ?? -1;
+            if (lastDot > 0)
+            {
+                var parentCode = code![..lastDot].Trim();
+                if (!string.IsNullOrWhiteSpace(parentCode))
+                {
+                    parentId = await _db.ExecuteScalarAsync<int?>(new CommandDefinition(
+                        @"SELECT TOP (1) AccountCardID FROM dbo.AccountCard
+                          WHERE Code = @parentCode AND (@selfId <= 0 OR AccountCardID <> @selfId)",
+                        new { parentCode, selfId = recordId }, cancellationToken: ct)) ?? 0;
+                }
+            }
+        }
+
+        if (parentId <= 0 || !await AccountHasMovementsAsync(parentId, ct))
+            return null;
+
+        // Mevcut kayıt zaten bu üstteyse (yalnızca ünvan vb. güncelleme) izin ver
+        if (recordId > 0)
+        {
+            var oldParent = await _db.ExecuteScalarAsync<int?>(new CommandDefinition(
+                "SELECT MainAccountID FROM dbo.AccountCard WHERE AccountCardID = @id",
+                new { id = recordId }, cancellationToken: ct));
+            if (oldParent == parentId)
+                return null;
+        }
+
+        var parentCodeLabel = await _db.ExecuteScalarAsync<string?>(new CommandDefinition(
+            "SELECT LTRIM(RTRIM(Code)) FROM dbo.AccountCard WHERE AccountCardID = @id",
+            new { id = parentId }, cancellationToken: ct));
+        return $"«{parentCodeLabel ?? parentId.ToString()}» hareket görmüş — altına alt hesap tanıtılamaz.";
+    }
+
+    private static string? GetIncomingString(Dictionary<string, object?> incoming, string key)
+    {
+        var v = GetIncomingObject(incoming, key);
+        return NormalizeJsonElement(v)?.ToString()?.Trim();
+    }
+
+    private static object? GetIncomingObject(Dictionary<string, object?> incoming, string key)
+    {
+        var existing = incoming.Keys.FirstOrDefault(k => k.Equals(key, StringComparison.OrdinalIgnoreCase));
+        return existing == null ? null : incoming[existing];
+    }
+
+    /// <summary>
+    /// Muhasebe fişi: alt hesabı olan üst hesap satırda seçilemez (MainAccountID veya kod öneki).
+    /// </summary>
+    private async Task<string?> EnsureVoucherLeafAccountsAsync(RecordSaveRequest data, CancellationToken ct)
+    {
+        if (data.Lines == null || data.Lines.Count == 0) return null;
+        if (!await TableExistsAsync("AccountCard")) return null;
+
+        for (var i = 0; i < data.Lines.Count; i++)
+        {
+            var row = data.Lines[i];
+            object? idRaw = null;
+            foreach (var key in row.Keys)
+            {
+                if (key.Equals("AccountCardID", StringComparison.OrdinalIgnoreCase))
+                {
+                    idRaw = row[key];
+                    break;
+                }
+            }
+            var idObj = NormalizeJsonElement(idRaw);
+            if (idObj == null || !int.TryParse(Convert.ToString(idObj), out var accId) || accId <= 0)
+                continue;
+
+            var code = await _db.ExecuteScalarAsync<string?>(new CommandDefinition(
+                "SELECT TOP (1) LTRIM(RTRIM(Code)) FROM dbo.AccountCard WHERE AccountCardID = @accId",
+                new { accId }, cancellationToken: ct));
+
+            var hasChild = await _db.ExecuteScalarAsync<int>(new CommandDefinition(
+                @"SELECT CASE WHEN EXISTS (
+                    SELECT 1 FROM dbo.AccountCard c
+                    WHERE c.AccountCardID <> @accId
+                      AND (
+                        c.MainAccountID = @accId
+                        OR (@code IS NOT NULL AND c.Code LIKE @code + N'.%')
+                      )
+                  ) THEN 1 ELSE 0 END",
+                new { accId, code }, cancellationToken: ct));
+
+            if (hasChild == 1)
+            {
+                var label = string.IsNullOrWhiteSpace(code) ? $"#{accId}" : code;
+                return $"{i + 1}. satır: «{label}» alt hesabı var — üst hesap muhasebe fişinde seçilemez";
+            }
+        }
+        return null;
     }
 
     private static void SetIncoming(Dictionary<string, object?> incoming, string key, object? value)
@@ -1771,12 +2393,16 @@ VALUES ({string.Join(", ", writeCols.Select(c => "@" + c))});";
         {
             "addresses" => data.Addresses,
             "contacts" => data.Contacts,
+            "ibans" => data.Ibans,
             "accounts" => data.Accounts,
             "barcodes" => data.Barcodes,
             "unitConvs" => data.UnitConvs,
             "productSubs" => data.ProductSubs,
             "customerAliases" => data.CustomerAliases,
             "variants" => data.Variants,
+            "serialGroups" => data.SerialGroups,
+            "serials" => data.Serials,
+            "lots" => data.Lots,
             "accountLinks" => data.AccountLinks,
             "lines" => data.Lines,
             "workplaces" => data.Workplaces,
@@ -1785,8 +2411,31 @@ VALUES ({string.Join(", ", writeCols.Select(c => "@" + c))});";
             "distributions" => data.Distributions,
             "auxilCodes" => data.AuxilCodes,
             "auxilValues" => data.AuxilValues,
+            "prices" => data.Prices,
             _ => null,
         };
+
+    /// <summary>Cari malzeme: 1 yalnız seçilen cari, 2 aynı vergi / TCK numaralı tüm cariler.</summary>
+    private static void NormalizeCustomerAlias(NestedChildSpec spec, HashSet<string> colSet, Dictionary<string, object?> row)
+    {
+        if (!spec.TableName.Equals("ProductCustomerAlias", StringComparison.OrdinalIgnoreCase)) return;
+        if (!colSet.Contains("MatchBy")) return;
+        var match = Convert.ToString(CoerceDbValue(GetCI(row, "MatchBy"))) == "2" ? 2 : 1;
+        row["MatchBy"] = match;
+        if (match == 2)
+        {
+            var tax = Convert.ToString(CoerceDbValue(GetCI(row, "TaxNr")))?.Trim();
+            if (string.IsNullOrWhiteSpace(tax))
+                throw new InvalidOperationException("Vergi / TCK no bazlı satırda vergi numarası yazın.");
+            row["TaxNr"] = tax;
+            row["CustomerCardID"] = null;
+            return;
+        }
+        var customer = Convert.ToString(CoerceDbValue(GetCI(row, "CustomerCardID")));
+        if (string.IsNullOrWhiteSpace(customer))
+            throw new InvalidOperationException("Cari bazlı satırda cari seçin.");
+        row["TaxNr"] = null;
+    }
 
     private static bool IsEmptyChildRow(Dictionary<string, object?> row, NestedChildSpec spec)
     {
@@ -1807,6 +2456,711 @@ VALUES ({string.Join(", ", writeCols.Select(c => "@" + c))});";
         if (string.IsNullOrWhiteSpace(name) || !SafeIdent.IsMatch(name))
             throw new ArgumentException($"Geçersiz tanımlayıcı: {name}");
     }
+
+    public async Task<IReadOnlyList<SerialLotOptionDto>> ListAvailableSerialLotsAsync(
+        int productCardId, byte kind, CancellationToken ct)
+    {
+        if (productCardId <= 0 || kind is not (1 or 2 or 3)) return Array.Empty<SerialLotOptionDto>();
+        if (!await TableExistsAsync("ProductSerialLot")) return Array.Empty<SerialLotOptionDto>();
+        var serials = await TableExistsAsync("ProductSerialLotItem")
+            ? "(SELECT STRING_AGG(i.SerialNo, ',') FROM dbo.ProductSerialLotItem i WHERE i.ProductSerialLotID = l.ProductSerialLotID)"
+            : "CAST(NULL AS nvarchar(400))";
+        var detail = await LotDetailColumnsAsync(null, ct)
+            ? "l.ExpireDate, l.Description, l.StockLocationID"
+            : "CAST(NULL AS date) AS ExpireDate, CAST(NULL AS nvarchar(250)) AS Description, CAST(NULL AS int) AS StockLocationID";
+        var rows = await _db.QueryAsync<SerialLotOptionDto>(new CommandDefinition($@"
+SELECT l.ProductSerialLotID, l.Code, l.Kind, l.Status_ AS Status, l.WhouseID, l.Qty,
+  {serials} AS Serials, {detail}
+FROM dbo.ProductSerialLot l
+WHERE l.ProductCardID = @pid AND l.Kind = @kind AND l.Status_ = 1
+ORDER BY l.Code",
+            new { pid = productCardId, kind },
+            cancellationToken: ct));
+        return rows.ToList();
+    }
+
+    /// <summary>Fiş yeniden yazılmadan önce bu fişin lot/seri etkisini geri alır.</summary>
+    private async Task ReleaseSerialLotsForVoucherAsync(int voucherId, IDbTransaction? tx, CancellationToken ct)
+    {
+        if (!await TableExistsAsync("ProductSerialLot", tx)) return;
+
+        var blocked = await _db.ExecuteScalarAsync<int>(new CommandDefinition(@"
+SELECT COUNT(1) FROM dbo.ProductSerialLot
+WHERE SourceVoucherID = @id AND Status_ = 2 AND ISNULL(OutVoucherID, 0) <> @id",
+            new { id = voucherId }, tx, cancellationToken: ct));
+        if (blocked > 0)
+            throw new InvalidOperationException("Bu giriş fişindeki lot/seri çıkışta kullanılmış. Önce çıkış fişini değiştirin.");
+
+        var vtype = await _db.ExecuteScalarAsync<int?>(new CommandDefinition(
+            "SELECT CAST(ISNULL(VoucherType, 0) AS int) FROM dbo.ProductVoucher WHERE ProductVoucherID = @id",
+            new { id = voucherId }, tx, cancellationToken: ct));
+        if (SerialLotDirection(vtype ?? 0) == 2)
+        {
+            var outs = await _db.QueryAsync<(int ProductCardID, int LotId, double? Quantity, string? SerialLotNo)>(
+                new CommandDefinition(@"
+SELECT ProductCardID, ProductSerialLotID AS LotId, Quantity, SerialLotNo
+FROM dbo.ProductTrans
+WHERE ProductVoucherID = @id AND ISNULL(ProductSerialLotID, 0) > 0",
+                    new { id = voucherId }, tx, cancellationToken: ct));
+            await RestorePartialLotsAsync(outs, tx, ct);
+        }
+
+        await _db.ExecuteAsync(new CommandDefinition(@"
+UPDATE dbo.ProductSerialLot
+SET Status_ = 1, OutVoucherID = NULL, OutTransID = NULL
+WHERE OutVoucherID = @id",
+            new { id = voucherId }, tx, cancellationToken: ct));
+
+        if (await TableExistsAsync("ProductSerialLotItem", tx))
+        {
+            await _db.ExecuteAsync(new CommandDefinition(@"
+DELETE i FROM dbo.ProductSerialLotItem i
+INNER JOIN dbo.ProductSerialLot l ON l.ProductSerialLotID = i.ProductSerialLotID
+WHERE l.SourceVoucherID = @id AND l.Status_ = 1 AND l.OutVoucherID IS NULL",
+                new { id = voucherId }, tx, cancellationToken: ct));
+        }
+
+        await _db.ExecuteAsync(new CommandDefinition(@"
+DELETE FROM dbo.ProductSerialLot
+WHERE SourceVoucherID = @id AND Status_ = 1 AND OutVoucherID IS NULL",
+            new { id = voucherId }, tx, cancellationToken: ct));
+    }
+
+    /// <summary>
+    /// Lot: bir numara, miktar birden çok olabilir (bölme kapalıysa tamamı çıkar).
+    /// Seri: her numara 1 adet; satır miktarı kadar numara.
+    /// Seri grubu: birden çok seri no = 1 adet; miktar kadar grup.
+    /// </summary>
+    private async Task ApplySerialLotsAsync(int voucherId, IDbTransaction? tx, CancellationToken ct)
+    {
+        if (!await TableExistsAsync("ProductSerialLot", tx)) return;
+        if (!await TableExistsAsync("ProductTrans", tx) || !await TableExistsAsync("ProductCard", tx)) return;
+        var hasNo = await _db.ExecuteScalarAsync<int>(new CommandDefinition(
+            "SELECT CASE WHEN COL_LENGTH(N'dbo.ProductTrans', N'SerialLotNo') IS NULL THEN 0 ELSE 1 END",
+            transaction: tx, cancellationToken: ct));
+        if (hasNo != 1) return;
+        var hasMode = await _db.ExecuteScalarAsync<int>(new CommandDefinition(
+            "SELECT CASE WHEN COL_LENGTH(N'dbo.ProductCard', N'TrackingMode') IS NULL THEN 0 ELSE 1 END",
+            transaction: tx, cancellationToken: ct));
+        if (hasMode != 1) return;
+
+        var header = await _db.QueryFirstOrDefaultAsync<(int VoucherType, int? WhouseID, int? AimWhouseID)>(
+            new CommandDefinition(@"
+SELECT CAST(ISNULL(VoucherType, 0) AS int) AS VoucherType, WhouseID, AimWhouseID
+FROM dbo.ProductVoucher WHERE ProductVoucherID = @id",
+                new { id = voucherId }, tx, cancellationToken: ct));
+        if (header.VoucherType == 0 && header.WhouseID is null) return;
+
+        var dir = SerialLotDirection(header.VoucherType);
+        if (dir == 0) return;
+
+        var lines = (await _db.QueryAsync<(int ProductTransID, int ProductCardID, string? SerialLotNo, double? Quantity)>(
+            new CommandDefinition(@"
+SELECT ProductTransID, ISNULL(ProductCardID, 0) AS ProductCardID, SerialLotNo, Quantity
+FROM dbo.ProductTrans
+WHERE ProductVoucherID = @id AND ISNULL(ProductCardID, 0) > 0",
+                new { id = voucherId }, tx, cancellationToken: ct))).ToList();
+
+        foreach (var line in lines)
+        {
+            var card = await _db.QueryFirstOrDefaultAsync<(byte Mode, bool AllowSplit)>(new CommandDefinition(@"
+SELECT CAST(ISNULL(TrackingMode, 0) AS tinyint) AS Mode,
+       CAST(CASE WHEN COL_LENGTH(N'dbo.ProductCard', N'AllowLotSplit') IS NULL THEN 0 ELSE ISNULL(AllowLotSplit, 0) END AS bit) AS AllowSplit
+FROM dbo.ProductCard WHERE ProductCardID = @id",
+                new { id = line.ProductCardID }, tx, cancellationToken: ct));
+            if (card.Mode is not (1 or 2 or 3)) continue;
+
+            if (dir == 1)
+                await ApplySerialLotInboundAsync(voucherId, header.WhouseID, line, card.Mode, tx, ct);
+            else
+                await ApplySerialLotOutboundAsync(voucherId, header, dir, line, card.Mode, card.AllowSplit, tx, ct);
+        }
+    }
+
+    private static int InvoiceSerialDirection(int invoiceType) => invoiceType switch
+    {
+        2 or 3 => 1,
+        1 or 4 => 2,
+        _ => 0,
+    };
+
+    /// <summary>Alış / satış faturası satırındaki lot ve seriyi stoka işler.</summary>
+    private async Task ApplySerialLotsForInvoiceAsync(int invoiceId, IDbTransaction? tx, CancellationToken ct)
+    {
+        if (!await TableExistsAsync("ProductSerialLot", tx)) return;
+        if (!await TableExistsAsync("ProductTrans", tx) || !await TableExistsAsync("ProductCard", tx)) return;
+        var hasInv = await _db.ExecuteScalarAsync<int>(new CommandDefinition(
+            "SELECT CASE WHEN COL_LENGTH(N'dbo.ProductSerialLot', N'SourceInvoiceID') IS NULL THEN 0 ELSE 1 END",
+            transaction: tx, cancellationToken: ct));
+        if (hasInv != 1) return;
+        var hasNo = await _db.ExecuteScalarAsync<int>(new CommandDefinition(
+            "SELECT CASE WHEN COL_LENGTH(N'dbo.ProductTrans', N'SerialLotNo') IS NULL THEN 0 ELSE 1 END",
+            transaction: tx, cancellationToken: ct));
+        if (hasNo != 1) return;
+
+        var header = await _db.QueryFirstOrDefaultAsync<(int InvoiceType, int? WhouseID)>(new CommandDefinition(@"
+SELECT CAST(ISNULL(InvoiceType, 0) AS int) AS InvoiceType, WhouseID
+FROM dbo.Invoice WHERE InvoiceID = @id",
+            new { id = invoiceId }, tx, cancellationToken: ct));
+        var dir = InvoiceSerialDirection(header.InvoiceType);
+        if (dir == 0) return;
+
+        var lines = (await _db.QueryAsync<(int ProductTransID, int ProductCardID, string? SerialLotNo, double? Quantity)>(
+            new CommandDefinition(@"
+SELECT ProductTransID, ISNULL(ProductCardID, 0) AS ProductCardID, SerialLotNo, Quantity
+FROM dbo.ProductTrans
+WHERE InvoiceID = @id AND ISNULL(ProductCardID, 0) > 0",
+                new { id = invoiceId }, tx, cancellationToken: ct))).ToList();
+
+        var voucherHeader = (header.InvoiceType, header.WhouseID, (int?)null);
+        foreach (var line in lines)
+        {
+            var card = await _db.QueryFirstOrDefaultAsync<(byte Mode, bool AllowSplit)>(new CommandDefinition(@"
+SELECT CAST(ISNULL(TrackingMode, 0) AS tinyint) AS Mode,
+       CAST(CASE WHEN COL_LENGTH(N'dbo.ProductCard', N'AllowLotSplit') IS NULL THEN 0 ELSE ISNULL(AllowLotSplit, 0) END AS bit) AS AllowSplit
+FROM dbo.ProductCard WHERE ProductCardID = @id",
+                new { id = line.ProductCardID }, tx, cancellationToken: ct));
+            if (card.Mode is not (1 or 2 or 3)) continue;
+            if (dir == 1)
+                await ApplySerialLotInboundAsync(invoiceId, header.WhouseID, line, card.Mode, tx, ct, true);
+            else
+                await ApplySerialLotOutboundAsync(invoiceId, voucherHeader, dir, line, card.Mode, card.AllowSplit, tx, ct, true);
+        }
+    }
+
+    private async Task ReleaseSerialLotsForInvoiceAsync(int invoiceId, IDbTransaction? tx, CancellationToken ct)
+    {
+        if (!await TableExistsAsync("ProductSerialLot", tx)) return;
+        var hasInv = await _db.ExecuteScalarAsync<int>(new CommandDefinition(
+            "SELECT CASE WHEN COL_LENGTH(N'dbo.ProductSerialLot', N'SourceInvoiceID') IS NULL THEN 0 ELSE 1 END",
+            transaction: tx, cancellationToken: ct));
+        if (hasInv != 1) return;
+
+        var blocked = await _db.ExecuteScalarAsync<int>(new CommandDefinition(@"
+SELECT COUNT(1) FROM dbo.ProductSerialLot
+WHERE SourceInvoiceID = @id AND Status_ = 2 AND ISNULL(OutInvoiceID, 0) <> @id",
+            new { id = invoiceId }, tx, cancellationToken: ct));
+        if (blocked > 0)
+            throw new InvalidOperationException("Bu faturadaki lot/seri çıkışta kullanılmış. Önce çıkış belgesini değiştirin.");
+
+        var invType = await _db.ExecuteScalarAsync<int?>(new CommandDefinition(
+            "SELECT CAST(ISNULL(InvoiceType, 0) AS int) FROM dbo.Invoice WHERE InvoiceID = @id",
+            new { id = invoiceId }, tx, cancellationToken: ct));
+        if (InvoiceSerialDirection(invType ?? 0) == 2)
+        {
+            var outs = await _db.QueryAsync<(int ProductCardID, int LotId, double? Quantity, string? SerialLotNo)>(
+                new CommandDefinition(@"
+SELECT ProductCardID, ProductSerialLotID AS LotId, Quantity, SerialLotNo
+FROM dbo.ProductTrans
+WHERE InvoiceID = @id AND ISNULL(ProductSerialLotID, 0) > 0",
+                    new { id = invoiceId }, tx, cancellationToken: ct));
+            await RestorePartialLotsAsync(outs, tx, ct);
+        }
+
+        await _db.ExecuteAsync(new CommandDefinition(@"
+UPDATE dbo.ProductSerialLot
+SET Status_ = 1, OutInvoiceID = NULL, OutTransID = NULL
+WHERE OutInvoiceID = @id",
+            new { id = invoiceId }, tx, cancellationToken: ct));
+
+        if (await TableExistsAsync("ProductSerialLotItem", tx))
+        {
+            await _db.ExecuteAsync(new CommandDefinition(@"
+DELETE i FROM dbo.ProductSerialLotItem i
+INNER JOIN dbo.ProductSerialLot l ON l.ProductSerialLotID = i.ProductSerialLotID
+WHERE l.SourceInvoiceID = @id AND l.Status_ = 1 AND l.OutInvoiceID IS NULL",
+                new { id = invoiceId }, tx, cancellationToken: ct));
+        }
+
+        await _db.ExecuteAsync(new CommandDefinition(@"
+DELETE FROM dbo.ProductSerialLot
+WHERE SourceInvoiceID = @id AND Status_ = 1 AND OutInvoiceID IS NULL",
+            new { id = invoiceId }, tx, cancellationToken: ct));
+    }
+
+    private async Task ApplySerialLotInboundAsync(
+        int voucherId,
+        int? whouseId,
+        (int ProductTransID, int ProductCardID, string? SerialLotNo, double? Quantity) line,
+        byte mode,
+        IDbTransaction? tx,
+        CancellationToken ct,
+        bool invoice = false)
+    {
+        var entries = ReadLotEntries(line.SerialLotNo);
+        if (mode == 1)
+        {
+            if (entries.Count == 0)
+                entries.Add(new LotEntry { q = line.Quantity });
+            if (line.Quantity is null || line.Quantity <= 0)
+                throw new InvalidOperationException("Lot satırında miktar girin.");
+            var first = 0;
+            foreach (var en in entries)
+            {
+                var code = (en.c ?? "").Trim();
+                if (string.IsNullOrEmpty(code))
+                    code = await NextSerialLotCodeAsync(line.ProductCardID, 1, tx, ct);
+                en.c = code;
+                var qty = en.q ?? (entries.Count == 1 ? line.Quantity : null);
+                if (qty is null || qty <= 0)
+                    throw new InvalidOperationException("Her lot satırında miktar girin.");
+                en.q = qty;
+                var id = await InsertSerialLotAsync(line.ProductCardID, 1, code, whouseId, qty, voucherId, line.ProductTransID, tx, ct, invoice, en);
+                if (first == 0) first = id;
+            }
+            await WriteLineSerialAsync(line.ProductTransID, WriteLotEntries(entries), first, tx, ct);
+            await SyncLineQuantityAsync(line.ProductTransID, entries.Sum(e => e.q ?? 0), tx, ct);
+            return;
+        }
+
+        var pieces = PieceCount(line.Quantity)
+            ?? throw new InvalidOperationException(mode == 2
+                ? "Seri takibinde miktar tam sayı olmalı. Her seri 1 adettir."
+                : "Seri grubunda miktar tam sayı olmalı. Her grup 1 adettir.");
+
+        if (mode == 2)
+        {
+            if (entries.Count == 0)
+            {
+                foreach (var code in SplitCodes(line.SerialLotNo))
+                    entries.Add(new LotEntry { c = code, q = 1 });
+            }
+            while (entries.Count < pieces)
+                entries.Add(new LotEntry { q = 1 });
+            if (entries.Count != pieces)
+                throw new InvalidOperationException("Seri sayısı miktar kadar olmalı. Her seri 1 adettir.");
+            var first = 0;
+            foreach (var en in entries)
+            {
+                var code = (en.c ?? "").Trim();
+                if (string.IsNullOrEmpty(code))
+                    code = await NextSerialLotCodeAsync(line.ProductCardID, 2, tx, ct);
+                en.c = code;
+                en.q = 1;
+                var id = await InsertSerialLotAsync(line.ProductCardID, 2, code, whouseId, 1, voucherId, line.ProductTransID, tx, ct, invoice, en);
+                if (first == 0) first = id;
+            }
+            await WriteLineSerialAsync(line.ProductTransID, WriteLotEntries(entries), first, tx, ct);
+            await SyncLineQuantityAsync(line.ProductTransID, entries.Count, tx, ct);
+            return;
+        }
+
+        if (!await TableExistsAsync("ProductSerialLotItem", tx))
+            throw new InvalidOperationException("Seri grubu için veritabanı güncellemesi 97 uygulanmalı.");
+
+        if (entries.Count == 0)
+        {
+            foreach (var group in ParseSerialGroups(line.SerialLotNo))
+                entries.Add(new LotEntry { c = group.Code, s = string.Join(',', group.Serials), q = 1 });
+        }
+        if (entries.Count == 0)
+            throw new InvalidOperationException("Seri grubu için her adete birden çok seri no girin.");
+        if (entries.Count != pieces)
+            throw new InvalidOperationException("Seri grubu sayısı miktar kadar olmalı. Her grup 1 adettir.");
+
+        var firstGroup = 0;
+        foreach (var en in entries)
+        {
+            var serials = (en.s ?? "").Split(new[] { ',', ';' }, StringSplitOptions.RemoveEmptyEntries)
+                .Select(s => s.Trim()).Where(s => s.Length > 0).Distinct(StringComparer.OrdinalIgnoreCase).ToList();
+            if (serials.Count < 2)
+                throw new InvalidOperationException("Seri grubunda birden çok seri no olmalı.");
+            var code = (en.c ?? "").Trim();
+            if (string.IsNullOrEmpty(code))
+                code = await NextSerialLotCodeAsync(line.ProductCardID, 3, tx, ct);
+            en.c = code;
+            en.q = 1;
+            en.s = string.Join(',', serials);
+            var id = await InsertSerialLotAsync(line.ProductCardID, 3, code, whouseId, 1, voucherId, line.ProductTransID, tx, ct, invoice, en);
+            if (firstGroup == 0) firstGroup = id;
+            foreach (var sn in serials)
+            {
+                await _db.ExecuteAsync(new CommandDefinition(@"
+INSERT INTO dbo.ProductSerialLotItem (ProductSerialLotID, SerialNo) VALUES (@lot, @sn)",
+                    new { lot = id, sn }, tx, cancellationToken: ct));
+            }
+        }
+        await WriteLineSerialAsync(line.ProductTransID, WriteLotEntries(entries), firstGroup, tx, ct);
+        await SyncLineQuantityAsync(line.ProductTransID, entries.Count, tx, ct);
+    }
+
+    private async Task ApplySerialLotOutboundAsync(
+        int voucherId,
+        (int VoucherType, int? WhouseID, int? AimWhouseID) header,
+        int dir,
+        (int ProductTransID, int ProductCardID, string? SerialLotNo, double? Quantity) line,
+        byte mode,
+        bool allowSplit,
+        IDbTransaction? tx,
+        CancellationToken ct,
+        bool invoice = false)
+    {
+        if (mode == 1)
+        {
+            var entries = ReadLotEntries(line.SerialLotNo);
+            if (entries.Count == 0)
+            {
+                var only = FirstCode(line.SerialLotNo);
+                if (!string.IsNullOrEmpty(only))
+                    entries.Add(new LotEntry { c = only, q = line.Quantity });
+            }
+            if (entries.Count == 0)
+                throw new InvalidOperationException($"Çıkış satırında lot seçin (malzeme #{line.ProductCardID}).");
+            var lotFirst = 0;
+            double issuedSum = 0;
+            foreach (var en in entries)
+            {
+                var code = (en.c ?? "").Trim();
+                if (string.IsNullOrEmpty(code))
+                    throw new InvalidOperationException($"Çıkış satırında lot seçin (malzeme #{line.ProductCardID}).");
+                var lot = await FindInStockAsync(line.ProductCardID, 1, code, tx, ct)
+                    ?? throw new InvalidOperationException($"Stokta lot yok: {code}");
+                var have = lot.Qty ?? 0;
+                var issued = en.q ?? (entries.Count == 1 ? line.Quantity ?? 0 : 0);
+                if (issued <= 0) throw new InvalidOperationException("Lot çıkışında miktar girin.");
+                if (issued - have > 0.0001)
+                    throw new InvalidOperationException($"Lot miktarı yetersiz: {code} (kalan {have})");
+                if (dir == 3)
+                {
+                    if (Math.Abs(issued - have) > 0.0001)
+                        throw new InvalidOperationException("Transferde lot bölünmez; miktar lot miktarına eşit olmalı.");
+                    var wh = header.AimWhouseID is > 0 ? header.AimWhouseID : header.WhouseID;
+                    await _db.ExecuteAsync(new CommandDefinition(
+                        "UPDATE dbo.ProductSerialLot SET WhouseID = @wh WHERE ProductSerialLotID = @id",
+                        new { wh, id = lot.ProductSerialLotID }, tx, cancellationToken: ct));
+                }
+                else if (!allowSplit && Math.Abs(issued - have) > 0.0001)
+                {
+                    throw new InvalidOperationException("Lot bölünemez; miktar lot miktarına eşit olmalı.");
+                }
+                else if (Math.Abs(issued - have) <= 0.0001)
+                {
+                    await MarkSerialOutAsync(lot.ProductSerialLotID, voucherId, line.ProductTransID, tx, ct, invoice);
+                }
+                else
+                {
+                    await _db.ExecuteAsync(new CommandDefinition(
+                        "UPDATE dbo.ProductSerialLot SET Qty = ISNULL(Qty, 0) - @q WHERE ProductSerialLotID = @id",
+                        new { q = issued, id = lot.ProductSerialLotID }, tx, cancellationToken: ct));
+                }
+                en.q = issued;
+                issuedSum += issued;
+                if (lotFirst == 0) lotFirst = lot.ProductSerialLotID;
+            }
+            await WriteLineSerialAsync(line.ProductTransID, WriteLotEntries(entries), lotFirst, tx, ct);
+            await SyncLineQuantityAsync(line.ProductTransID, issuedSum, tx, ct);
+            return;
+        }
+
+        var picked = ReadLotEntries(line.SerialLotNo);
+        var codes = picked.Count > 0
+            ? picked.Select(e => (e.c ?? "").Trim()).Where(s => s.Length > 0).Distinct(StringComparer.OrdinalIgnoreCase).ToList()
+            : (mode == 3 ? SplitGroupCodes(line.SerialLotNo) : SplitCodes(line.SerialLotNo));
+        if (codes.Count == 0)
+            throw new InvalidOperationException(mode == 2
+                ? $"Çıkış satırında seri seçin (malzeme #{line.ProductCardID})."
+                : $"Çıkış satırında seri grubu seçin (malzeme #{line.ProductCardID}).");
+        var first = 0;
+        foreach (var code in codes)
+        {
+            var lot = await FindInStockAsync(line.ProductCardID, mode, code, tx, ct)
+                ?? throw new InvalidOperationException($"Stokta yok: {code}");
+            if (first == 0) first = lot.ProductSerialLotID;
+            if (dir == 3)
+            {
+                var wh = header.AimWhouseID is > 0 ? header.AimWhouseID : header.WhouseID;
+                await _db.ExecuteAsync(new CommandDefinition(
+                    "UPDATE dbo.ProductSerialLot SET WhouseID = @wh WHERE ProductSerialLotID = @id",
+                    new { wh, id = lot.ProductSerialLotID }, tx, cancellationToken: ct));
+            }
+            else
+            {
+                await MarkSerialOutAsync(lot.ProductSerialLotID, voucherId, line.ProductTransID, tx, ct, invoice);
+            }
+        }
+
+        var written = codes.Select(code =>
+        {
+            var src = picked.FirstOrDefault(e => string.Equals((e.c ?? "").Trim(), code, StringComparison.OrdinalIgnoreCase));
+            return new LotEntry { c = code, q = 1, e = src?.e, n = src?.n, l = src?.l, s = src?.s };
+        }).ToList();
+        await WriteLineSerialAsync(line.ProductTransID, WriteLotEntries(written), first, tx, ct);
+        await SyncLineQuantityAsync(line.ProductTransID, written.Count, tx, ct);
+    }
+
+    private async Task<bool> LotDetailColumnsAsync(IDbTransaction? tx, CancellationToken ct)
+    {
+        var n = await _db.ExecuteScalarAsync<int>(new CommandDefinition(@"
+SELECT CASE WHEN COL_LENGTH(N'dbo.ProductSerialLot', N'ExpireDate') IS NULL THEN 0 ELSE 1 END
+     + CASE WHEN COL_LENGTH(N'dbo.ProductSerialLot', N'Description') IS NULL THEN 0 ELSE 1 END
+     + CASE WHEN COL_LENGTH(N'dbo.ProductSerialLot', N'StockLocationID') IS NULL THEN 0 ELSE 1 END",
+            transaction: tx, cancellationToken: ct));
+        return n == 3;
+    }
+
+    private sealed class LotEntry
+    {
+        public string? c { get; set; }
+        public double? q { get; set; }
+        public string? e { get; set; }
+        public string? n { get; set; }
+        public int? l { get; set; }
+        public string? s { get; set; }
+    }
+
+    private static readonly JsonSerializerOptions LotEntryJson = new() { PropertyNameCaseInsensitive = true };
+
+    private static List<LotEntry> ReadLotEntries(string? raw)
+    {
+        if (string.IsNullOrWhiteSpace(raw)) return new List<LotEntry>();
+        var t = raw.Trim();
+        if (!t.StartsWith('[')) return new List<LotEntry>();
+        try
+        {
+            return JsonSerializer.Deserialize<List<LotEntry>>(t, LotEntryJson) ?? new List<LotEntry>();
+        }
+        catch
+        {
+            return new List<LotEntry>();
+        }
+    }
+
+    private static string WriteLotEntries(IEnumerable<LotEntry> entries)
+    {
+        return JsonSerializer.Serialize(entries.Select(en => new LotEntry
+        {
+            c = en.c,
+            q = en.q,
+            e = string.IsNullOrWhiteSpace(en.e) ? null : en.e,
+            n = string.IsNullOrWhiteSpace(en.n) ? null : en.n,
+            l = en.l is > 0 ? en.l : null,
+            s = string.IsNullOrWhiteSpace(en.s) ? null : en.s,
+        }), LotEntryJson);
+    }
+
+    private async Task<int> InsertSerialLotAsync(
+        int productId, byte kind, string code, int? whouseId, double? qty,
+        int voucherId, int transId, IDbTransaction? tx, CancellationToken ct, bool invoice = false, LotEntry? detail = null)
+    {
+        DateTime? expire = null;
+        if (DateTime.TryParse(detail?.e, out var parsed)) expire = parsed.Date;
+        var note = string.IsNullOrWhiteSpace(detail?.n) ? null : detail!.n!.Trim();
+        if (note != null && note.Length > 250) note = note[..250];
+        int? location = detail?.l is > 0 ? detail.l : null;
+        var detailCols = await LotDetailColumnsAsync(tx, ct);
+        string sql;
+        if (invoice && detailCols)
+            sql = @"
+INSERT INTO dbo.ProductSerialLot
+  (ProductCardID, Kind, Code, Status_, WhouseID, Qty, SourceInvoiceID, SourceTransID, ExpireDate, Description, StockLocationID)
+OUTPUT INSERTED.ProductSerialLotID
+VALUES
+  (@pid, @kind, @code, 1, @wh, @qty, @vid, @tid, @exp, @note, @loc)";
+        else if (invoice)
+            sql = @"
+INSERT INTO dbo.ProductSerialLot
+  (ProductCardID, Kind, Code, Status_, WhouseID, Qty, SourceInvoiceID, SourceTransID)
+OUTPUT INSERTED.ProductSerialLotID
+VALUES
+  (@pid, @kind, @code, 1, @wh, @qty, @vid, @tid)";
+        else if (detailCols)
+            sql = @"
+INSERT INTO dbo.ProductSerialLot
+  (ProductCardID, Kind, Code, Status_, WhouseID, Qty, SourceVoucherID, SourceTransID, ExpireDate, Description, StockLocationID)
+OUTPUT INSERTED.ProductSerialLotID
+VALUES
+  (@pid, @kind, @code, 1, @wh, @qty, @vid, @tid, @exp, @note, @loc)";
+        else
+            sql = @"
+INSERT INTO dbo.ProductSerialLot
+  (ProductCardID, Kind, Code, Status_, WhouseID, Qty, SourceVoucherID, SourceTransID)
+OUTPUT INSERTED.ProductSerialLotID
+VALUES
+  (@pid, @kind, @code, 1, @wh, @qty, @vid, @tid)";
+        return await _db.ExecuteScalarAsync<int>(new CommandDefinition(sql,
+            new { pid = productId, kind, code, wh = whouseId, qty, vid = voucherId, tid = transId, exp = expire, note, loc = location },
+            tx, cancellationToken: ct));
+    }
+
+    /// <summary>Kısmi lot çıkışı geri alınırken satır miktarı değil, seri/lot satırlarının kendi miktarı iade edilir.</summary>
+    private async Task RestorePartialLotsAsync(
+        IEnumerable<(int ProductCardID, int LotId, double? Quantity, string? SerialLotNo)> rows,
+        IDbTransaction? tx,
+        CancellationToken ct)
+    {
+        foreach (var row in rows)
+        {
+            var entries = ReadLotEntries(row.SerialLotNo);
+            if (entries.Count == 0)
+            {
+                if (row.LotId <= 0) continue;
+                await RestoreLotQtyAsync(row.LotId, row.Quantity ?? 0, tx, ct);
+                continue;
+            }
+            foreach (var en in entries)
+            {
+                var q = en.q ?? 0;
+                if (q <= 0) continue;
+                var code = (en.c ?? "").Trim();
+                if (code.Length == 0)
+                {
+                    if (row.LotId > 0) await RestoreLotQtyAsync(row.LotId, q, tx, ct);
+                    continue;
+                }
+                var found = await _db.QueryFirstOrDefaultAsync<(int Id, byte Kind, byte Status)>(new CommandDefinition(@"
+SELECT TOP 1 ProductSerialLotID AS Id, Kind, Status_ AS Status
+FROM dbo.ProductSerialLot
+WHERE ProductCardID = @pid AND Kind = 1 AND Code = @code",
+                    new { pid = row.ProductCardID, code }, tx, cancellationToken: ct));
+                if (found.Id > 0) await RestoreLotQtyAsync(found.Id, q, tx, ct);
+            }
+        }
+    }
+
+    private async Task RestoreLotQtyAsync(int lotId, double qty, IDbTransaction? tx, CancellationToken ct)
+    {
+        if (lotId <= 0 || qty <= 0) return;
+        var lot = await _db.QueryFirstOrDefaultAsync<(byte Kind, byte Status)>(new CommandDefinition(@"
+SELECT Kind, Status_ AS Status FROM dbo.ProductSerialLot WHERE ProductSerialLotID = @id",
+            new { id = lotId }, tx, cancellationToken: ct));
+        // Kısmi lot: miktar düşmüş, durum 1. Tam çıkışta miktar durur, durum 2.
+        if (lot.Kind == 1 && lot.Status == 1)
+        {
+            await _db.ExecuteAsync(new CommandDefinition(@"
+UPDATE dbo.ProductSerialLot SET Qty = ISNULL(Qty, 0) + @q WHERE ProductSerialLotID = @id",
+                new { q = qty, id = lotId }, tx, cancellationToken: ct));
+        }
+    }
+
+    /// <summary>Fiş satırı miktarı, seri/lot satırlarının toplamı kadar olur.</summary>
+    private async Task SyncLineQuantityAsync(int transId, double qty, IDbTransaction? tx, CancellationToken ct)
+    {
+        if (transId <= 0 || qty <= 0) return;
+        await _db.ExecuteAsync(new CommandDefinition(@"
+UPDATE dbo.ProductTrans
+SET MainUnitQuantity = CASE
+      WHEN MainUnitQuantity IS NULL
+        OR ABS(ISNULL(MainUnitQuantity, 0) - ISNULL(Quantity, 0)) < 0.0001 THEN @q
+      ELSE MainUnitQuantity END,
+    Quantity = @q
+WHERE ProductTransID = @id",
+            new { q = qty, id = transId }, tx, cancellationToken: ct));
+    }
+
+    private async Task WriteLineSerialAsync(int transId, string code, int lotId, IDbTransaction? tx, CancellationToken ct)
+    {
+        await _db.ExecuteAsync(new CommandDefinition(@"
+UPDATE dbo.ProductTrans SET SerialLotNo = @code, ProductSerialLotID = @lot WHERE ProductTransID = @tid",
+            new { code, lot = lotId, tid = transId }, tx, cancellationToken: ct));
+    }
+
+    private async Task MarkSerialOutAsync(int lotId, int voucherId, int transId, IDbTransaction? tx, CancellationToken ct, bool invoice = false)
+    {
+        var sql = invoice
+            ? @"
+UPDATE dbo.ProductSerialLot
+SET Status_ = 2, OutInvoiceID = @vid, OutTransID = @tid
+WHERE ProductSerialLotID = @id"
+            : @"
+UPDATE dbo.ProductSerialLot
+SET Status_ = 2, OutVoucherID = @vid, OutTransID = @tid
+WHERE ProductSerialLotID = @id";
+        await _db.ExecuteAsync(new CommandDefinition(sql,
+            new { vid = voucherId, tid = transId, id = lotId }, tx, cancellationToken: ct));
+    }
+
+    private async Task<(int ProductSerialLotID, double? Qty)?> FindInStockAsync(
+        int productId, byte kind, string code, IDbTransaction? tx, CancellationToken ct)
+    {
+        var lot = await _db.QueryFirstOrDefaultAsync<(int ProductSerialLotID, double? Qty)>(new CommandDefinition(@"
+SELECT TOP 1 ProductSerialLotID, Qty
+FROM dbo.ProductSerialLot
+WHERE ProductCardID = @pid AND Kind = @kind AND Code = @code AND Status_ = 1",
+            new { pid = productId, kind, code }, tx, cancellationToken: ct));
+        return lot.ProductSerialLotID == 0 ? null : lot;
+    }
+
+    private async Task<string> NextSerialLotCodeAsync(int productId, byte kind, IDbTransaction? tx, CancellationToken ct)
+    {
+        var n = await _db.ExecuteScalarAsync<int>(new CommandDefinition(@"
+SELECT COUNT(1) FROM dbo.ProductSerialLot WHERE ProductCardID = @pid AND Kind = @kind",
+            new { pid = productId, kind }, tx, cancellationToken: ct));
+        var prefix = kind switch { 2 => "SR", 3 => "SG", _ => "LT" };
+        return $"{prefix}{productId}-{n + 1:D4}";
+    }
+
+    private static string FirstCode(string? raw) =>
+        SplitCodes(raw).FirstOrDefault() ?? "";
+
+    private static List<string> SplitCodes(string? raw)
+    {
+        if (string.IsNullOrWhiteSpace(raw)) return new List<string>();
+        return raw.Split(new[] { '\n', '\r', ',', ';' }, StringSplitOptions.RemoveEmptyEntries)
+            .Select(s => s.Trim())
+            .Where(s => s.Length > 0 && !s.Contains('|'))
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .ToList();
+    }
+
+    private static List<string> SplitGroupCodes(string? raw)
+    {
+        if (string.IsNullOrWhiteSpace(raw)) return new List<string>();
+        return raw.Split(new[] { '\n', '\r' }, StringSplitOptions.RemoveEmptyEntries)
+            .Select(s =>
+            {
+                var line = s.Trim();
+                var bar = line.IndexOf('|');
+                return (bar > 0 ? line[..bar] : line).Trim();
+            })
+            .Where(s => s.Length > 0)
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .ToList();
+    }
+
+    private readonly record struct SerialGroup(string? Code, List<string> Serials);
+
+    private static List<SerialGroup> ParseSerialGroups(string? raw)
+    {
+        var list = new List<SerialGroup>();
+        if (string.IsNullOrWhiteSpace(raw)) return list;
+        foreach (var row in raw.Split(new[] { '\n', '\r' }, StringSplitOptions.RemoveEmptyEntries))
+        {
+            var line = row.Trim();
+            if (line.Length == 0) continue;
+            string? code = null;
+            var rest = line;
+            var sep = line.IndexOf('|');
+            if (sep < 0) sep = line.IndexOf('=');
+            if (sep > 0)
+            {
+                code = line[..sep].Trim();
+                rest = line[(sep + 1)..];
+            }
+            var serials = rest.Split(new[] { ',', ';' }, StringSplitOptions.RemoveEmptyEntries)
+                .Select(s => s.Trim())
+                .Where(s => s.Length > 0)
+                .Distinct(StringComparer.OrdinalIgnoreCase)
+                .ToList();
+            list.Add(new SerialGroup(string.IsNullOrEmpty(code) ? null : code, serials));
+        }
+        return list;
+    }
+
+    private static int? PieceCount(double? qty)
+    {
+        if (qty is null || qty <= 0) return null;
+        var n = (int)Math.Round(qty.Value);
+        return Math.Abs(qty.Value - n) > 0.0001 ? null : n;
+    }
+
+    /// <summary>1 giriş · 2 çıkış · 3 transfer · 0 izleme yok</summary>
+    private static int SerialLotDirection(int voucherType) => voucherType switch
+    {
+        1 or 2 or 5 or 9 => 1,
+        3 or 4 or 8 or 10 => 2,
+        6 => 3,
+        _ => 0,
+    };
 
     private async Task<bool> TableExistsAsync(string tableName, IDbTransaction? tx = null)
     {
@@ -1907,6 +3261,37 @@ VALUES ({string.Join(", ", colsWithPk.Select(c => "@" + c))});";
             new { table = tableName },
             tx));
         return rows.ToList();
+    }
+
+    private async Task<Dictionary<string, string>> GetColumnTypesAsync(string tableName, IDbTransaction? tx = null)
+    {
+        var rows = await _db.QueryAsync<(string Name, string Typ)>(new CommandDefinition(
+            @"SELECT c.name AS Name, TYPE_NAME(c.user_type_id) AS Typ
+              FROM sys.columns c
+              INNER JOIN sys.tables t ON c.object_id = t.object_id
+              WHERE t.name = @table AND SCHEMA_NAME(t.schema_id) = N'dbo'",
+            new { table = tableName },
+            tx));
+        var map = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+        foreach (var r in rows)
+            map[r.Name] = r.Typ;
+        return map;
+    }
+
+    private static bool IsTextSqlType(string? sqlType) =>
+        sqlType is "nvarchar" or "varchar" or "nchar" or "char" or "ntext" or "text" or "xml";
+
+    /// <summary>Metin kolonuna sayı yazma: 150.10 ve 150.* kod olarak kalsın.</summary>
+    private static object? CoerceForColumn(string? sqlType, object? value)
+    {
+        value = NormalizeJsonElement(value);
+        if (IsTextSqlType(sqlType))
+        {
+            if (value is null) return null;
+            var s = value as string ?? Convert.ToString(value, System.Globalization.CultureInfo.InvariantCulture);
+            return string.IsNullOrWhiteSpace(s) ? null : s;
+        }
+        return CoerceDbValue(value);
     }
 
     private async Task<string> ResolvePrimaryKeyAsync(string tableName, string? hint, IDbTransaction? tx = null)

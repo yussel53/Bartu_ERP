@@ -304,7 +304,7 @@ public sealed class CrmMailService
             using var msg = new MailMessage
             {
                 From = new MailAddress(from, p.FromName ?? from),
-                Subject = "KaviSoft CRM — mail tanımı testi",
+                Subject = "Kavi Soft CRM — mail tanımı testi",
                 SubjectEncoding = Encoding.UTF8,
                 BodyEncoding = Encoding.UTF8,
                 Body = $"Bu bir test mailidir.\n\nTanım: {p.ScopeName} ({p.SmtpHost}:{p.SmtpPort ?? 587})\n\n{p.Signature}",
@@ -388,7 +388,7 @@ public sealed class CrmMailService
         Body = d.Body,
         IsHtml = false,
         CreateUserID = d.UserId > 0 ? d.UserId : null,
-        Source = "KaviSoft"
+        Source = "Kavi Soft"
     };
 
     // ─── Teklif HTML ──────────────────────────────────────────────────────
@@ -423,7 +423,7 @@ public sealed class CrmMailService
 
     public static string BuildOfferDocumentHtml(CrmOfferDto o, CrmOpportunityDto? opp, Dictionary<string, string?> s, bool forPrint)
     {
-        var company = s.GetValueOrDefault("CompanyName") ?? "KaviSoft";
+        var company = s.GetValueOrDefault("CompanyName") ?? "Kavi Soft";
         var companyInfo = s.GetValueOrDefault("CompanyInfo") ?? "";
         var footer = s.GetValueOrDefault("OfferFooter") ?? "";
         var sb = new StringBuilder();

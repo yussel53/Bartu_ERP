@@ -52,13 +52,14 @@ public sealed class CrmOpportunityDto
 public sealed class CrmActionDto
 {
     public int ActionID { get; set; }
-    public int OpportunityID { get; set; }
+    public int? OpportunityID { get; set; }
     public int? ActionTypeID { get; set; }
     public string? ActionTypeTitle { get; set; }
     public string? ActionTypeIcon { get; set; }
     public byte CloseKind { get; set; }
     public DateTime ActionDate { get; set; }
     public DateTime? DueDate { get; set; }
+    public string? Title { get; set; }
     public string? Description { get; set; }
     public int? CustomerContactID { get; set; }
     public string? ContactName { get; set; }
@@ -71,6 +72,15 @@ public sealed class CrmActionDto
     public string? CreateUserName { get; set; }
     public DateTime CreateDate { get; set; }
     public int OfferCount { get; set; }
+    /// <summary>Belge tablosu (Invoice, ProductVoucher, OrderVoucher…)</summary>
+    public string? SourceTable { get; set; }
+    public int? SourceID { get; set; }
+    public string? SourceDocNo { get; set; }
+    public int? CustomerCardID { get; set; }
+    public string? CustomerTitle { get; set; }
+    /// <summary>Outlook / Graph öğe kimliği (aynı mailden tekrar eklemeyi engeller)</summary>
+    public string? OutlookItemId { get; set; }
+    public string? OpportunityTitle { get; set; }
     /// <summary>Kayıtta birlikte teklif açılsın (Nova "Teklif Ekle" kutusu).</summary>
     public CrmOfferDto? NewOffer { get; set; }
 }
@@ -486,43 +496,136 @@ WHERE a.IsActive=1 AND a.IsDone=0 AND a.DueDate < CAST(GETDATE() AS DATE) AND o.
     });
 
     // ─── Aksiyonlar ───────────────────────────────────────────────────────
-    private const string ActionSelect = @"
-SELECT a.*, t.Title AS ActionTypeTitle, t.Icon AS ActionTypeIcon, ISNULL(t.CloseKind,0) AS CloseKind,
+    private async Task<bool> ColExistsAsync(string table, string col)
+    {
+        var n = await _db.ExecuteScalarAsync<int>(
+            "SELECT CASE WHEN COL_LENGTH(@t, @c) IS NULL THEN 0 ELSE 1 END",
+            new { t = $"dbo.{table}", c = col });
+        return n == 1;
+    }
+
+    private async Task<string> ActionSelectSqlAsync()
+    {
+        var hasSrc = await ColExistsAsync("CRM_Action", "SourceTable");
+        var hasTitle = await ColExistsAsync("CRM_Action", "Title");
+        var hasCust = await ColExistsAsync("CRM_Action", "CustomerCardID");
+        var hasOut = await ColExistsAsync("CRM_Action", "OutlookItemId");
+        return $@"
+SELECT a.ActionID, a.OpportunityID, a.ActionTypeID, a.ActionDate, a.DueDate, a.Description,
+       a.CustomerContactID, a.ContactName, a.AssignedUserID, a.IsDone, a.DoneDate, a.IsActive,
+       a.CreateUserID, a.CreateDate,
+       {(hasTitle ? "a.Title" : "CAST(NULL AS nvarchar(200)) AS Title")},
+       {(hasSrc ? "a.SourceTable, a.SourceID, a.SourceDocNo" : "CAST(NULL AS nvarchar(50)) AS SourceTable, CAST(NULL AS int) AS SourceID, CAST(NULL AS nvarchar(80)) AS SourceDocNo")},
+       {(hasCust ? "a.CustomerCardID" : "CAST(NULL AS int) AS CustomerCardID")},
+       {(hasOut ? "a.OutlookItemId" : "CAST(NULL AS nvarchar(200)) AS OutlookItemId")},
+       t.Title AS ActionTypeTitle, t.Icon AS ActionTypeIcon, ISNULL(t.CloseKind,0) AS CloseKind,
        LTRIM(RTRIM(ISNULL(au.Name,'') + ' ' + ISNULL(au.Surname,''))) AS AssignedUserName,
        LTRIM(RTRIM(ISNULL(cu.Name,'') + ' ' + ISNULL(cu.Surname,''))) AS CreateUserName,
+       o.Title AS OpportunityTitle,
+       {(hasCust ? "cc.Title AS CustomerTitle" : "CAST(NULL AS nvarchar(200)) AS CustomerTitle")},
        (SELECT COUNT(*) FROM dbo.CRM_Offer f WHERE f.ActionID = a.ActionID AND f.IsActive = 1) AS OfferCount
 FROM dbo.CRM_Action a
 LEFT JOIN dbo.CRM_ActionType t ON t.ActionTypeID = a.ActionTypeID
 LEFT JOIN dbo.SystemUser au ON au.SystemUserID = a.AssignedUserID
-LEFT JOIN dbo.SystemUser cu ON cu.SystemUserID = a.CreateUserID";
+LEFT JOIN dbo.SystemUser cu ON cu.SystemUserID = a.CreateUserID
+LEFT JOIN dbo.CRM_Opportunity o ON o.OpportunityID = a.OpportunityID
+{(hasCust ? "LEFT JOIN dbo.CustomerCard cc ON cc.CustomerCardID = a.CustomerCardID" : "")}";
+    }
 
     public Task<List<CrmActionDto>> ListActionsAsync(int opportunityId) => Guard(async () =>
-        (await _db.QueryAsync<CrmActionDto>(ActionSelect + " WHERE a.OpportunityID=@opportunityId AND a.IsActive=1 ORDER BY a.ActionDate DESC, a.ActionID DESC",
-            new { opportunityId })).ToList());
+    {
+        var sql = await ActionSelectSqlAsync();
+        return (await _db.QueryAsync<CrmActionDto>(sql + " WHERE a.OpportunityID=@opportunityId AND a.IsActive=1 ORDER BY a.ActionDate DESC, a.ActionID DESC",
+            new { opportunityId })).ToList();
+    });
+
+    public Task<List<CrmActionDto>> ListActionsBySourceAsync(string sourceTable, int sourceId) => Guard(async () =>
+    {
+        if (!await ColExistsAsync("CRM_Action", "SourceTable")) return new List<CrmActionDto>();
+        var sql = await ActionSelectSqlAsync();
+        return (await _db.QueryAsync<CrmActionDto>(
+            sql + " WHERE a.SourceTable=@sourceTable AND a.SourceID=@sourceId AND a.IsActive=1 ORDER BY a.ActionDate DESC, a.ActionID DESC",
+            new { sourceTable, sourceId })).ToList();
+    });
+
+    public Task<List<CrmActionDto>> ListAllActionsAsync(string? q, bool? openOnly, int take = 200) => Guard(async () =>
+    {
+        var sql = await ActionSelectSqlAsync();
+        var hasTitle = await ColExistsAsync("CRM_Action", "Title");
+        var hasSrc = await ColExistsAsync("CRM_Action", "SourceTable");
+        var hasCust = await ColExistsAsync("CRM_Action", "CustomerCardID");
+        var where = " WHERE a.IsActive=1 ";
+        if (openOnly == true) where += " AND a.IsDone=0 ";
+        if (!string.IsNullOrWhiteSpace(q))
+        {
+            where += " AND (a.Description LIKE @like OR a.ContactName LIKE @like OR o.Title LIKE @like OR t.Title LIKE @like ";
+            if (hasTitle) where += " OR a.Title LIKE @like ";
+            if (hasSrc) where += " OR a.SourceDocNo LIKE @like OR a.SourceTable LIKE @like ";
+            if (hasCust) where += " OR cc.Title LIKE @like ";
+            where += ") ";
+        }
+        var like = $"%{q?.Trim()}%";
+        var top = Math.Clamp(take, 1, 500);
+        var rows = (await _db.QueryAsync<CrmActionDto>(
+            sql + where
+            + " ORDER BY CASE WHEN a.IsDone=0 THEN 0 ELSE 1 END, ISNULL(a.DueDate, a.ActionDate) DESC, a.ActionID DESC",
+            new { like })).ToList();
+        return rows.Take(top).ToList();
+    });
 
     public Task<CrmActionDto?> GetActionAsync(int id) => Guard(async () =>
-        await _db.QueryFirstOrDefaultAsync<CrmActionDto>(ActionSelect + " WHERE a.ActionID=@id", new { id }));
+    {
+        var sql = await ActionSelectSqlAsync();
+        return await _db.QueryFirstOrDefaultAsync<CrmActionDto>(sql + " WHERE a.ActionID=@id", new { id });
+    });
 
     public Task<int> SaveActionAsync(CrmActionDto a, int userId) => Guard(async () =>
     {
-        if (a.OpportunityID <= 0) throw new ArgumentException("Fırsat seçilmedi.");
+        var hasOpp = a.OpportunityID is > 0;
+        var hasSrc = !string.IsNullOrWhiteSpace(a.SourceTable) && a.SourceID is > 0;
+        if (!hasOpp && !hasSrc)
+            throw new ArgumentException("Fırsat veya belge (kaynak) seçilmedi.");
         if (a.ActionDate == default) a.ActionDate = DateTime.Now;
+        a.SourceTable = string.IsNullOrWhiteSpace(a.SourceTable) ? null : a.SourceTable.Trim();
+        var hasSrcCols = await ColExistsAsync("CRM_Action", "SourceTable");
+        var hasTitle = await ColExistsAsync("CRM_Action", "Title");
+        var hasCust = await ColExistsAsync("CRM_Action", "CustomerCardID");
+        var hasOut = await ColExistsAsync("CRM_Action", "OutlookItemId");
+
         if (a.ActionID > 0)
         {
-            await _db.ExecuteAsync(@"UPDATE dbo.CRM_Action SET ActionTypeID=@ActionTypeID, ActionDate=@ActionDate, DueDate=@DueDate,
+            await _db.ExecuteAsync($@"UPDATE dbo.CRM_Action SET ActionTypeID=@ActionTypeID, ActionDate=@ActionDate, DueDate=@DueDate,
   Description=@Description, CustomerContactID=@CustomerContactID, ContactName=@ContactName, AssignedUserID=@AssignedUserID
+  {(hasTitle ? ", Title=@Title" : "")}
+  {(hasSrcCols ? ", SourceTable=@SourceTable, SourceID=@SourceID, SourceDocNo=@SourceDocNo" : "")}
+  {(hasCust ? ", CustomerCardID=@CustomerCardID" : "")}
+  {(hasOut ? ", OutlookItemId=@OutlookItemId" : "")}
+  {(hasOpp ? ", OpportunityID=@OpportunityID" : "")}
 WHERE ActionID=@ActionID", a);
         }
         else
         {
             a.CreateUserID = userId > 0 ? userId : null;
             a.AssignedUserID ??= a.CreateUserID;
-            a.ActionID = await _db.ExecuteScalarAsync<int>(@"INSERT INTO dbo.CRM_Action
-  (OpportunityID, ActionTypeID, ActionDate, DueDate, Description, CustomerContactID, ContactName, AssignedUserID, IsDone, CreateUserID)
+            // Outlook: aynı öğe tekrar eklenmesin
+            if (hasOut && !string.IsNullOrWhiteSpace(a.OutlookItemId))
+            {
+                var exist = await _db.ExecuteScalarAsync<int?>(
+                    "SELECT TOP 1 ActionID FROM dbo.CRM_Action WHERE OutlookItemId=@OutlookItemId AND IsActive=1", a);
+                if (exist is > 0) return exist.Value;
+            }
+            var cols = "OpportunityID, ActionTypeID, ActionDate, DueDate, Description, CustomerContactID, ContactName, AssignedUserID, IsDone, CreateUserID";
+            var vals = "@OpportunityID, @ActionTypeID, @ActionDate, @DueDate, @Description, @CustomerContactID, @ContactName, @AssignedUserID, @IsDone, @CreateUserID";
+            if (hasTitle) { cols += ", Title"; vals += ", @Title"; }
+            if (hasSrcCols) { cols += ", SourceTable, SourceID, SourceDocNo"; vals += ", @SourceTable, @SourceID, @SourceDocNo"; }
+            if (hasCust) { cols += ", CustomerCardID"; vals += ", @CustomerCardID"; }
+            if (hasOut) { cols += ", OutlookItemId"; vals += ", @OutlookItemId"; }
+            a.ActionID = await _db.ExecuteScalarAsync<int>($@"INSERT INTO dbo.CRM_Action ({cols})
 OUTPUT INSERTED.ActionID
-VALUES (@OpportunityID, @ActionTypeID, @ActionDate, @DueDate, @Description, @CustomerContactID, @ContactName, @AssignedUserID, @IsDone, @CreateUserID)", a);
+VALUES ({vals})", a);
         }
-        await TouchOpportunityAsync(a.OpportunityID);
+        if (a.OpportunityID is > 0)
+            await TouchOpportunityAsync(a.OpportunityID.Value);
         return a.ActionID;
     });
 

@@ -210,30 +210,52 @@ public sealed class CrmController : ControllerBase
     [HttpGet("opportunities/{id:int}/actions")]
     public Task<IActionResult> ListActions(int id) => Run(async () => await _repo.ListActionsAsync(id));
 
+    /// <summary>Belgeye bağlı aksiyonlar (Invoice/123 …)</summary>
+    [HttpGet("actions/by-source")]
+    public Task<IActionResult> ListActionsBySource([FromQuery] string table, [FromQuery] int id) =>
+        Run(async () => await _repo.ListActionsBySourceAsync(table ?? "", id));
+
+    /// <summary>CRM → Aksiyonlar listesi (fırsat + belge)</summary>
+    [HttpGet("actions")]
+    public Task<IActionResult> ListAllActions([FromQuery] string? q, [FromQuery] bool? openOnly, [FromQuery] int take = 200) =>
+        Run(async () => await _repo.ListAllActionsAsync(q, openOnly, take));
+
     [HttpPost("actions")]
     public Task<IActionResult> SaveAction([FromBody] CrmActionDto dto) => Run(async () =>
     {
         var isNew = dto.ActionID <= 0;
         var id = await _repo.SaveActionAsync(dto, UserId);
         int? offerId = null;
-        if (isNew && dto.NewOffer != null && dto.NewOffer.Lines.Count > 0)
+        if (isNew && dto.NewOffer != null && dto.NewOffer.Lines.Count > 0 && dto.OpportunityID is > 0)
         {
-            dto.NewOffer.OpportunityID = dto.OpportunityID;
+            dto.NewOffer.OpportunityID = dto.OpportunityID.Value;
             dto.NewOffer.ActionID = id;
             offerId = await _repo.SaveOfferAsync(dto.NewOffer, UserId);
         }
         string? closed = null;
-        if (dto.ActionTypeID is int tid)
+        if (dto.ActionTypeID is int tid && dto.OpportunityID is int oppId && oppId > 0)
         {
             var type = await _repo.GetActionTypeAsync(tid);
             if (type != null && type.CloseKind is 1 or 2)
             {
-                await _repo.CloseOpportunityAsync(dto.OpportunityID, type.CloseKind, $"{type.Title} — {dto.Description}".Trim(' ', '—'));
+                await _repo.CloseOpportunityAsync(oppId, type.CloseKind, $"{type.Title} — {dto.Description}".Trim(' ', '—'));
                 await _repo.SetActionDoneAsync(id, true);
                 closed = type.CloseKind == 1 ? "won" : "lost";
             }
         }
         return new { id, offerId, closed };
+    });
+
+    /// <summary>Outlook / Graph: konu+gövde → belge aksiyonu (OutlookItemId ile tekilleştirilir)</summary>
+    [HttpPost("actions/from-outlook")]
+    public Task<IActionResult> ActionFromOutlook([FromBody] CrmActionDto dto) => Run(async () =>
+    {
+        if (string.IsNullOrWhiteSpace(dto.OutlookItemId) && string.IsNullOrWhiteSpace(dto.Title) && string.IsNullOrWhiteSpace(dto.Description))
+            throw new ArgumentException("Outlook öğesi veya açıklama gerekli.");
+        if (string.IsNullOrWhiteSpace(dto.Title) && !string.IsNullOrWhiteSpace(dto.Description))
+            dto.Title = dto.Description!.Length > 80 ? dto.Description[..80] : dto.Description;
+        var id = await _repo.SaveActionAsync(dto, UserId);
+        return new { id };
     });
 
     [HttpPost("actions/{id:int}/done")]

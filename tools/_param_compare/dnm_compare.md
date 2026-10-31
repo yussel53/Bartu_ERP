@@ -1,0 +1,437 @@
+# dnm.xls — ayrım özeti
+
+Kaynak: `dnm.xls` (**937** benzersiz) · `Parametreler.xlsx` (**511**) · Bartu defs (**68**)
+
+## Sayılar
+- Aynı (Bartu’da var): **51**
+- Aynı (Excel’de var, Bartu seed’inde yok / zaten planlı): **452**
+- Şimdi eklenecek (öndeğer/kontrol): **8**
+- Sorulacak — öndeğer: **68**
+- Sorulacak — parametre: **283**
+- Kapsam dışı: **79**
+
+## dnm modül başlıkları
+
+- Satınalma Parametreleri: 251
+- Finans Parametreleri: 183
+- Malzeme Yönetimi Parametreleri: 129
+- Satış Ve Dağıtım Parametreleri: 119
+- Genel Muhasebe Parametreleri: 75
+- Otomatik Muhasebeleştirme Parametreleri: 48
+- Muhasebeleştirme Kontrol Parametreleri: 37
+- Duran Varlık Yönetimi Parametreleri: 31
+- Talep Yönetimi Parametreleri: 23
+- Kayıt Revizyon Takibi Parametreleri: 13
+- Muhasebeleşmiş Fiş Parametreleri: 11
+- Ambarlar: 8
+- Genel Parametreler: 7
+- İş Akış Yönetimi Parametreleri: 1
+- Bakım Yönetimi Parametreleri: 1
+
+## Şimdi eklenen / eklenecek
+
+- `STK_SAFE_CTRL` · **Güvenlik Stok Seviyesi Kontrolü** · def=`continue` · dnm=`İşleme Devam Edilecek` · mod=stok
+- `STK_IN_CTRL` · **Giriş Kontrolü** · def=`continue` · dnm=`İşleme Devam Edilecek` · mod=stok
+- `STK_OUT_CTRL` · **Çıkış Kontrolü** · def=`continue` · dnm=`İşleme Devam Edilecek` · mod=stok
+- `STK_VOUCH_OUT_STATUS` · **Malzeme Fişleri Durumu (Ambar Çıkış)** · def=`0` · dnm=`Gerçek` · mod=stok
+- `STK_VOUCH_IN_STATUS` · **Malzeme Fişleri Durumu (Ambar Giriş)** · def=`0` · dnm=`Gerçek` · mod=stok
+- `STK_HDR_CUR` · **Kullanılacak Para Birimi - Malzeme (Genel)** · def=`doc` · dnm=`Raporlama Dövizi` · mod=stok
+- `STK_FX_DATE_REP` · **Tarih Değişikliğinde Raporlama Dövizi Kuru** · def=`update` · dnm=`Kuru Güncellenecek` · mod=stok
+- `STK_SERIAL_POPUP` · **Seri/Lot Miktar Değişince Otomatik Pencere** · def=`1` · dnm=`Evet` · mod=stok
+
+## 1) Aynı — Bartu
+
+- **Asgari Stok Seviyesi Kontrolü** = `Kullanıcı Uyarılacak` → `STK_MIN_CTRL` · _Malzeme Yönetimi Parametreleri_
+- **Azami Stok Seviyesi Kontrolü** = `İşleme Devam Edilecek` → `STK_MAX_CTRL` · _Malzeme Yönetimi Parametreleri_
+- **Negatif Stok Seviyesi Kontrolü** = `İşlem Durdurulacak` → `STK_NEG_CTRL` · _Malzeme Yönetimi Parametreleri_
+- **Kullanılacak Para Birimi - Malzeme (Satır)** = `Yerel Para Birimi` → `STK_LINE_CUR` · _Malzeme Yönetimi Parametreleri_
+- **Stok Maliyet Türü** = `Eldekilerin Ortalaması` → `STK_COST_METHOD` · _Malzeme Yönetimi Parametreleri_
+- **Otomatik Fiş Basımı** = `Hayır` → `STK_AUTO_PRINT` · _Malzeme Yönetimi Parametreleri, Genel Muhasebe Parametreleri_
+- **Fiş Satırları Ambar Bilgisi Değiştirilebilsin** = `Evet` → `STK_WHOUSE_EDIT` · _Malzeme Yönetimi Parametreleri, Satınalma Parametreleri, Satış Ve Dağıtım Parametreleri, Talep Yönetimi Parametreleri_
+- **Fiş Satırları Ambar Bilgisi Güncellenirken Uyar** = `Evet` → `FAT_WHOUSE_WARN` · _Malzeme Yönetimi Parametreleri, Satınalma Parametreleri, Satış Ve Dağıtım Parametreleri_
+- **Stok Seviye Kontrolleri** = `Gerçek Stok + Konsinyeler Üzerinden Yapılsın` → `STK_LEVEL_BASE` · _Malzeme Yönetimi Parametreleri_
+- **Malzeme Fişlerindeki Boş Muhasebe Kodlarını Otomatik Doldur** = `Evet` → `STK_FILL_ACC` · _Malzeme Yönetimi Parametreleri_
+- **Tevkifat Payı** = `2` → `FAT_TEVK_PAY` · _Satınalma Parametreleri, Satış Ve Dağıtım Parametreleri, Finans Parametreleri_
+- **Tevkifat Paydası** = `3` → `FAT_TEVK_PAYDA` · _Satınalma Parametreleri, Satış Ve Dağıtım Parametreleri, Finans Parametreleri_
+- **Kullanılacak Para Birimi - Fatura (Genel)** = `Raporlama Dövizi` → `FAT_CUR_HDR` · _Satınalma Parametreleri, Satış Ve Dağıtım Parametreleri_
+- **Kullanılacak Para Birimi - Fatura (Satır)** = `Yerel Para Birimi` → `FAT_CUR_LINE` · _Satınalma Parametreleri, Satış Ve Dağıtım Parametreleri_
+- **Otomatik Fatura Basımı** = `Hayır` → `FAT_AUTO_PRINT` · _Satınalma Parametreleri, Satış Ve Dağıtım Parametreleri_
+- **Fatura Satırları** = `Ayrı Ayrı Basılacak` → `FAT_LINES_PRINT` · _Satınalma Parametreleri, Satış Ve Dağıtım Parametreleri_
+- **Fatura Satırlarında Birim Fiyat Kontrolü** = `İşleme Devam Edilecek` → `FAT_PRICE_CTRL` · _Satınalma Parametreleri, Satış Ve Dağıtım Parametreleri_
+- **Faturalardaki Boş Muhasebe Kodlarını Otomatik Doldur** = `Evet` → `FAT_FILL_ACC` · _Satınalma Parametreleri, Satış Ve Dağıtım Parametreleri_
+- **Faturalardaki Boş SMM Muhasebe Kodlarını Otomatik Doldur** = `Hayır` → `FAT_FILL_SMM` · _Satınalma Parametreleri, Satış Ve Dağıtım Parametreleri_
+- **Ödeme Tutarı Fatura/Sipariş Tutarından Fazla Olursa** = `İşlem Durdurulacak` → `FAT_PAY_OVER` · _Satınalma Parametreleri, Satış Ve Dağıtım Parametreleri_
+- **İndirimde Yuvarlama** = `Yapılacak` → `FAT_DISC_ROUND` · _Satınalma Parametreleri, Satış Ve Dağıtım Parametreleri_
+- **Birim Fiyat Öndeğeri** = `Son Satınalma Fiyatı (Net) - Bu Müşteriden` → `PUR_PRICE_DEF` · _Satınalma Parametreleri, Satış Ve Dağıtım Parametreleri, Talep Yönetimi Parametreleri_
+- **Faturalarda Nakit Ödeme/Tahsilat Fişi Otomatik Olarak Açılsın** = `Evet` → `FAT_OPEN_CASH` · _Satınalma Parametreleri_
+- **Fiş/Fiş Satırları Satış Elemanı Bilgisi Değiştirilebilsin** = `Evet` → `KASA_SALESMAN_EDIT` · _Satınalma Parametreleri, Satış Ve Dağıtım Parametreleri, Finans Parametreleri_
+- **E-Faturalar Basılsın** = `Hayır` → `FAT_EINV_PRINT` · _Satınalma Parametreleri, Satış Ve Dağıtım Parametreleri_
+- **Fatura İptal Edildiğinde Bağlı İrsaliye İptal Edilsin** = `Evet` → `FAT_CANCEL_DESP` · _Satınalma Parametreleri, Satış Ve Dağıtım Parametreleri_
+- **Satış Elemanı Kontrolü** = `Evet` → `KASA_SALESMAN_CTRL` · _Satış Ve Dağıtım Parametreleri, Finans Parametreleri_
+- **Satınalma KDV Oranı (%)** = `20` → `STK_KDV_PUR` · _Finans Parametreleri_
+- **Satış KDV Oranı (%)** = `20` → `STK_KDV_SAL` · _Finans Parametreleri_
+- **İade KDV Oranı (%)** = `20` → `STK_KDV_RET` · _Finans Parametreleri_
+- **Vade Takibi Yapılacak Gün Sayısı** = `60` → `CAR_DUE_DAYS` · _Finans Parametreleri_
+- **Vade Takibi Yapıldığında** = `İşleme Devam Edilecek` → `CAR_DUE_ACT` · _Finans Parametreleri_
+- **Kullanılacak Para Birimi - Cari Hesap (Satır)** = `Yerel Para Birimi` → `CAR_LINE_CUR` · _Finans Parametreleri_
+- **Kullanılacak Para Birimi - Kasa (Satır)** = `Yerel Para Birimi` → `KASA_LINE_CUR` · _Finans Parametreleri_
+- **Birim Fiyat Kuruş Hanesi** = `6` → `CAR_PRICE_DEC` · _Finans Parametreleri_
+- **Günlük Döviz Kuruş Hanesi** = `4` → `CAR_FX_DEC` · _Finans Parametreleri_
+- **KDV Hesaplamasında Yuvarlama Şekli** = `Tutar üzerinden` → `CAR_VAT_ROUND` · _Finans Parametreleri_
+- **Açık Hesaplarda Risk Limiti Aşıldığında** = `İşleme Devam Edilecek` → `CAR_RISK_OPEN` · _Finans Parametreleri_
+- **İrsaliyede Risk Limiti Aşıldığında** = `İşleme Devam Edilecek` → `CAR_RISK_DESP` · _Finans Parametreleri_
+- **Kasa Çalışma Günü Kontrolü** = `Hayır` → `KASA_WORKDAY_CTRL` · _Finans Parametreleri_
+- **Kasa Satırları** = `Ayrı Ayrı Basılacak` → `KASA_LINES_PRINT` · _Finans Parametreleri_
+- **Otomatik Kasa İşlemleri Basımı** = `Hayır` → `KASA_AUTO_PRINT` · _Finans Parametreleri_
+- **Stopaj Oranı(Mal)** = `0` → `KASA_STOPAJ_MAL` · _Finans Parametreleri_
+- **Stopaj Oranı(Hizmet)** = `0` → `KASA_STOPAJ_HIZMET` · _Finans Parametreleri_
+- **Fon Payı Oranı** = `0` → `KASA_FON_ORAN` · _Finans Parametreleri_
+- **Kasa Negatif Seviye Kontrolü** = `Evet` → `KASA_NEG_CTRL` · _Finans Parametreleri_
+- **Cari Hesap Fişlerindeki Boş Muhasebe Kodlarını Otomatik Doldur** = `Evet` → `CAR_FILL_ACC` · _Finans Parametreleri_
+- **Kasa Kur Farkı İşlemlerinde Lock Kontrolü** = `Yapılacak` → `KASA_FX_LOCK` · _Finans Parametreleri_
+- **Kasa Fişlerindeki Boş Muhasebe Kodlarını Otomatik Doldur** = `Evet` → `KASA_FILL_ACC` · _Finans Parametreleri_
+- **Cari Hesap Vergi Numarası Kontrolü** = `İşlem Durdurulacak` → `CAR_TAXNR_CTRL` · _Finans Parametreleri_
+- **Skonsol Uygulaması Otomatik Kasa İşlemleri Basımı** = `Hayır` → `KASA_SKONSOL_PRINT` · _Finans Parametreleri_
+
+## 2) Aynı — Parametreler.xlsx (Bartu’da kod yok / planlı)
+
+- **Kullanım Yeri** = `1,2,3` · _Malzeme Yönetimi Parametreleri, Finans Parametreleri_
+- **İzleme Yöntemi** = `İzleme Yapılmayacak` · _Malzeme Yönetimi Parametreleri_
+- **Lot Büyüklüğü Bölünebilir** = `Evet` · _Malzeme Yönetimi Parametreleri_
+- **Raf Ömrü** = `0` · _Malzeme Yönetimi Parametreleri_
+- **Birim Seti** = `ADET` · _Malzeme Yönetimi Parametreleri_
+- **Birim - Kullanım Yeri** = `1,2,3` · _Malzeme Yönetimi Parametreleri_
+- **Güvenlik Stok Seviyesi Kontrolü** = `İşleme Devam Edilecek` · _Malzeme Yönetimi Parametreleri_
+- **Giriş Kontrolü** = `İşleme Devam Edilecek` · _Malzeme Yönetimi Parametreleri_
+- **Çıkış Kontrolü** = `İşleme Devam Edilecek` · _Malzeme Yönetimi Parametreleri_
+- **Otomatik Kampanya Uygulanacak İşlemler** · _Malzeme Yönetimi Parametreleri_
+- **Malzeme Fişleri Durumu (Ambar Fişleri Çıkış)** = `Gerçek` · _Malzeme Yönetimi Parametreleri_
+- **Karma Koli Satırları Değiştirilmesin** = `Hayır` · _Malzeme Yönetimi Parametreleri_
+- **Birim Fiyat Seçiminde Cari Hesap** = `İlgili Cari Hesap` · _Malzeme Yönetimi Parametreleri_
+- **E-İş Ortamında Erişilebilir (Malzeme)** = `Hayır` · _Malzeme Yönetimi Parametreleri_
+- **E-Mağaza Ortamında Erişilebilir (Malzeme)** = `Hayır` · _Malzeme Yönetimi Parametreleri_
+- **Satış Noktalarında Erişilebilir (Malzeme)** = `Hayır` · _Malzeme Yönetimi Parametreleri_
+- **Seri/Lot Numaraları** = `Malzeme işlemleri sırasında girilebilir` · _Malzeme Yönetimi Parametreleri_
+- **Stok Maliyet Yöntemi Kullanımını Kısıtla** = `Hayır` · _Malzeme Yönetimi Parametreleri_
+- **Gün İçerisinde Önce Girişler Dikkate Alınsın** = `Evet` · _Malzeme Yönetimi Parametreleri_
+- **Maliyetlendirme İşlemlerinde Lock Kontrollerini Kaldır** = `Hayır` · _Malzeme Yönetimi Parametreleri_
+- **Alım İade Fişleri Alım Fişleri İle İlişkili Değilse Maliyet Bilgisini İade Fişlerdeki Birim Fiyatı Alsın** = `Evet` · _Malzeme Yönetimi Parametreleri_
+- **Maliyetlendirme Servisinde Hızlı Üretim Sarf/Fire Fişleri İçin Var Olan Maliyetleri Kullan** = `Hayır` · _Malzeme Yönetimi Parametreleri_
+- **Malzeme Fişleri Aylık Toplamları Etkilesin** = `Hayır` · _Malzeme Yönetimi Parametreleri_
+- **Tarih Değişikliğinde İşlem Dövizi** = `Kuru Güncellenmeyecek` · _Malzeme Yönetimi Parametreleri, Satınalma Parametreleri, Satış Ve Dağıtım Parametreleri, Finans Parametreleri, Genel Muhasebe Parametreleri_
+- **İşlem Dövizi Kuru Değiştiğinde** = `İşlem Döviz Tutarları Güncellenecek` · _Malzeme Yönetimi Parametreleri_
+- **Otomatik Barkod Basımı** = `Hayır` · _Malzeme Yönetimi Parametreleri, Satınalma Parametreleri, Satış Ve Dağıtım Parametreleri_
+- **Malzeme Fiş Satırları** = `Ayrı Ayrı Basılacak` · _Malzeme Yönetimi Parametreleri_
+- **Malzeme Fiş Satırları Sıralaması** = `Sıralanmayacak` · _Malzeme Yönetimi Parametreleri_
+- **Malzeme Çıkış İşlemlerinde Otomatik Seri/Lot Hareketleri Oluşturulacak** = `Hayır` · _Malzeme Yönetimi Parametreleri_
+- **Malzeme Çıkış İşlemlerinde Otomatik Seri/Lot Hareketleri Seçim Sırası** = `Fiş Tarihine Göre` · _Malzeme Yönetimi Parametreleri_
+- **Fişlerde Ser/Lot/Yerleşim Miktarı Değiştiğinde Otomatik Pencere Açılımı** = `Evet` · _Malzeme Yönetimi Parametreleri_
+- **Fiyat Endeksi Atama Türü** = `Hareket Tarihine Göre` · _Malzeme Yönetimi Parametreleri_
+- **Enflasyon Düzeltme Tarihi** = `01.01.2012` · _Malzeme Yönetimi Parametreleri_
+- **Malzeme Hiyerarşi Kodu Atama Yöntemi** = `Giriş Sırasına Göre` · _Malzeme Yönetimi Parametreleri_
+- **Malzeme Giriş Fişlerinde Genel Lot Numaraları** = `Hayır` · _Malzeme Yönetimi Parametreleri_
+- **Sarf/Fire SYM Maliyet Ataması** = `Maliyetlendirme Servisi ile` · _Malzeme Yönetimi Parametreleri_
+- **Maliyetlendirme İşlemlerinde Muhasebeleşen Satırlara Maliyet Ataması Yapılsın** = `Evet` · _Malzeme Yönetimi Parametreleri_
+- **Malzeme (Sınıfı) Kopyalanırken Fiyat Kopyalansın** = `Evet` · _Malzeme Yönetimi Parametreleri_
+- **Malzeme Giriş Fişleri Silinirken Seri/Lot Numaraları Silinsin** = `Hayır` · _Malzeme Yönetimi Parametreleri_
+- **Fiş Basımında Seri/Lot/Yerleşimli Malzeme Satırı Sonraki Sayfada Basılsın** = `Evet` · _Malzeme Yönetimi Parametreleri_
+- **Emanet Stok Durumu İzlenecek** = `Hayır` · _Malzeme Yönetimi Parametreleri_
+- **Birim Çevrimi Sürekli Kalacak Ekranlar** = `1,2,3,4,5,6,7,8` · _Malzeme Yönetimi Parametreleri_
+- **Tarih Değişikliğinde Giriş/Çıkış Kontrolü** = `İşleme Devam Edilecek` · _Malzeme Yönetimi Parametreleri_
+- **Ambar Seviye Kontrolleri** = `Ambar Bazında` · _Malzeme Yönetimi Parametreleri_
+- **Çıkışı Yapılmış Seri/Lot Hareketleri Tekrar Giriş Yapılabilsin** = `Evet` · _Malzeme Yönetimi Parametreleri_
+- **İptal Edilmiş Fişlerdeki Seri Numaraları Tekrar Kullanılabilsin** = `Evet` · _Malzeme Yönetimi Parametreleri_
+- **Malzeme Fişlerinde Fiyat Kartları Cari Hesap Koşulu Dikkate Alınacak** = `Evet` · _Malzeme Yönetimi Parametreleri_
+- **Fiş Satırlarında Birim Değişikliğinde Fiyat Kartlardan Okunsun** = `Evet` · _Malzeme Yönetimi Parametreleri_
+- **Malzeme Sınıf Ağacında Sıralama Alfabetik Sıra İle Olsun** = `Hayır` · _Malzeme Yönetimi Parametreleri_
+- **Kart Browserlarında Listelenecek Özel Kod Seçeneği** = `1. Özel Kod` · _Malzeme Yönetimi Parametreleri, Finans Parametreleri_
+- **Malzeme Kartı Kopyalandığında Kopyalanmayacak Alanlar** = `4.6` · _Malzeme Yönetimi Parametreleri_
+- **Malzeme Sınıfına Bağlı Alt Malzemenin Birim Katsayısı Değiştirilsin** = `Evet` · _Malzeme Yönetimi Parametreleri_
+- **Otomatik Barkod Atama İşleminde Varyantlara Barkod Atansın** = `Hayır` · _Malzeme Yönetimi Parametreleri_
+- **Talep Fişi İle Bağlantısı Olan Ambar Fişi Silinebilsin** = `Evet` · _Malzeme Yönetimi Parametreleri_
+- **Giriş Hareketlerinde Seri/Lot Kodu Kontrolü** = `Kullanıcı Uyarılacak` · _Malzeme Yönetimi Parametreleri_
+- **Maliyet Analiz Raporunda Faturalanmış İrsaliyeler Listelensin** = `İrsaliye Tarihine Göre` · _Malzeme Yönetimi Parametreleri_
+- **Sevkedilmiş Siparişlere Kampanya Uygulama Kontrolü** = `İşlem Durdurulacak` · _Malzeme Yönetimi Parametreleri_
+- **Maliyet Dağıtım İşleminde Seri/Lot Hareketlerine Bakılmasın** = `Hayır` · _Malzeme Yönetimi Parametreleri_
+- **Satır Tutarları Boş Olan Malzeme Fişlerini Muhasebeleştirme Kontrolü** = `İşleme Devam Edilecek` · _Malzeme Yönetimi Parametreleri_
+- **Tek Fiyat Kartı Olan Malzemede Birim Fiyat Listeden Seçimi Yapılırken Göster** = `Hayır` · _Malzeme Yönetimi Parametreleri, Satınalma Parametreleri, Satış Ve Dağıtım Parametreleri_
+- **Gün İçerisinde Önce Girişler Dikkate Alındığında Zamana Göre Sıralansın** = `Evet` · _Malzeme Yönetimi Parametreleri_
+- **Malzeme Kart Browserında Ondalık Basamak Sayısı Gösterim Şekli** = `Değiştirilmesin` · _Malzeme Yönetimi Parametreleri_
+- **Malzeme Kart Browserında Tam Sayıları Ondalıklı Göster** = `Hayır` · _Malzeme Yönetimi Parametreleri_
+- **Malzeme Kart Browserında Ondalık Basamak Sayısı** = `0` · _Malzeme Yönetimi Parametreleri_
+- **Ambar Fişi Tarihi/Zamanı Değiştirildiğinde Düzenleme Tarihi/Zamanı Da Güncellensin** = `Hayır` · _Malzeme Yönetimi Parametreleri_
+- **Ambar Fişi Tarihi/Zamanı Değiştirildiğinde, Sevk Tarihi/Zamanı** = `İşlem Yapılmayacak` · _Malzeme Yönetimi Parametreleri_
+- **Sayım Fazlası Fişlerinde Birim Fiyat Girilmemiş Satırlar Varsa** = `İşleme Devam Edilecek` · _Malzeme Yönetimi Parametreleri_
+- **Hareket Görmüş Malzeme Kartlarında Malzeme Kodu Değişikliğinde** = `İşleme Devam Edilecek` · _Malzeme Yönetimi Parametreleri_
+- **Malzeme Virman İşleminde Miktar Ve Aktarılacak Miktar Farklıysa** = `İşleme Devam Edilecek` · _Malzeme Yönetimi Parametreleri_
+- **Malzeme Yönetimi Talep Fiş Aktarım Başlangıç Tarihi** = `Günün Tarihi` · _Malzeme Yönetimi Parametreleri_
+- **Ambar Fişi Giriş Ambar Statüsünü Otomatik Güncelle** = `Hayır` · _Malzeme Yönetimi Parametreleri_
+- **Malzeme Hareket Aktarımında Aktarılmayacak İşlemler** · _Malzeme Yönetimi Parametreleri_
+- **E-İrsaliye Tipinde Düzenlenen Ambar Fişleri Kendi Numaralama Şablonunu Kullansın** = `Hayır` · _Malzeme Yönetimi Parametreleri_
+- **Tanımlı Alış Fiyatı Öndeğer Gelecek Fişler** · _Malzeme Yönetimi Parametreleri_
+- **Tanımlı Satış Fiyatı Öndeğer Gelecek Fişler** · _Malzeme Yönetimi Parametreleri_
+- **Malzeme Ambar Fişlerinde Giriş Ve Çıkış Ambarı Aynı Olduğunda** = `İşleme Devam Edilecek` · _Malzeme Yönetimi Parametreleri_
+- **Barkod Girişi Ekranında Öndeğer İşaretli Seçenek** = `Hiçbiri` · _Malzeme Yönetimi Parametreleri, Satınalma Parametreleri, Satış Ve Dağıtım Parametreleri_
+- **Dönem Kapatma Öncesindeki İrsaliyelerin Faturalandırma Kontrolü Yapılsın** = `Evet` · _Malzeme Yönetimi Parametreleri_
+- **Malzeme Fiş Satırları Malzeme/Grup Koduna Göre Birleştirilirken Farklı Fiyatlı Satırları** = `Birleştirmesin` · _Malzeme Yönetimi Parametreleri_
+- **Stok İşlem Merkezinde Hareket Listeleme** = `Dönem başından itibaren` · _Malzeme Yönetimi Parametreleri_
+- **Sarf Fişlerinde Seri/Lot No Son Kullanma Tarihine Göre Çıkış İşlemlerini Durdur** = `İşleme Devam Edilecek` · _Malzeme Yönetimi Parametreleri_
+- **Seri/Lot No Son Kullanma Tarihine Göre Çıkış İşlemlerini Durdurma Gün Sayısı** = `0` · _Malzeme Yönetimi Parametreleri_
+- **Boş Olarak Kaydedilemeyecek Fiş Türleri** · _Malzeme Yönetimi Parametreleri, Satınalma Parametreleri, Satış Ve Dağıtım Parametreleri_
+- **Basit Ortalama Yöntemine Göre Enflasyon Düzeltme İşleminde Maliyet Etkilensin** = `Hayır` · _Malzeme Yönetimi Parametreleri_
+- **Malzeme Çıkış İşlemlerinde Kullanıcı Seçimine Göre Otomatik Lot Hareketleri Oluşturulsun** = `Hayır` · _Malzeme Yönetimi Parametreleri_
+- **Hizmet Satınalma Fiyatları - KDV** = `Hariç` · _Satınalma Parametreleri_
+- **Satınalma Siparişleri - KDV** = `Hariç` · _Satınalma Parametreleri_
+- **Satınalma İrsaliye/Fatura - KDV** = `Hariç` · _Satınalma Parametreleri_
+- **İndirimler** = `Malzeme Maliyetine` · _Satınalma Parametreleri, Satış Ve Dağıtım Parametreleri_
+- **Masraflar** = `Muhasebe Hesabına` · _Satınalma Parametreleri, Satış Ve Dağıtım Parametreleri_
+- **Promosyon İndirimleri** = `Ayrı Hesapta İzlenecek` · _Satınalma Parametreleri, Satış Ve Dağıtım Parametreleri_
+- **Faturada Ödeme Hareketleri** = `Parçalı Ödeme` · _Satınalma Parametreleri, Satış Ve Dağıtım Parametreleri_
+- **Kullanılacak İade Maliyeti** = `İade Maliyeti` · _Satınalma Parametreleri, Satış Ve Dağıtım Parametreleri_
+- **Sipariş Onay Bilgisi** = `Öneri` · _Satınalma Parametreleri, Satış Ve Dağıtım Parametreleri_
+- **İrsaliye Durumu** = `Gerçek` · _Satınalma Parametreleri, Satış Ve Dağıtım Parametreleri_
+- **Fatura Durumu** = `Gerçek` · _Satınalma Parametreleri, Satış Ve Dağıtım Parametreleri_
+- **İrsaliye Sevk Durumu** = `Sevk Edildi` · _Satınalma Parametreleri, Satış Ve Dağıtım Parametreleri_
+- **Kullanılacak Para Birimi - Sipariş (Genel)** = `Raporlama Dövizi` · _Satınalma Parametreleri, Satış Ve Dağıtım Parametreleri_
+- **Kullanılacak Para Birimi - İrsaliye (Genel)** = `Raporlama Dövizi` · _Satınalma Parametreleri, Satış Ve Dağıtım Parametreleri_
+- **Kullanılacak Para Birimi - Sipariş (Satır)** = `Yerel Para Birimi` · _Satınalma Parametreleri, Satış Ve Dağıtım Parametreleri_
+- … +352 (JSON)
+
+## 3) Sorulacak — öndeğer
+
+- **Araç** = `Hayır` · _Malzeme Yönetimi Parametreleri_
+- **Stok Yeri Takibi** = `Yapılmayacak` · _Malzeme Yönetimi Parametreleri_
+- **Birim - Bölünebilir** = `Hayır` · _Malzeme Yönetimi Parametreleri_
+- **Birim - Kullanım Koşulu** = `Genel` · _Malzeme Yönetimi Parametreleri_
+- **Sarf Ve Firelerde Lot Belirleme Yöntemi** = `FIFO` · _Malzeme Yönetimi Parametreleri_
+- **Üretimden Girişlerde Parti Miktarı** = `Üretim Miktarı` · _Malzeme Yönetimi Parametreleri_
+- **Otomatik Malzeme Çekişi** = `Yapılmayacak` · _Malzeme Yönetimi Parametreleri_
+- **Planlama Yöntemi** = `Yapılmayacak` · _Malzeme Yönetimi Parametreleri_
+- **Cari Hesap - Kalite Kontrol İşlemi Yapılmadığında** = `İşleme Devam Edilecek` · _Malzeme Yönetimi Parametreleri_
+- **Statü** = `Kullanımda` · _Malzeme Yönetimi Parametreleri, Finans Parametreleri_
+- **Fason Stok Durumu İzlenecek** = `Hayır` · _Malzeme Yönetimi Parametreleri_
+- **Malzeme (Sınıfı) Satınalma Fiyatları - Türü** = `Malzeme` · _Satınalma Parametreleri_
+- **Malzeme (Sınıfı) Satınalma Fiyatları - KDV** = `Hariç` · _Satınalma Parametreleri_
+- **Sözleşme Onaylandığında Malzeme (Sınıfı) Satınalma Fiyatları "Diğer Birimlere Çevrilebilir" Seçili Gelsin** = `Hayır` · _Satınalma Parametreleri_
+- **Sözleşme Onaylandığında Hizmet Satınalma Fiyatları "Diğer Birimlere Çevrilebilir" Seçili Gelsin** = `Hayır` · _Satınalma Parametreleri_
+- **İstenilen Teklif Sayısı** = `0` · _Satınalma Parametreleri_
+- **Emir Onay Bilgisi** = `Onay Bekliyor...` · _Satınalma Parametreleri_
+- **Teklif Onay Bilgisi** = `Onay Bekliyor...` · _Satınalma Parametreleri, Satış Ve Dağıtım Parametreleri_
+- **Sözleşme Onay Bilgisi** = `Onay Bekliyor...` · _Satınalma Parametreleri, Satış Ve Dağıtım Parametreleri_
+- **Sipariş/İrsaliye/Fatura Aktarımlarında Vade Tarihinde Kullanılacak Kaynak Fiş Türü** = `Sipariş` · _Satınalma Parametreleri, Satış Ve Dağıtım Parametreleri_
+- **Teklif Fişlerinde Miktar Kontrolü Seçili Gelsin** = `Hayır` · _Satınalma Parametreleri, Satış Ve Dağıtım Parametreleri_
+- **Teklif Yönetim Fişlerinde Öndeğer Satır Türü** = `Malzeme` · _Satınalma Parametreleri, Satış Ve Dağıtım Parametreleri_
+- **Kullanılacak Para Birimi - Emir (Genel)** = `Raporlama Dövizi` · _Satınalma Parametreleri_
+- **Kullanılacak Para Birimi - Teklif (Genel)** = `Raporlama Dövizi` · _Satınalma Parametreleri, Satış Ve Dağıtım Parametreleri_
+- **Kullanılacak Para Birimi - Sözleşme (Genel)** = `Raporlama Dövizi` · _Satınalma Parametreleri, Satış Ve Dağıtım Parametreleri_
+- **Kullanılacak Para Birimi - Emir (Satır)** = `Yerel Para Birimi` · _Satınalma Parametreleri_
+- **Kullanılacak Para Birimi - Teklif (Satır)** = `Yerel Para Birimi` · _Satınalma Parametreleri, Satış Ve Dağıtım Parametreleri_
+- **Kullanılacak Para Birimi - Sözleşme (Satır)** = `Yerel Para Birimi` · _Satınalma Parametreleri, Satış Ve Dağıtım Parametreleri_
+- **Fatura Yazım Sayısı** = `1` · _Finans Parametreleri_
+- **Toplu Faturalama Kuralı** = `İşlem Sırasında Belirlenecek` · _Finans Parametreleri_
+- **Parçalı Sipariş Sevkiyatı** = `Evet` · _Finans Parametreleri_
+- **Toplu Banka Fişi Ekle - Fiş Türü** = `(01) Banka İşlem Fişi` · _Finans Parametreleri_
+- **Banka Fişleri Durumu** = `Gerçek` · _Finans Parametreleri_
+- **Cari Hesap Sipariş Günleri** = `1,2,3,4,5,6` · _Finans Parametreleri_
+- **BSMV** = `5` · _Finans Parametreleri_
+- **Damga Vergisi** = `0.75` · _Finans Parametreleri_
+- **Öndeğeri Öneri Olarak Kesilecek Kasa İşlemleri** · _Finans Parametreleri_
+- **Gelen Havale /Eft İşleminde Masraf Tutarı** = `Fiş Tutarına Eklenmeli` · _Finans Parametreleri_
+- **Kullanılacak Para Birimi - Cari Hesap (Genel)** = `Raporlama Dövizi` · _Finans Parametreleri_
+- **Kullanılacak Para Birimi - Banka Fişi (Genel)** = `Raporlama Dövizi` · _Finans Parametreleri_
+- **Kullanılacak Para Birimi - Çek/Senet (Genel)** = `Raporlama Dövizi` · _Finans Parametreleri_
+- **Kullanılacak Para Birimi - Kasa (Genel)** = `EURO` · _Finans Parametreleri_
+- **Kullanılacak Para Birimi - Banka Fişi (Satır)** = `Yerel Para Birimi` · _Finans Parametreleri_
+- **Kullanılacak Para Birimi - Çek/Senet (Satır)** = `Yerel Para Birimi` · _Finans Parametreleri_
+- **Ambar Fişi Oluşturulsun** = `Hayır` · _Finans Parametreleri_
+- **İrsaliye Yazım Sayısı** = `1` · _Finans Parametreleri_
+- **Sipariş Yazım Sayısı** = `1` · _Finans Parametreleri_
+- **Çek / Senet Bordro Durumu** = `Gerçek` · _Finans Parametreleri_
+- **Kullanılan Kasa Hesabı** = `100` · _Genel Muhasebe Parametreleri_
+- **Muhasebe Fiş Durumu** = `Gerçek` · _Genel Muhasebe Parametreleri_
+- **Kullanılacak Para Birimi - Muhasebe (Genel)** = `Raporlama Dövizi` · _Genel Muhasebe Parametreleri_
+- **Kullanılacak Para Birimi - Harcama Talebi (Genel)** = `Raporlama Dövizi` · _Genel Muhasebe Parametreleri_
+- **Kullanılacak Para Birimi - Muhasebe (Satır)** = `Yerel Para Birimi` · _Genel Muhasebe Parametreleri_
+- **Kullanılacak Para Birimi - Harcama Talebi (Satır)** = `Yerel Para Birimi` · _Genel Muhasebe Parametreleri_
+- **Muhasebeleşen Kredi Kartı Fişi Bloke Hesabı Öndeğer Döviz Türü** = `İşlem Dövizi` · _Genel Muhasebe Parametreleri_
+- **Mahsup Fişinde Elektronik Belge İşaretlensin** = `Hayır` · _Genel Muhasebe Parametreleri_
+- **Proje Kartlarında Tarih Kontrolü** = `İşleme Devam Edilecek` · _Genel Muhasebe Parametreleri_
+- **Muhasebe Fiş Satırı Hesap Türü** = `Muhasebe Hesabı` · _Genel Muhasebe Parametreleri_
+- **Muhasebe Kodları Öndeğerleme Servisinde Query Bellek Kullanımı** = `Terminalden kullan` · _Genel Muhasebe Parametreleri_
+- **Mahsup Fişi Satırlarında Kullanılacak Para Birimi İşlem Dövizi Seçildiğinde Dövizli Borç/Alacak Tutarı Girilmemişse** = `İşleme Devam Edilecek` · _Genel Muhasebe Parametreleri_
+- **Muhasebeleştirme Kontrolü Yapılmadığı Durumunda Otomatik Fiş Basımı** = `Yapılacak` · _Genel Muhasebe Parametreleri, Otomatik Muhasebeleştirme Parametreleri_
+- **Amortisman Türü** = `Normal` · _Duran Varlık Yönetimi Parametreleri_
+- **Yeniden Değerleme** = `Evet` · _Duran Varlık Yönetimi Parametreleri_
+- **Değerleme Amortismanı** = `Evet` · _Duran Varlık Yönetimi Parametreleri_
+- **Kıst Amortismanı** = `Hayır` · _Duran Varlık Yönetimi Parametreleri_
+- **Yatırım İndirimi Kapsamında** = `Hayır` · _Duran Varlık Yönetimi Parametreleri_
+- **Yatırım İndirimi Oranı (%)** = `40` · _Duran Varlık Yönetimi Parametreleri_
+- **Amortisman Oranı Yuvarlama** = `Üste Yuvarlama` · _Duran Varlık Yönetimi Parametreleri_
+
+## 4) Sorulacak — parametre
+
+- **Seri/Lot Takipsiz Stokların Maliyet Türü (Stok Maliyet Türü Fiziksel Maliyet Olduğunda)** = `Eldekilerin Ortalaması` · _Malzeme Yönetimi Parametreleri_
+- **Üretimden Giriş Fişi Maliyeti Hesaplanırken Maliyet Oranı Yüklemesi** = `Ana Birim Cinsinde Miktar * Maliyet Katsayısı Üzerinden` · _Malzeme Yönetimi Parametreleri_
+- **İşyeri/Fabrika/Ambar Kontrolü** = `Evet` · _Malzeme Yönetimi Parametreleri_
+- **Malzeme Sınıfı Detay Satırları** = `Basılmayacak` · _Malzeme Yönetimi Parametreleri, Satınalma Parametreleri, Satış Ve Dağıtım Parametreleri_
+- **Fişlerde Seri/Lot Ve Stok Yeri Takibinde Miktar Kontrolü** = `İşleme Devam Edilecek` · _Malzeme Yönetimi Parametreleri_
+- **Malzeme Sınıfı Detay Tekrarı** = `Hayır` · _Malzeme Yönetimi Parametreleri_
+- **Uygulanmış Kampanyaların Listeleneceği İşlemler** · _Malzeme Yönetimi Parametreleri_
+- **Malzeme (Sınıfı) Aktarımında Alt Malzeme Ve Sınıfları** = `Güncelle` · _Malzeme Yönetimi Parametreleri_
+- **Malzeme Kartları Kopyalanırken Fabrika Ve Ambar Parametreleri Kopyalansın** = `Evet` · _Malzeme Yönetimi Parametreleri_
+- **Ambar Transfer Fişinde Farklı İşyerleri İçin Ayrı Muhasebe Fişi Oluşturulsun** = `Evet` · _Malzeme Yönetimi Parametreleri_
+- **Müşteriler/Tedarikçiler İçin Sipariş Oranı Kontrolü Yapılsın** = `Evet` · _Malzeme Yönetimi Parametreleri_
+- **Herhangi Bir İşleme Bağlı Olmayan Üretimden Giriş Fişinin Kaydedilmesi Engellensin** = `Hayır` · _Malzeme Yönetimi Parametreleri_
+- **Virman Bağlantılı Fişlerde Değişiklik Yapılabilsin** = `Evet` · _Malzeme Yönetimi Parametreleri_
+- **İrs./Sip./Sözleşme Aktarımında Genel İndirim Ve Masraflar** = `Tutara çevrilecek` · _Satınalma Parametreleri, Satış Ve Dağıtım Parametreleri_
+- **(FD) İrsaliye/Sipariş - Teklif Yönetimi Fişleri Aktarımında Fiyatlandırma Dövizi** = `Kuru Güncellenecek` · _Satınalma Parametreleri, Satış Ve Dağıtım Parametreleri_
+- **(İD) İrsaliye/Sipariş - Teklif Yönetimi Fişleri Aktarımında İşlem Dövizi** = `Kuru Güncellenecek` · _Satınalma Parametreleri, Satış Ve Dağıtım Parametreleri_
+- **Siparişteki Promosyonların Sevkiyatı** = `Seçilerek sevkedilecek` · _Satınalma Parametreleri, Satış Ve Dağıtım Parametreleri_
+- **Sipariş Sevkinde Fabrika / Ambar Kontrolü** = `Hayır` · _Satınalma Parametreleri, Satış Ve Dağıtım Parametreleri_
+- **Sipariş Form Basımı** = `Fiş Satır Sırasına Göre` · _Satınalma Parametreleri, Satış Ve Dağıtım Parametreleri_
+- **Ek Malzeme Satırları Basılacak İşlemler** · _Satınalma Parametreleri, Satış Ve Dağıtım Parametreleri_
+- **Tablolu Malzeme Detay Satırları** = `Liste Şeklinde Basılsın` · _Satınalma Parametreleri, Satış Ve Dağıtım Parametreleri_
+- **Fişlerde Cari Hesap / Malzeme Uygunluk Kontrolü** = `İşleme Devam Edilecek` · _Satınalma Parametreleri, Satış Ve Dağıtım Parametreleri_
+- **Temin Tarihinde Temin Süresi Kontrolü** = `Yapılmayacak` · _Satınalma Parametreleri_
+- **Siparişte Sevkiyat Adresi Kontrolü** = `Yapılmayacak` · _Satınalma Parametreleri, Satış Ve Dağıtım Parametreleri_
+- **Satınalmada Genel Lot Numaraları** = `Hayır` · _Satınalma Parametreleri_
+- **Siparişte Ödeme Tipi** = `Ödemesiz` · _Satınalma Parametreleri, Satış Ve Dağıtım Parametreleri_
+- **Kampanya Sonrası Otomatik Sipariş Bağlantısı Kur** = `Hayır` · _Satınalma Parametreleri, Satış Ve Dağıtım Parametreleri_
+- **Kampanya Uygulanmış İşlemlerde Değişiklik Yapılırsa** = `İşleme Devam Et` · _Satınalma Parametreleri, Satış Ve Dağıtım Parametreleri_
+- **MS İçin Yapılmış Sözleşmelerde Kalan Miktar/Tutar Kontrolü** = `Malzeme Üzerinden Yapılsın` · _Satınalma Parametreleri, Satış Ve Dağıtım Parametreleri_
+- **Fatura Kaydedilirken Faturaya Bağlı İrsaliyelerin Bölüm Bilgisini Güncelleme** = `Yapılacak` · _Satınalma Parametreleri, Satış Ve Dağıtım Parametreleri_
+- **Satınalma Emir/Teklif/Sözleşme Fişlerinden Yalnızca Onaylanmış Satırlar İçin Teklif/Sözleşme/Sipariş Eklenebilsin** = `Hayır` · _Satınalma Parametreleri_
+- **Satınalma Emrine Bağlı Teklif Fişi Üzerinden Sipariş Oluşturulduğunda Diğer Teklif Fişleri İçin Sipariş Oluşturulabilsin** = `Evet` · _Satınalma Parametreleri_
+- **E-Belge Sipariş Eşleştirmesi** = `Kullanıcı Uyarılacak` · _Satınalma Parametreleri_
+- **Sipariş Eşletirilecek Fiş Türleri** = `1.2` · _Satınalma Parametreleri_
+- **İthalat Operasyon Fişinde Kapanış Tarihi Boşsa Muhasebeleştirilsin** = `Hayır` · _Satınalma Parametreleri_
+- **Sipariş/İrsaliye/Fatura/Teklif Hareketlerinde Miktar Değiştirildiğinde Birim Fiyat Güncellemenin Geçerli Olduğu Fiş Türleri** = `1,2,3,4,5,6,7,8,9,10,11,12,13,14` · _Satınalma Parametreleri, Satış Ve Dağıtım Parametreleri_
+- **Satınalma Faturası Üzerinde Satış Faturası/Siparişi Oluşturmada Birim Fiyat** = `Fiyat Boş Gelsin` · _Satınalma Parametreleri_
+- **İthalat Operasyon Fişi Yazdırılması** = `Çoklu Sayfa Olarak Yazdırılsın` · _Satınalma Parametreleri_
+- **Millileştirme Fişinde İthalat Masrafları Ayrı Hesapta İzlenecek** = `Hayır` · _Satınalma Parametreleri_
+- **Hizmet Faturalarında Dağıtım Şekli (Ambar)** = `Ambar Bazında` · _Satınalma Parametreleri, Satış Ve Dağıtım Parametreleri_
+- **Hizmet Faturalarında Dağıtım Şekli (Dosya Sıra No)** = `Dosya Sıra Numarası Bazında` · _Satınalma Parametreleri, Satış Ve Dağıtım Parametreleri_
+- **Malzeme Miktar Girişi Yapılınca Ek Malzeme Ekranı Otomatik Açılsın** = `Hayır` · _Satınalma Parametreleri, Satış Ve Dağıtım Parametreleri_
+- **Karşı Sipariş Oluştururken Ticari İşlem Grubu İçin Seçim Yapılsın** = `Hayır` · _Satınalma Parametreleri, Satış Ve Dağıtım Parametreleri_
+- **Sözleşme Kaydetme İşleminde Fiyat Kartı Oluşturulsun** = `Hayır` · _Satınalma Parametreleri, Satış Ve Dağıtım Parametreleri_
+- **Onaylandığında Değiştirilemeyecek Teklif Fişi Türleri** · _Satınalma Parametreleri, Satış Ve Dağıtım Parametreleri_
+- **Faturaya Sözleşme Aktarımında İşyeri Kontrolü Yapılsın** = `Hayır` · _Satınalma Parametreleri, Satış Ve Dağıtım Parametreleri_
+- **İthalat Fatura Hareketlerinde Sipariş Kontrolü** = `Yapılmayacak` · _Satınalma Parametreleri_
+- **Satınalma Faturası Üzerinde Satış Faturası/Siparişi Oluşturmada Aktarılacak Alanlar** = `4` · _Satınalma Parametreleri_
+- **Karşı Sipariş Oluşturma İşleminde Farklı Müşteriler İçin Farklı Sipariş Oluştur** = `Evet` · _Satınalma Parametreleri_
+- **Sözleşme İçerisine Tanımlı Fiyat Getirilirken Baz Alınacak Tarih** = `Fiş Tarihi` · _Satınalma Parametreleri, Satış Ve Dağıtım Parametreleri_
+- **Teklif,Sözleşme Fişlerindeki Başlangıç Ve Bitiş Tarihleri Gün Aralığı** = `0` · _Satınalma Parametreleri, Satış Ve Dağıtım Parametreleri_
+- **Birden Fazla Uygulanabilir Kampanya Olduğunda Kullanıcı Seçim Yapabilsin** = `Hayır` · _Satınalma Parametreleri, Satış Ve Dağıtım Parametreleri_
+- **Teklif Fişlerinde Farklı Alternatiflerde Farklı Cari Hesap Kullanılsın** = `Hayır` · _Satınalma Parametreleri, Satış Ve Dağıtım Parametreleri_
+- **İade İşleminde Güncel Maliyet/İade Maliyet Seçildiğinde İade Bilgisi Kontrolü** = `Kontrol Yapılmayacak` · _Satınalma Parametreleri, Satış Ve Dağıtım Parametreleri_
+- **Reeskont Faizi (yıllık)** = `0` · _Finans Parametreleri_
+- **Senet Pul Oranı (binde)** = `5` · _Finans Parametreleri_
+- **Ciro Takip Süresi** = `30` · _Finans Parametreleri_
+- **Portföyde Protesto İşlemi** = `Ayrı Hesapta İzlenecek` · _Finans Parametreleri_
+- **Banka Hareketlerinde İşlem Döviz Kuru Değiştiğinde** = `İşlem Döviz Tutarları Güncellenecek` · _Finans Parametreleri_
+- **Bordro Ödeme Hareketleri** = `Parçalı Ödeme` · _Finans Parametreleri_
+- **Otomatik Ç/S Bordrosu Basımı** = `Hayır` · _Finans Parametreleri_
+- **Otomatik Banka Fişi Basımı** = `Hayır` · _Finans Parametreleri_
+- **Formların Cari Hesap Yazışma Dilinde Basılması** = `Hayır` · _Finans Parametreleri_
+- **Banka Fişlerindeki Boş Muhasebe Kodlarını Otomatik Doldur** = `Evet` · _Finans Parametreleri_
+- **Çek-Senet Fişlerindeki Boş Muhasebe Kodlarını Otomatik Doldur** = `Evet` · _Finans Parametreleri_
+- **Teminat Bordrolarında Boş Muhasebe Kodlarını Otomatik Doldur** = `Evet` · _Finans Parametreleri_
+- **Kasa Hareketlerinde Döviz Türü Kontrolü** = `Yapılacak` · _Finans Parametreleri_
+- **Banka Kur Farkı Fişi Otomatik Ve Toplu Basımda** = `Banka Hesap Kodu Bazlı Form Kullanılmasın` · _Finans Parametreleri_
+- **Ciro Tahsil Kuru Cari Hesap Bakiyesini Etkileyecek** = `Hayır` · _Finans Parametreleri_
+- **Banka Kur Farkı İşlemlerinde Lock Kontrolü** = `Yapılacak` · _Finans Parametreleri_
+- **Bankadan Çek/Senet Ödemesi İşleminde Masraf Girişi İçin Oluşturulacak Fiş Türü** = `Banka İşlem Fişi` · _Finans Parametreleri_
+- **Gelen Havale/Gönderilen Havale Fişlerinde Cari Hesap Değiştirildiğinde Proje Kodu Güncellensin** = `Evet` · _Finans Parametreleri_
+- **Kasadan Girilen Fişlerin Tarihi/Zamanı Değiştirildiğinde Düzenleme Tarihi/Zamanı Da Güncellensin** = `Hayır` · _Finans Parametreleri_
+- **Kasa İşlemleri Yazdırılırken Aynı Vadeli Taksit Hareketleri Birleştirilsin** = `Hayır` · _Finans Parametreleri_
+- **Çek/Senet Bordroları Muhasebeleşmesinde Her Çek/Senet İçin Ayrı Cari Satırı Oluştur** = `Hayır` · _Finans Parametreleri_
+- **Virman İşleminde Hareketlerde Döviz Türü Değiştirilemeyecek İşareti Dikkate Alınsın** = `Evet` · _Finans Parametreleri_
+- **Çek/Senet Bordrosu Yazdırma Fiş Satır Sıralaması** = `Giriş Sırası` · _Finans Parametreleri_
+- **Çek/Senet Çıkış İşlemlerinde Tarih Kontrolü** = `Kullanıcı Uyarılacak` · _Finans Parametreleri_
+- **FAST İşlem Tutar Limiti** = `5000` · _Finans Parametreleri_
+- **Banka İşlemlerinde Döviz Türü Aynı Olmadığında** = `İşleme Devam Edilecek` · _Finans Parametreleri_
+- **Banka Kredi Tanımında Faiz Tahakkukları** = `Oluşturulacak` · _Finans Parametreleri_
+- **Banka Kredi Tanımında Kısa - Uzun Vade Muhasebe Hesapları Ayrı Takip Edilsin** = `Hayır` · _Finans Parametreleri_
+- **Sevkiyat Adresi Kartı Kopyalandığında Kopyalanacak Alanlar** · _Finans Parametreleri_
+- **Otomatik Fiş Basımı Yapılacak Kaynak Fiş Türleri** = `1,2,3,4,5,6,7,8,9,10,11` · _Genel Muhasebe Parametreleri_
+- **Öneri Oluşturulan Fişler Yazdırılsın** = `Evet` · _Genel Muhasebe Parametreleri_
+- **Miktar Kontrolü** = `İşleme Devam Edilecek` · _Genel Muhasebe Parametreleri_
+- **Fişlerde Raporlama Dövizi Giriş Kontrolü** = `Hayır` · _Genel Muhasebe Parametreleri_
+- **Fiş Sıralaması** = `Hesap + Tutar + Açıklama` · _Genel Muhasebe Parametreleri_
+- **Fişlerde Üst Hesap Basılacak** = `Hayır` · _Genel Muhasebe Parametreleri_
+- **Fişlerde Üst Hesap Basımı** = `Grup olarak` · _Genel Muhasebe Parametreleri_
+- **Fişlerde Bütün Üst Hesaplar Basılacak** = `Hayır` · _Genel Muhasebe Parametreleri_
+- **Fiş Raporlama Dövizi Toplam Kontrolü** = `Her Zaman Eşitlenecek` · _Genel Muhasebe Parametreleri_
+- **Ticari Sistem Bağlantı Kontrolü** = `Hayır` · _Genel Muhasebe Parametreleri_
+- **Personel Yönetimi Kataloğu** · _Genel Muhasebe Parametreleri_
+- **Personel Yönetimi Firma Numarası** = `0` · _Genel Muhasebe Parametreleri_
+- **Personel Yönetimi Çalışma Alanı** = `0` · _Genel Muhasebe Parametreleri_
+- **E-Beyanname Kataloğu** = `d:\logo\program\tiger3\e-beyannameler` · _Genel Muhasebe Parametreleri_
+- **Muhtasar Ve Prim Hizmet Beyannamesi Katalogu** · _Genel Muhasebe Parametreleri_
+- **Kayıt Saklama Kataloğu** = `d:\logo\program\e-defter` · _Genel Muhasebe Parametreleri_
+- **Takipten Düşülecek Borç/Alacak Hesabı** · _Genel Muhasebe Parametreleri_
+- **Fişlerde Karşı Hesap Kontrolü** = `Hayır` · _Genel Muhasebe Parametreleri_
+- **Fişlerde Tutarlara Göre Eşleme Kontrolü** = `Hayır` · _Genel Muhasebe Parametreleri_
+- **Dökümlerde Alacak Hareketleri Gizlenecek** = `Hayır` · _Genel Muhasebe Parametreleri_
+- **Dağıtım Şablonu Otomatik Uygulanacak** = `Hayır` · _Genel Muhasebe Parametreleri_
+- **Hesap Dağıtım Detayları** = `Basılmayacak` · _Genel Muhasebe Parametreleri_
+- **Form B Limiti** = `5000` · _Genel Muhasebe Parametreleri_
+- **Hesap Planı Bakiye Yılı** = `2026` · _Genel Muhasebe Parametreleri_
+- **Muhasebeleşen Fiş Değiştirildiğinde/İptal Edildiğinde Mahsup Fişi** = `Silinecek (Uyarı Mesajı Verilmeyecek)` · _Genel Muhasebe Parametreleri_
+- **Mahsup Fişi Silindiğinde Bağlantılar** = `Koparılacak` · _Genel Muhasebe Parametreleri_
+- **Muhasebeleşen Hizmet Satırlarına Faturadaki Miktar Bilgisi Aktarılsın** = `Evet` · _Genel Muhasebe Parametreleri_
+- **Yevmiye Madde Numaralama İşyeri Bazında Yapılsın** = `Hayır` · _Genel Muhasebe Parametreleri_
+- **Kur Farkı, Tahsil Ve Tediye Fişleri Mahsup Fişinin Kayıt Numaralama Şablonunu Kullansın** = `Evet` · _Genel Muhasebe Parametreleri_
+- **Kur Farkı, Tahsil Ve Tediye Fişleri Mahsup Fişinin Kayıt Numaralama Şablonunu Kullandığında Sıralama** = `Fiş Türüne Göre` · _Genel Muhasebe Parametreleri_
+- **Fiş İşlem Döviz Türü Muhasebe Hesabınınkinden Farklı İse** = `İşleme Devam Edilecek` · _Genel Muhasebe Parametreleri_
+- **Kapanış Fişi İşyeri Bazında Oluşturulsun** = `Hayır` · _Genel Muhasebe Parametreleri_
+- **Muhasebe İşleminde Oluşacak Fiş Satır Sayısı** = `9999` · _Genel Muhasebe Parametreleri_
+- **Muhasebeleşen Cari Satırlarına Fiş Satırlarındaki Açıklama Bilgisi Aktarılsın** = `Hayır` · _Genel Muhasebe Parametreleri_
+- **Otomatik Reeskont Düzeltme Fişleri Oluşturulsun** = `Hayır` · _Genel Muhasebe Parametreleri_
+- **Muhasebe Fişleri Hesap Dağıtım Detayında Eksik Dağıtım** = `Yapılabilsin` · _Genel Muhasebe Parametreleri_
+- **Muhasebe Fişi Belge Detayında Girilen Veri Kopyalanan Fişe Aktarılsın** = `Hayır` · _Genel Muhasebe Parametreleri_
+- … +163 (JSON)
+
+## 5) Kapsam dışı
+
+- **ABC Kodu** = `..` · _Malzeme Yönetimi Parametreleri_
+- **Hızlı Üretim Fişleri Durumu** = `Gerçek` · _Malzeme Yönetimi Parametreleri_
+- **Malzeme Fişleri Basımında KKK Basımı (Giriş)** = `Hayır` · _Malzeme Yönetimi Parametreleri_
+- **Malzeme Fişleri Basımında KKK Basımı (Çıkış)** = `Hayır` · _Malzeme Yönetimi Parametreleri_
+- **Varyantlı Malzeme Kopyalanırken Varyant Kodu Şablon Tanımları Kopyalansın** = `Evet` · _Malzeme Yönetimi Parametreleri_
+- **Hızlı Üretimde Yarı Mamuller (Üretim)** = `Üretilmeyecek` · _Malzeme Yönetimi Parametreleri_
+- **Hızlı Üretimde Alt Malzemeler (Takım Boz)** = `Bozulacak` · _Malzeme Yönetimi Parametreleri_
+- **Karma Koli Satırları Basılacak İşlemler** · _Satınalma Parametreleri, Satış Ve Dağıtım Parametreleri_
+- **İrsaliye Basımında KKK Basımı (Giriş)** = `Hayır` · _Satınalma Parametreleri, Satış Ve Dağıtım Parametreleri_
+- **Fatura Basımında KKK Basımı (Giriş)** = `Hayır` · _Satınalma Parametreleri, Satış Ve Dağıtım Parametreleri_
+- **Malzeme (Sınıfı) Satış Fiyatları - Türü** = `Malzeme` · _Satış Ve Dağıtım Parametreleri_
+- **Malzeme (Sınıfı) Satış Fiyatları - KDV** = `Hariç` · _Satış Ve Dağıtım Parametreleri_
+- **Sözleşme Onaylandığında Malzeme (Sınıfı) Satış Fiyatları "Diğer Birimlere Çevrilebilir" Seçili Gelsin** = `Hayır` · _Satış Ve Dağıtım Parametreleri_
+- **Sözleşme Onaylandığında Hizmet Satış Fiyatları "Diğer Birimlere Çevrilebilir" Seçili Gelsin** = `Hayır` · _Satış Ve Dağıtım Parametreleri_
+- **Dağıtım Emri Satırları** = `Koda Göre Birleştirilecek` · _Satış Ve Dağıtım Parametreleri_
+- **Satış Elemanı (Plasiyer) Cari Hesap Bağlantı Kontrolü Yapılacak İşlemler** · _Satış Ve Dağıtım Parametreleri, Finans Parametreleri_
+- **Satış Elemanı (Satış Temsilcisi) Cari Hesap Bağlantı Kontrolü Yapılacak İşlemler** · _Satış Ve Dağıtım Parametreleri, Finans Parametreleri_
+- **Teslim Tarihinde Teslim Süresi Kontrolü** = `Yapılmayacak` · _Satış Ve Dağıtım Parametreleri_
+- **Dağıtımda Sevk Miktarı Kontrolü** = `İşleme Devam Edilecek` · _Satış Ve Dağıtım Parametreleri_
+- **Otomatik Paketlemede Paket Numaralama Yöntemi** = `Fiş Genelinde` · _Satış Ve Dağıtım Parametreleri_
+- **Paketleme Fişine Karma Kolinin** = `Kendisi Eklenecektir` · _Satış Ve Dağıtım Parametreleri_
+- **Otomatik Net Yuvarlama** · _Satış Ve Dağıtım Parametreleri_
+- **Yuvarlama Yönü** · _Satış Ve Dağıtım Parametreleri_
+- **Otomatik Net Yuvarlama Tabanı** = `0` · _Satış Ve Dağıtım Parametreleri_
+- **Otomatik Net Yuvarlama Üstlenilen KDV Oranı** = `0` · _Satış Ve Dağıtım Parametreleri_
+- **Dağıtımda Seviye Kontrolü** = `Yapılacak` · _Satış Ve Dağıtım Parametreleri_
+- **Dağıtımda Seviye Kontrolü (Tüm Günler İçin)** = `Yapılmayacak` · _Satış Ve Dağıtım Parametreleri_
+- **Dağıtımda Risk Kontrolü** = `Yapılacak` · _Satış Ve Dağıtım Parametreleri_
+- **İrsaliye Basımında KKK Basımı (Çıkış)** = `Hayır` · _Satış Ve Dağıtım Parametreleri_
+- **Fatura Basımında KKK Basımı (Çıkış)** = `Hayır` · _Satış Ve Dağıtım Parametreleri_
+- **Müşteri Eklerken Otomatik Cari Hesap Oluşturulsun** = `Hayır` · _Satış Ve Dağıtım Parametreleri_
+- **Araç Kapasitesi Aşıldığında...** = `İşleme Devam Edilecek` · _Satış Ve Dağıtım Parametreleri_
+- **Satış Birim Fiyatı Son Satınalma Fiyatına Eşit Veya Altına Düşerse (Teklif)** = `İşleme Devam Edilecek` · _Satış Ve Dağıtım Parametreleri_
+- **Satış Birim Fiyatı Tanımlı Satınalma Fiyatının Altına Düşerse (Teklif)** = `İşleme Devam Edilecek` · _Satış Ve Dağıtım Parametreleri_
+- **Satış Birim Fiyatı Maliyet Yöntemine Göre Hesaplanan Fiyatın Altına Düşerse (Teklif)** = `İşleme Devam Edilecek` · _Satış Ve Dağıtım Parametreleri_
+- **Dağıtım Emri Sevk Kontrolü** = `Stok + Cari Risk + Kampanya` · _Satış Ve Dağıtım Parametreleri_
+- **Dağıtım Emri Dağıtıma Çıkış Tarihi** = `Günün Tarihi` · _Satış Ve Dağıtım Parametreleri_
+- **Dağıtım Emri Dağıtımdan Dönüş Tarihi** = `Günün Tarihi` · _Satış Ve Dağıtım Parametreleri_
+- **Dağıtım Emri Yüklenen Hesaplaması** = `Net` · _Satış Ve Dağıtım Parametreleri_
+- **Dağıtım Emri Yazdırma Fiş Satır Sıralaması** = `Malzeme Koduna Göre` · _Satış Ve Dağıtım Parametreleri_
+- … +39 (JSON)

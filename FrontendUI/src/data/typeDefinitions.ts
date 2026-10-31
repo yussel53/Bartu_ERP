@@ -205,16 +205,54 @@ export function deleteTypeDef(id: number) {
   writeAll(readAll().filter((r) => r.id !== id));
 }
 
-/** Belge formlarındaki select için aktif tür seçenekleri */
+/**
+ * Harf kodu (AF, TSF…) belge kolonuna yazılmaz.
+ * InvoiceType / VoucherType / Type_ sayısal (tinyint/int) tutulur.
+ */
+const LETTER_CODE_VALUE: Record<string, string> = {
+  'Invoice|TSF': '1',
+  'Invoice|PSF': '1',
+  'Invoice|SIF': '3',
+  'Invoice|AF': '2',
+  'Invoice|AIF': '4',
+  'OrderVoucher|SS': '1',
+  'OrderVoucher|ST': '6',
+  'OrderVoucher|AS': '2',
+  'OrderVoucher|AT': '5',
+  'ProductVoucher|SI': '3',
+  'ProductVoucher|AI': '2',
+};
+
+function storedTypeValue(row: TypeDefinition): string | null {
+  const code = row.code.trim();
+  if (/^\d+$/.test(code)) return String(Number(code));
+  return LETTER_CODE_VALUE[`${row.targetTable}|${code}`] ?? null;
+}
+
+/** Belge formlarındaki select için aktif tür seçenekleri. value = kayda yazılan sayı. */
 export function getTypeOptionsForTarget(opts: {
   targetTable: string;
   moduleKey?: string;
   kind?: TypeDefKind;
 }): { label: string; value: string }[] {
-  return listTypeDefs(opts.kind)
+  const rows = listTypeDefs(opts.kind)
     .filter((r) => r.isActive && r.targetTable === opts.targetTable)
-    .filter((r) => !opts.moduleKey || r.moduleKey === opts.moduleKey)
-    .map((r) => ({ label: `${r.code} — ${r.title}`, value: r.code }));
+    .filter((r) => !opts.moduleKey || r.moduleKey === opts.moduleKey);
+  const groups = new Map<string, TypeDefinition[]>();
+  for (const row of rows) {
+    const value = storedTypeValue(row);
+    if (!value) continue;
+    const list = groups.get(value) ?? [];
+    list.push(row);
+    groups.set(value, list);
+  }
+  return [...groups.entries()].map(([value, list]) => ({
+    value,
+    label:
+      list.length === 1
+        ? `${list[0].code} — ${list[0].title}`
+        : `${list.map((r) => r.code).join(' / ')} — ${list[0].title}`,
+  }));
 }
 
 export function typeDefsToListRows(kind: TypeDefKind): Record<string, string | number>[] {

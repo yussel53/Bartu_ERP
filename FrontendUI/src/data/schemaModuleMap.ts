@@ -13,11 +13,14 @@ export interface SchemaTableRef {
 
 export const SCHEMA_MODULE_MAP: SchemaTableRef[] = [
   // Malzeme
-  { table: 'ProductCard', module: 'malzeme', group: 'ana-kayitlar', title: 'Malzeme Kartları', notes: 'ProductType ile hizmet kartları da aynı tablo' },
+  { table: 'ProductCard', module: 'malzeme', group: 'ana-kayitlar', title: 'Malzeme Kartları', notes: 'Özel kod → AuxilCodeTrans (Özel Kodlar sekmesi) ModuleNr=1 · TrackingMode 0/1/2/3 · AllowLotSplit · LotUnitsDistributable/Combinable · TrackLocation · IssuePolicy · CostMethod · öndeğer ProductCardID=-1' },
+  { table: 'UnitCard', module: 'malzeme', group: 'ana-kayitlar', title: 'Birimler', notes: 'UnitID 1–8 mevcut katalog · GlobalCode e-belge (EA, KGM, LTR, MTR)' },
+  { table: 'StockLocation', module: 'malzeme', group: 'ana-kayitlar', title: 'Stok Yeri Kodları', notes: 'Raf / göz · WhouseID boşsa genel · kod depo içinde tek' },
+  { table: 'ProductSerialLot', module: 'malzeme', group: 'hareketler', title: 'Lot / Seri', notes: 'Bir satırda N lot/seri · ExpireDate · Description · StockLocationID · Kind 1 Lot · 2 Seri · 3 Seri grubu' },
   { table: 'ProductUnit', module: 'malzeme', group: 'ana-kayitlar', title: 'Birim Çevirimi', notes: 'Sol birim listesi · sağda çevrim + ölçü (Weight/Length/Width/Height) + barkod grid' },
   { table: 'ProductBarcode', module: 'malzeme', group: 'ana-kayitlar', title: 'Barkodlar', notes: 'Birim çevirimi altında · ProductCardID + UnitID · bir birime N barkod' },
   { table: 'ProductSub', module: 'malzeme', group: 'ana-kayitlar', title: 'Alt Malzeme / Reçete', notes: 'ProductCard formu içinde sekme · MainProductCardID' },
-  { table: 'ProductCustomerAlias', module: 'malzeme', group: 'ana-kayitlar', title: 'Cari Malzeme', notes: 'ProductCard formu içinde sekme · cariye özel kod/ad' },
+  { table: 'ProductCustomerAlias', module: 'malzeme', group: 'ana-kayitlar', title: 'Cari Malzeme', notes: 'ProductCard formu içinde sekme · cari veya vergi/TCK no ile özel kod/ad' },
   { table: 'VariantCard', module: 'malzeme', group: 'ana-kayitlar', title: 'Varyant Kartları', notes: 'ProductCard formu içinde sekme · ProductCardID' },
   { table: 'VariantTemplate', module: 'malzeme', group: 'ana-kayitlar', title: 'Varyant Şablonları', notes: 'Özellik eksenleri + değerler → kartta kombinasyon üretir' },
   { table: 'VariantTemplateDim', module: 'malzeme', group: 'ana-kayitlar', title: 'Şablon Özellikleri', notes: 'VariantTemplate satırları · ValuesText' },
@@ -37,14 +40,14 @@ export const SCHEMA_MODULE_MAP: SchemaTableRef[] = [
   { table: 'ELedger', module: 'edevlet', group: 'e-defter', title: 'e-Defter' },
   { table: 'RiskGroup', module: 'finans', group: 'ana-kayitlar', title: 'Risk Grupları' },
   { table: 'BankCard', module: 'finans', group: 'ana-kayitlar', title: 'Banka', notes: 'Hesaplar (BankAccountCard) form içinde sekme' },
-  { table: 'BankAccountCard', module: 'finans', group: 'ana-kayitlar', title: 'Banka Hesapları', notes: 'BankCard formu içinde sekme · BankCardID' },
+  { table: 'BankAccountCard', module: 'finans', group: 'ana-kayitlar', title: 'Banka Hesapları', notes: 'BankCard formu içinde sekme · BankCardID · Integ* entegrasyon · süreç işi BankFetch' },
   { table: 'SafeCard', module: 'finans', group: 'ana-kayitlar', title: 'Kasa Kartları' },
   { table: 'BoundCard', module: 'finans', group: 'ana-kayitlar', title: 'Çek / Senet Kartları' },
   { table: 'PaidPlanCard', module: 'finans', group: 'ana-kayitlar', title: 'Ödeme / Tahsilat Planları', notes: 'PlanType 1 Ödeme / 2 Tahsilat / 3 Her ikisi · PaidPlanLine' },
   { table: 'PaidPlanLine', module: 'finans', group: 'ana-kayitlar', title: 'Ödeme Plan Satırları' },
   { table: 'BankCredit', module: 'finans', group: 'ana-kayitlar', title: 'Banka Kredileri' },
   { table: 'BankCreditInstallment', module: 'finans', group: 'hareketler', title: 'Kredi Taksitleri' },
-  { table: 'CustomerVoucher', module: 'finans', group: 'hareketler', title: 'Cari Fişler', notes: 'Type fiş tipi · satırlar CustomerTrans (1→N)' },
+  { table: 'CustomerVoucher', module: 'finans', group: 'hareketler', title: 'Cari Fişler', notes: 'Type fiş tipi · satırlar CustomerTrans (1→N) · veri aktarımı customer-voucher' },
   { table: 'CustomerTrans', module: 'finans', group: 'hareketler', title: 'Cari Fiş Satırları', notes: 'CustomerVoucherID + CustomerID + Amount' },
   { table: 'PaymentTrans', module: 'finans', group: 'hareketler', title: 'Ödeme Hareketi', notes: 'Cari fiş satırı / kapama · Type_: 1 Tahsilat, 2 Ödeme' },
   { table: 'BankVoucher', module: 'finans', group: 'hareketler', title: 'Banka Fişleri', notes: 'Type_ fiş tipi · satırlar BankTrans (1→N)' },
@@ -54,14 +57,15 @@ export const SCHEMA_MODULE_MAP: SchemaTableRef[] = [
 
   // Satış / Satınalma
   { table: 'ProductPrice', module: 'satis|satinalma', group: 'ana-kayitlar', title: 'Fiyatlar', notes: 'Type_ 1 Satış / 2 Alış · malzeme + hizmet aynı şablon · ProductCardID' },
+  { table: 'TradeTarget', module: 'satis|satinalma', group: 'ana-kayitlar', title: 'Alım / Satış Hedefleri', notes: 'Direction 1 Satış / 2 Alım · M1–M12 tutar · Q1–Q12 miktar · cari ve malzeme isteğe bağlı' },
   { table: 'OrderVoucher', module: 'satis|satinalma', group: 'hareketler', title: 'Sipariş / Talep', notes: 'Type_ 1 Satış / 2 Alış / 5 Alış Talep / 6 Satış Talep · SourceOrderVoucherID talep→sipariş' },
   { table: 'OrderTrans', module: 'satis|satinalma', group: 'hareketler', title: 'Sipariş Satırları' },
   { table: 'SYS_ProcessDef', module: 'surec', group: 'ana-kayitlar', title: 'Süreçler', notes: 'TriggerType 1–8 · TriggerConfigJson · Category' },
   { table: 'SYS_ProcessStep', module: 'surec', group: 'ana-kayitlar', title: 'Süreç Adımları', notes: 'NodeType · ConfigJson · ApproverRoleId' },
-  { table: 'SYS_ProcessInstance', module: 'surec', group: 'hareketler', title: 'Süreç Örnekleri' },
+  { table: 'SYS_ProcessInstance', module: 'surec', group: 'hareketler', title: 'Süreç Örnekleri', notes: 'DataJson: belge, cari, adres, satir — her başlangıçta aynı nesne' },
   { table: 'SYS_ProcessTask', module: 'surec', group: 'hareketler', title: 'Onay Kuyruğu', notes: 'Kullanıcı onay görevleri' },
   { table: 'SYS_ProcessDocLink', module: 'surec', group: 'islemler', title: 'Belge Bağları', notes: 'TalepToOrder · EGovToOrder' },
-  { table: 'Invoice', module: 'satis|satinalma', group: 'hareketler', title: 'Fatura', notes: 'InvoiceType ile satış/alış/iade' },
+  { table: 'Invoice', module: 'satis|satinalma', group: 'hareketler', title: 'Fatura', notes: 'InvoiceType ile satış/alış/iade/alınan hizmet · veri aktarımı invoice' },
 
   // Muhasebe
   {
@@ -74,7 +78,7 @@ export const SCHEMA_MODULE_MAP: SchemaTableRef[] = [
   { table: 'AccountGroup', module: 'muhasebe', group: 'ana-kayitlar', title: 'Hesap Grupları' },
   { table: 'AccountLink', module: 'muhasebe', group: 'ana-kayitlar', title: 'Muhasebe Bağlantıları', notes: 'Ekle: Modul+Fiş türü+Hesap+Koşul · Product/Tax/Bank/Bound/Customer' },
   { table: 'AccountLinkDetail', module: 'muhasebe', group: 'ana-kayitlar', title: 'Kart / Bağlantı Detay', notes: 'Kart sekmesi + AccountLink satırları · ConditionTitle/ConditionJson' },
-  { table: 'AccountVoucher', module: 'muhasebe', group: 'hareketler', title: 'Muhasebe Fişleri' },
+  { table: 'AccountVoucher', module: 'muhasebe', group: 'hareketler', title: 'Muhasebe Fişleri', notes: 'Veri aktarımı account-voucher · e-Defter yevmiye XML' },
   { table: 'AccountTrans', module: 'muhasebe', group: 'hareketler', title: 'Muhasebe Hareketleri' },
   { table: 'AccountLinkTrans', module: 'muhasebe', group: 'islemler', title: 'Ön / Resmi Muhasebe Bağlantı' },
 
@@ -90,6 +94,8 @@ export const SCHEMA_MODULE_MAP: SchemaTableRef[] = [
   { table: 'SYS_NumberTemplate', module: 'sistem', group: 'tanimlar', title: 'Fiş Numarası Şablonu', notes: 'Geçerlilik tarihi · Firma/İşyeri/Ambar/Kullanıcı · {CO}{WP}{WH}{USR}{YYYY}{MM}{WW}{Q}{SEQ}' },
   { table: 'SYS_UserOrgAuth', module: 'sistem', group: 'islemler', title: 'Kullanıcı Org Yetkisi', notes: 'Firma / İşyeri / Ambar' },
   { table: 'SYS_UserAuthCode', module: 'sistem', group: 'islemler', title: 'Kullanıcı Yetki Kodları', notes: 'Firma × Kayıt Türü × AuthCode (Logo)' },
+  { table: 'SYS_Bank', module: 'sistem', group: 'tanimlar', title: 'Banka Kataloğu', notes: 'EFT Code · ShortTitle · Swift · seed /api/banks/seed' },
+  { table: 'SYS_BankBranch', module: 'sistem', group: 'tanimlar', title: 'Banka Şubeleri', notes: 'SYS_BankID · Code · Title · City' },
   { table: 'SYS_City', module: 'sistem', group: 'tanimlar', title: 'Şehirler (eski)', notes: 'Yerine SYS_Province' },
   { table: 'SYS_Country', module: 'sistem', group: 'tanimlar', title: 'Ülke' },
   { table: 'SYS_Province', module: 'sistem', group: 'tanimlar', title: 'İl', notes: 'Türkiye 81 il' },

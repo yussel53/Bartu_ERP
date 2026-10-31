@@ -1,0 +1,34 @@
+{
+  "title": "Logo — Malzeme / hizmet",
+  "kind": "product",
+  "sourceKind": 1,
+  "source": {
+    "sourceType": 1,
+    "sql": "SELECT\n  LTRIM(RTRIM(i.CODE)) AS Code,\n  LTRIM(RTRIM(i.NAME)) AS Title,\n  N'1' AS ProductType,\n  CASE WHEN ISNULL(i.ACTIVE, 0) = 0 THEN N'Evet' ELSE N'Hayır' END AS IsActive,\n  N'Adet' AS DefaultUnitID\nFROM dbo.LG_421_ITEMS i WITH (NOLOCK)\nWHERE i.CARDTYPE IN (1, 4, 10, 11, 12, 13)\n  AND i.CODE IS NOT NULL\n  AND LTRIM(RTRIM(i.CODE)) <> N''\n  AND LTRIM(RTRIM(i.CODE)) NOT LIKE N'ÿ%'\nUNION ALL\nSELECT\n  LTRIM(RTRIM(s.CODE)) AS Code,\n  LTRIM(RTRIM(s.DEFINITION_)) AS Title,\n  CASE WHEN ISNULL(s.CARDTYPE, 1) = 2 THEN N'3' ELSE N'2' END AS ProductType,\n  CASE WHEN ISNULL(s.ACTIVE, 0) = 0 THEN N'Evet' ELSE N'Hayır' END AS IsActive,\n  N'Adet' AS DefaultUnitID\nFROM dbo.LG_421_SRVCARD s WITH (NOLOCK)\nWHERE s.CODE IS NOT NULL\n  AND LTRIM(RTRIM(s.CODE)) <> N''\n  AND LTRIM(RTRIM(s.CODE)) NOT LIKE N'ÿ%'\nORDER BY Code",
+    "server": "",
+    "port": "1433",
+    "database": "LOGODB",
+    "user": "",
+    "windowsAuth": true,
+    "trustCertificate": true,
+    "apiUrl": "",
+    "apiMethod": "GET",
+    "apiHeaders": "",
+    "jsonPath": "",
+    "body": ""
+  },
+  "map": [
+    { "header": "Code", "field": "Code", "literal": false },
+    { "header": "Title", "field": "Title", "literal": false },
+    { "header": "ProductType", "field": "ProductType", "literal": false },
+    { "header": "IsActive", "field": "IsActive", "literal": false },
+    { "header": "DefaultUnitID", "field": "DefaultUnitID", "literal": false }
+  ],
+  "mode": "upsert",
+  "createMissingCards": false,
+  "productType": 1,
+  "intervalMinutes": null,
+  "afterSql": null,
+  "keepLog": true,
+  "isActive": true
+}

@@ -148,18 +148,18 @@ public sealed class EGovIncomingController : ControllerBase
             {
                 /* süreç başlatma kaydı etkilemez */
             }
-            // Y-09: «Otomatik Mahsup» açıksa muhasebe fişi (RecordsController ile aynı; bağlantı eksikse kayıt kalır, uyarı döner)
+            // Y-09: havuza yaz / parametreye göre otomatik muhasebeleştir
             try
             {
-                if (await _accounting.AutoPostEnabledAsync())
-                {
-                    var acc = await _accounting.PostAsync("Invoice", invoiceId, ct);
-                    if (!acc.Success) warnings.Add("Muhasebeleştirilmedi: " + acc.Message);
-                }
+                var acc = await _accounting.ProcessAfterSaveAsync("Invoice", invoiceId, ct);
+                if (acc != null && !acc.Success)
+                    warnings.Add(acc.Message);
+                else if (acc != null && !string.IsNullOrWhiteSpace(acc.Message) && acc.AccountVoucherID == null)
+                    warnings.Add(acc.Message);
             }
             catch (Exception ex)
             {
-                warnings.Add("Muhasebeleştirilmedi: " + ex.Message);
+                warnings.Add("Muhasebe havuzu: " + ex.Message);
             }
 
             return Ok(new

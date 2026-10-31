@@ -102,8 +102,8 @@ export function collectAuthCodeLines(
 }
 
 export const ORG_COMPANIES: OrgCompany[] = [
-  { id: '1', code: '01', title: 'Bartu Ticaret A.Ş.', isActive: true },
-  { id: '2', code: '02', title: 'Bartu Anadolu Ltd.', isActive: true },
+  { id: '1', code: '01', title: 'Kavi Soft Ticaret A.Ş.', isActive: true },
+  { id: '2', code: '02', title: 'Kavi Soft Anadolu Ltd.', isActive: true },
 ];
 
 export const ORG_WORKPLACES: OrgWorkplace[] = [

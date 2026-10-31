@@ -1160,14 +1160,11 @@ public sealed class SqlReportsRepository
             return q;
         if (Regex.IsMatch(q, @"^\s*SELECT\s+", RegexOptions.IgnoreCase))
             return Regex.Replace(q, @"^\s*SELECT\s+", $"SELECT TOP ({n}) ", RegexOptions.IgnoreCase);
-        return $"SELECT TOP ({n}) * FROM (\n{q}\n) AS __fast_test";
+        return ProcessContextData.WrapDerived(q, "__fast_test", n);
     }
 
-    private static string WrapSchemaProbe(string query)
-    {
-        var q = query.Trim().TrimEnd(';');
-        return $"SELECT TOP (0) * FROM (\n{q}\n) AS __schema_probe";
-    }
+    private static string WrapSchemaProbe(string query) =>
+        ProcessContextData.WrapDerived(query, "__schema_probe", 0);
 
     private static string? NormalizeJson(string? json, bool allowObject = false)
     {

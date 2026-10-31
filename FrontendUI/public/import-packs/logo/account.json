@@ -1,0 +1,31 @@
+{
+  "title": "Logo — Muhasebe hesapları",
+  "kind": "account",
+  "sourceKind": 1,
+  "source": {
+    "sourceType": 1,
+    "sql": "SELECT\n  LTRIM(RTRIM(CODE)) AS CODE,\n  LTRIM(RTRIM(DEFINITION_)) AS DESCRIPTION\nFROM dbo.LG_421_EMUHACC WITH (NOLOCK)\nWHERE CODE IS NOT NULL\n  AND LTRIM(RTRIM(CODE)) <> N''\nORDER BY CODE",
+    "server": "",
+    "port": "1433",
+    "database": "LOGODB",
+    "user": "",
+    "windowsAuth": true,
+    "trustCertificate": true,
+    "apiUrl": "",
+    "apiMethod": "GET",
+    "apiHeaders": "",
+    "jsonPath": "",
+    "body": ""
+  },
+  "map": [
+    { "header": "CODE", "field": "Code", "literal": false },
+    { "header": "DESCRIPTION", "field": "Title", "literal": false }
+  ],
+  "mode": "upsert",
+  "createMissingCards": false,
+  "productType": null,
+  "intervalMinutes": null,
+  "afterSql": null,
+  "keepLog": true,
+  "isActive": true
+}

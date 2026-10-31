@@ -1,5 +1,5 @@
 import React, { createContext, useCallback, useContext, useEffect, useState } from 'react';
-import { KeyRound, Loader2, LogIn, ShieldCheck, X } from 'lucide-react';
+import { KeyRound, Loader2, LogIn, Monitor, Moon, ShieldCheck, Sun, X } from 'lucide-react';
 import {
   AuthUser,
   changePassword as apiChangePassword,
@@ -13,6 +13,7 @@ import { ApiError, AUTH_REQUIRED_EVENT, getSelectedDb, installAuthFetch, setSele
 import { refreshEffectiveAuth, setCurrentUserId } from '../data/permissions';
 import { loadExtraFields } from '../data/extraFields';
 import { useAppModules } from '../contexts/AppModulesContext';
+import { useTheme } from '../contexts/ThemeContext';
 import { ExitAppButton } from './ExitAppButton';
 
 installAuthFetch();
@@ -31,8 +32,51 @@ export function useAuth(): AuthContextValue | null {
 }
 
 const errText = (e: unknown) => (e instanceof Error ? e.message : String(e));
+
+const LoginThemeBar: React.FC = () => {
+  const theme = useTheme();
+  const Icon = theme.mode === 'dark' ? Moon : theme.mode === 'system' ? Monitor : Sun;
+  return (
+    <div className="w-full max-w-sm flex items-center justify-between gap-2 px-1">
+      <div className="flex items-center gap-1">
+        {theme.modes.map((m) => {
+          const MIcon = m.id === 'dark' ? Moon : m.id === 'system' ? Monitor : Sun;
+          const on = theme.mode === m.id;
+          return (
+            <button
+              key={m.id}
+              type="button"
+              title={m.label}
+              onClick={() => theme.setMode(m.id)}
+              className={`h-7 w-7 inline-flex items-center justify-center rounded-md ${
+                on ? 'bg-blue-600 text-white' : 'bg-white/80 text-slate-600 hover:bg-white dark:bg-slate-800 dark:text-slate-300'
+              }`}
+            >
+              <MIcon className="w-3.5 h-3.5" />
+            </button>
+          );
+        })}
+        <Icon className="w-3 h-3 text-slate-400 ml-1 hidden" />
+      </div>
+      <div className="flex items-center gap-1">
+        {theme.accents.map((a) => (
+          <button
+            key={a.id}
+            type="button"
+            title={a.label}
+            onClick={() => theme.setAccent(a.id)}
+            className={`h-5 w-5 rounded-full ring-offset-1 dark:ring-offset-slate-900 ${
+              theme.accent === a.id ? 'ring-2 ring-blue-600' : 'ring-1 ring-black/10'
+            }`}
+            style={{ background: a.swatch }}
+          />
+        ))}
+      </div>
+    </div>
+  );
+};
 const input =
-  'w-full h-9 px-3 text-[13px] border border-slate-300 rounded-md bg-white focus:outline-none focus:border-blue-600 focus:ring-2 focus:ring-blue-100';
+  'w-full h-9 px-3 text-[13px] border border-slate-300 dark:border-slate-600 rounded-md bg-white dark:bg-slate-950 text-slate-800 dark:text-slate-100 focus:outline-none focus:border-blue-600 focus:ring-2 focus:ring-blue-100 dark:focus:ring-blue-900/40';
 
 /** Kullanıcı adı + şifre formu — ilk kurulumda yönetici şifresi belirleme */
 const LoginForm: React.FC<{
@@ -70,14 +114,14 @@ const LoginForm: React.FC<{
   };
 
   return (
-    <form onSubmit={(e) => void submit(e)} className="w-full max-w-sm bg-white rounded-lg shadow-xl border border-slate-200 p-6 space-y-4">
+    <form onSubmit={(e) => void submit(e)} className="w-full max-w-sm bg-white dark:bg-slate-900 rounded-lg shadow-xl border border-slate-200 dark:border-slate-700 p-6 space-y-4">
       <div className="flex items-center gap-2">
         <div className="w-9 h-9 rounded-md bg-blue-700 text-white flex items-center justify-center">
           {setup ? <ShieldCheck className="w-5 h-5" /> : <LogIn className="w-5 h-5" />}
         </div>
         <div>
-          <div className="text-[15px] font-semibold text-slate-800">KaviSoft</div>
-          <div className="text-[11px] text-slate-500">
+          <div className="text-[15px] font-semibold text-slate-800 dark:text-slate-100">Kavi Soft</div>
+          <div className="text-[11px] text-slate-500 dark:text-slate-400">
             {setup ? 'İlk kurulum — yönetici şifresi belirleyin' : expired ? 'Oturum süresi doldu — tekrar giriş yapın' : 'Giriş'}
           </div>
         </div>
@@ -270,7 +314,8 @@ export const AuthGate: React.FC<{ children: React.ReactNode }> = ({ children }) 
 
   if (state !== 'ready' || !user) {
     return (
-      <div className="min-h-screen flex flex-col items-center justify-center gap-4 bg-gradient-to-b from-slate-100 to-slate-200 px-4">
+      <div className="min-h-screen flex flex-col items-center justify-center gap-4 bg-gradient-to-b from-slate-100 to-slate-200 dark:from-slate-950 dark:to-slate-900 px-4">
+        <LoginThemeBar />
         <LoginForm setup={state === 'setup'} onDone={(u) => void accept(u)} />
         <ExitAppButton />
       </div>

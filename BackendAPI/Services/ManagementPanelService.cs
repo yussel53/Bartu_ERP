@@ -135,7 +135,7 @@ GROUP BY CAST(i.InvoiceDate AS date)", new { from = monthStart.AddMonths(-1), to
             var o = await _db.QueryFirstAsync(
                 $@"SELECT COUNT(DISTINCT o.OrderVoucherID) AS Cnt, CAST(SUM({line}) AS decimal(19,2)) AS Amount
 FROM dbo.OrderVoucher o LEFT JOIN dbo.OrderTrans t ON t.OrderVoucherID = o.OrderVoucherID
-WHERE o.Type_ = 1 AND ISNULL(o.Status_, 1) IN (1, 2)");
+WHERE o.Type_ = 1 AND ISNULL(o.Status_, 1) IN (1, 2) AND o.OrderVoucherID > 0");
             dto.OpenOrders = (int)o.Cnt;
             dto.OpenOrdersAmount = (decimal)(o.Amount ?? 0m);
         });

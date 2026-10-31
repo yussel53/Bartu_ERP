@@ -14,6 +14,7 @@ import {
   type CrmProduct,
 } from '../../api/crmApi';
 import { Btn, ErrorNote, Field, Modal, errMsg, inputCls, textareaCls } from './CrmUi';
+import { fetchProductUnitOptions } from '../../data/productLineUnits';
 
 export const emptyLine = (): CrmOfferLine => ({
   productCardID: null,
@@ -106,6 +107,51 @@ function ProductCell({
   );
 }
 
+/** Seçilen malzemenin birim seti. Eşleşme yoksa serbest metin kalır. */
+function OfferUnitCell({
+  productId,
+  value,
+  onChange,
+}: {
+  productId?: number | null;
+  value: string;
+  onChange: (unitName: string) => void;
+}) {
+  const [options, setOptions] = React.useState<{ label: string; value: string }[]>([]);
+  React.useEffect(() => {
+    const pid = Number(productId);
+    if (!Number.isFinite(pid) || pid <= 0) {
+      setOptions([]);
+      return;
+    }
+    let cancel = false;
+    void fetchProductUnitOptions(pid, 'sales').then((info) => {
+      if (cancel) return;
+      setOptions(info.options);
+    });
+    return () => {
+      cancel = true;
+    };
+  }, [productId]);
+
+  if (!options.length) {
+    return (
+      <input className={`${inputCls} h-7`} value={value} onChange={(e) => onChange(e.target.value)} />
+    );
+  }
+  const known = options.some((o) => o.label === value);
+  return (
+    <select className={`${inputCls} h-7`} value={known ? value : value || options[0].label} onChange={(e) => onChange(e.target.value)}>
+      {!known && value ? <option value={value}>{value}</option> : null}
+      {options.map((o) => (
+        <option key={o.value} value={o.label}>
+          {o.label}
+        </option>
+      ))}
+    </select>
+  );
+}
+
 export function OfferLinesEditor({
   offer,
   onChange,
@@ -183,7 +229,11 @@ export function OfferLinesEditor({
                       <input className={`${inputCls} h-7 text-right`} type="number" step="any" value={l.quantity} onChange={(e) => setLine(i, { quantity: num(e.target.value) })} />
                     </td>
                     <td className="px-1 py-1">
-                      <input className={`${inputCls} h-7`} value={l.unitName || ''} onChange={(e) => setLine(i, { unitName: e.target.value })} />
+                      <OfferUnitCell
+                        productId={l.productCardID}
+                        value={l.unitName || ''}
+                        onChange={(unitName) => setLine(i, { unitName })}
+                      />
                     </td>
                     <td className="px-1 py-1">
                       <input className={`${inputCls} h-7 text-right`} type="number" step="any" value={l.price} onChange={(e) => setLine(i, { price: num(e.target.value) })} />

@@ -17,10 +17,12 @@ public sealed class ImportFieldDef
     public string[] Aliases { get; init; } = Array.Empty<string>();
     public string? Hint { get; init; }
     public string? Sample { get; init; }
-    /** AdditionalFields (U_) içine yazılır */
+    /** U_ kolonuna yazılır. JSON alanı kullanılmaz. */
     public bool Additional { get; init; }
     /** Kolon değil — import mantığı ayrıca işler (üst hesap kodu, barkod, adres) */
     public bool Special { get; init; }
+    /** Şablon seçicisinde baştan işaretli. Zorunlu alanlar her zaman gelir. */
+    public bool DefaultOn { get; init; } = true;
 }
 
 public sealed class ImportTargetDef
@@ -43,8 +45,18 @@ public sealed class ImportApplyRequest
     public int? ProductType { get; set; }
     /** Hesap: noktasız kodda üst hesap = en uzun önek kod (1 ← 10 ← 100) */
     public bool AccountPrefixParent { get; set; } = true;
+    /** Fiş aktarımı: bulunamayan cari, malzeme, hesap ve banka hesabını aç */
+    public bool CreateMissingCards { get; set; }
     public string? FileName { get; set; }
     public string? ImportedBy { get; set; }
+    /** Başarılı kayıttan sonra kaynakta çalışacak UPDATE */
+    public string? AfterSql { get; set; }
+    public ProcessSourceRequest? Source { get; set; }
+    /** Kaynak kolon değerleri. __row ile aktarım satırına bağlanır. */
+    public List<Dictionary<string, string?>>? SourceRows { get; set; }
+    /** false ise SYS_ImportLog yazılmaz. */
+    public bool WriteLog { get; set; } = true;
+    public int? ProfileId { get; set; }
 }
 
 public sealed class ImportRowResult
@@ -55,6 +67,8 @@ public sealed class ImportRowResult
     public string Action { get; set; } = "";
     public string? Message { get; set; }
     public int? RecordId { get; set; }
+    /** Fişte birleşen kaynak satırları. Boşsa yalnız RowNo. */
+    public List<int>? LineNos { get; set; }
 }
 
 public sealed class ImportApplyResult
@@ -65,12 +79,19 @@ public sealed class ImportApplyResult
     public int Updated { get; set; }
     public int Skipped { get; set; }
     public int Failed { get; set; }
+    /** Ayrıntı listesi kısaltıldı; sayılar tamdır */
+    public bool RowsTruncated { get; set; }
+    public int AfterUpdated { get; set; }
+    public int AfterFailed { get; set; }
+    public string? AfterError { get; set; }
     public List<ImportRowResult> Rows { get; set; } = new();
 }
 
-public sealed class ImportRepository
+public sealed partial class ImportRepository
 {
     private const string RowNoKey = "__row";
+    private static readonly System.Text.RegularExpressions.Regex ExtraKey =
+        new(@"^[A-Za-z_][A-Za-z0-9_]{0,80}$", System.Text.RegularExpressions.RegexOptions.Compiled);
 
     private readonly IDbConnection _db;
     private readonly RecordsRepository _records;
@@ -106,6 +127,7 @@ public sealed class ImportRepository
             Notes =
             {
                 "Kod eşleşirse kart güncellenir, yoksa yeni kart açılır.",
+                "Kart tipi (ProductType) kaynak kolondan gelir: 1 Malzeme, 2 Verilen Hizmet, 3 Alınan Hizmet. Logo CARDTYPE bağlanabilir.",
                 "Barkod yalnızca kartta hiç barkod yoksa eklenir.",
             },
             Fields =
@@ -113,9 +135,18 @@ public sealed class ImportRepository
                 new() { Key = "Code", Label = "Kod", Required = true, Sample = "MLZ-0001",
                         Aliases = new[] { "malzeme kodu", "hizmet kodu", "stok kodu", "kod", "code" } },
                 new() { Key = "Title", Label = "Ad", Required = true, Sample = "Örnek Malzeme",
-                        Aliases = new[] { "malzeme adi", "hizmet adi", "stok adi", "aciklama", "ad", "adi", "title", "name" } },
+                        Aliases = new[] { "malzeme adi", "hizmet adi", "stok adi", "aciklama", "description", "ad", "adi", "title", "name" } },
+                new() { Key = "ProductType", Label = "Kart Tipi", Type = "enum", Sample = "1",
+                        Options = new()
+                        {
+                            ["1"] = "1", ["Malzeme"] = "1", ["Ticari Mal"] = "1", ["Stok"] = "1",
+                            ["2"] = "2", ["Verilen Hizmet"] = "2", ["Satış Hizmet"] = "2", ["Satis Hizmet"] = "2",
+                            ["3"] = "3", ["Alınan Hizmet"] = "3", ["Alim Hizmet"] = "3", ["Alış Hizmet"] = "3",
+                        },
+                        Aliases = new[] { "cardtype", "card type", "kart tipi", "producttype", "product type", "tip", "malzeme tipi" },
+                        Hint = "1 Malzeme · 2 Verilen Hizmet · 3 Alınan Hizmet. Boşsa varsayılan tip kullanılır." },
                 new() { Key = "DefaultUnitID", Label = "Ana Birim", Type = "enum", Options = UnitOptions, Sample = "Adet",
-                        Aliases = new[] { "birim", "ana birim", "unit" }, Hint = "Boşsa Adet" },
+                        Aliases = new[] { "birim", "ana birim", "unit" }, Hint = "Birim kartındaki kod, ad veya global kod. UnitID olarak bağlanır. Boşsa Adet" },
                 new() { Key = "U_MaterialKind", Label = "Malzeme Sınıfı", Type = "enum", Additional = true, Sample = "Ticari Mal",
                         Options = new() { ["Ticari Mal"] = "ticari", ["Ticari"] = "ticari", ["Hammadde"] = "hammadde", ["Yarı Mamul"] = "yari" },
                         Aliases = new[] { "malzeme sinifi", "sinif", "tur" } },
@@ -145,14 +176,15 @@ public sealed class ImportRepository
             {
                 "Kod eşleşirse cari güncellenir, yoksa yeni cari + Merkez adres açılır.",
                 "Vergi tipi boşsa VKN 10 hane → Tüzel, TCKN 11 hane → Gerçek.",
-                "Mevcut caride adres yalnızca hiç adres yoksa eklenir.",
+                "Mevcut caride adres ve yetkili yalnızca hiç yoksa eklenir.",
+                "Şablon alanlarından istediğiniz kolonları seçin. Zorunlu kolonlar her şablonda durur.",
             },
             Fields =
             {
                 new() { Key = "Code", Label = "Cari Kodu", Required = true, Sample = "120.01.001",
                         Aliases = new[] { "cari kodu", "cari kod", "kod", "code" } },
                 new() { Key = "Title", Label = "Ünvan", Required = true, Sample = "Örnek Ticaret Ltd. Şti.",
-                        Aliases = new[] { "unvan", "cari unvani", "cari adi", "firma adi", "ad", "title", "name" } },
+                        Aliases = new[] { "unvan", "cari unvani", "cari adi", "firma adi", "description", "aciklama", "ad", "adi", "title", "name" } },
                 new() { Key = "Type_", Label = "Cari Tür", Type = "enum", Sample = "Alıcı / Satıcı",
                         Options = new() { ["Alıcı"] = "1", ["Müşteri"] = "1", ["Satıcı"] = "2", ["Tedarikçi"] = "2",
                                           ["Alıcı / Satıcı"] = "3", ["Alıcı Satıcı"] = "3", ["Her İkisi"] = "3" },
@@ -178,6 +210,20 @@ public sealed class ImportRepository
                 new() { Key = "Addr_Town", Label = "İlçe", Special = true, Sample = "Kadıköy", Aliases = new[] { "ilce", "town" } },
                 new() { Key = "Addr_District", Label = "Mahalle", Special = true, Aliases = new[] { "mahalle", "semt" } },
                 new() { Key = "Addr_Address", Label = "Adres", Special = true, Aliases = new[] { "adres", "acik adres", "address" } },
+                new() { Key = "Addr_Type", Label = "Adres Tipi", Type = "enum", Special = true, DefaultOn = false, Sample = "Merkez",
+                        Options = new() { ["Merkez"] = "1", ["Sevkiyat"] = "2", ["Sevkiyat Adresi"] = "2", ["Fatura"] = "3", ["Fatura Adresi"] = "3", ["Diğer"] = "4" },
+                        Aliases = new[] { "adres tipi", "adres turu" }, Hint = "Boşsa Merkez" },
+                new() { Key = "Addr_Name", Label = "Adres Adı", Special = true, DefaultOn = false, Sample = "Merkez", Aliases = new[] { "adres adi" } },
+                new() { Key = "Addr_Code", Label = "Adres Kodu", Special = true, DefaultOn = false, Aliases = new[] { "adres kodu" } },
+                new() { Key = "Addr_PostLabel", Label = "e-Fatura Gelen (PK)", Special = true, DefaultOn = false, Aliases = new[] { "pk", "posta kutusu" } },
+                new() { Key = "Addr_SenderLabel", Label = "e-Fatura Giden (GB)", Special = true, DefaultOn = false, Aliases = new[] { "gb", "gonderici birim" } },
+                new() { Key = "Addr_EinvoiceEmail", Label = "e-Fatura E-posta", Special = true, DefaultOn = false },
+                new() { Key = "Addr_TaxOffice", Label = "Adres Vergi Dairesi", Special = true, DefaultOn = false },
+                new() { Key = "Contact_Name", Label = "Yetkili Ad Soyad", Special = true, DefaultOn = false, Sample = "Ayşe Yılmaz" },
+                new() { Key = "Contact_Title", Label = "Yetkili Ünvan", Special = true, DefaultOn = false, Sample = "Muhasebe" },
+                new() { Key = "Contact_Phone", Label = "Yetkili Telefon", Special = true, DefaultOn = false },
+                new() { Key = "Contact_Email", Label = "Yetkili E-posta", Special = true, DefaultOn = false },
+                new() { Key = "RiskLimit", Label = "Risk Limiti", Type = "decimal", DefaultOn = false, Sample = "100000" },
                 new() { Key = "Active", Label = "Aktif", Type = "bool", Options = BoolOptions,
                         Aliases = new[] { "aktif", "durum", "active" }, Hint = "Boşsa Evet" },
                 new() { Key = "SalesModuleCheck", Label = "Satış", Type = "bool", Options = BoolOptions, Aliases = new[] { "satis" } },
@@ -194,21 +240,27 @@ public sealed class ImportRepository
             Notes =
             {
                 "Satırlar koddaki seviyeye göre sıralanır; önce üst hesaplar kaydedilir.",
-                "Kodda nokta varsa üst hesap noktadan önceki koddur (100.01 → 100).",
+                "Kodda nokta varsa üst hesap zorunlu (120.01 → 120); üst yoksa satır hata alır.",
                 "Noktasız kodlarda Üst Hesap Kodu kolonu veya önek kuralı kullanılır (1 ← 10 ← 100).",
-                "Hesap tipi boşsa: altı olan hesap Ana, diğerleri Detay.",
+                "Hesap tipi boşsa koda göre: 1/10 Bilanço · 100 Ana · 100.01 Alt · 100.01.001 Detay.",
             },
             Fields =
             {
                 new() { Key = "Code", Label = "Hesap Kodu", Required = true, Sample = "100.01",
                         Aliases = new[] { "hesap kodu", "kod", "code" } },
                 new() { Key = "Title", Label = "Hesap Adı", Required = true, Sample = "Merkez Kasa",
-                        Aliases = new[] { "hesap adi", "aciklama", "ad", "title", "name" } },
+                        Aliases = new[] { "hesap adi", "aciklama", "description", "ad", "adi", "title", "name" } },
                 new() { Key = "MainAccountCode", Label = "Üst Hesap Kodu", Special = true,
                         Aliases = new[] { "ust hesap kodu", "ust hesap", "ana hesap kodu", "parent" },
                         Hint = "Noktalı kodlarda dikkate alınmaz" },
                 new() { Key = "Type_", Label = "Hesap Tipi", Type = "enum",
-                        Options = new() { ["Ana Hesap"] = "1", ["Ana"] = "1", ["Detay Hesap"] = "2", ["Detay"] = "2", ["Muavin"] = "2" },
+                        Options = new()
+                        {
+                            ["Bilanço Hesabı"] = "1", ["Bilanco"] = "1", ["Bilanço"] = "1",
+                            ["Ana Hesap"] = "2", ["Ana"] = "2",
+                            ["Alt Hesap"] = "3", ["Alt"] = "3",
+                            ["Detay Hesap"] = "4", ["Detay"] = "4", ["Muavin"] = "4",
+                        },
                         Aliases = new[] { "hesap tipi", "tip", "tur" } },
                 new() { Key = "IsActive", Label = "Aktif", Type = "bool", Options = BoolOptions,
                         Aliases = new[] { "aktif", "durum", "active" }, Hint = "Boşsa Evet" },
@@ -217,10 +269,108 @@ public sealed class ImportRepository
                 new() { Key = "DefaultRate", Label = "Kur", Type = "int", Aliases = new[] { "kur", "rate" } },
             },
         },
+        InvoiceTarget(),
+        CustomerVoucherTarget(),
+        BankVoucherTarget(),
+        AccountVoucherTarget(),
     };
 
     public static ImportTargetDef? GetTarget(string kind) =>
         Targets.FirstOrDefault(t => t.Kind.Equals(kind, StringComparison.OrdinalIgnoreCase));
+
+    private static string? LineTable(string kind) => kind switch
+    {
+        "invoice" => "ProductTrans",
+        "customer-voucher" => "CustomerTrans",
+        "bank-voucher" => "BankTrans",
+        "account-voucher" => "AccountTrans",
+        _ => null,
+    };
+
+    /// <summary>Şablon alanları + hedefin yazılabilir kolonları + ek alanlar (U_).</summary>
+    public async Task<List<ImportFieldDef>> CatalogAsync(string kind, CancellationToken ct = default)
+    {
+        var def = GetTarget(kind) ?? throw new InvalidOperationException($"Bilinmeyen içe aktarım türü: {kind}");
+        if (_db.State != ConnectionState.Open) _db.Open();
+        var list = def.Fields.ToList();
+        var used = new HashSet<string>(list.Select(f => f.Key), StringComparer.OrdinalIgnoreCase);
+        var labels = await ExtraLabelsAsync(ct);
+        foreach (var col in await WritableColumnsAsync(def.TableName, ct))
+            AddColumn(list, used, labels, def.TableName, col, line: false);
+        var line = LineTable(def.Kind);
+        if (line != null)
+        {
+            foreach (var col in await WritableColumnsAsync(line, ct))
+                AddColumn(list, used, labels, line, col, line: true);
+        }
+        return list;
+    }
+
+    private async Task<Dictionary<string, string>> ExtraLabelsAsync(CancellationToken ct)
+    {
+        var map = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+        var exists = await _db.ExecuteScalarAsync<int?>(new CommandDefinition(
+            "SELECT OBJECT_ID(N'dbo.SYS_ExtraFields', N'U')", cancellationToken: ct));
+        if (exists is null) return map;
+        var rows = await _db.QueryAsync<(string TableName, string FieldName, string Label)>(new CommandDefinition(
+            "SELECT TableName, FieldName, Label FROM dbo.SYS_ExtraFields WHERE IsActive = 1",
+            cancellationToken: ct));
+        foreach (var r in rows)
+        {
+            if (string.IsNullOrWhiteSpace(r.FieldName) || string.IsNullOrWhiteSpace(r.Label)) continue;
+            map[$"{r.TableName}.{r.FieldName}"] = r.Label.Trim();
+        }
+        return map;
+    }
+
+    private async Task<List<(string Name, string TypeName)>> WritableColumnsAsync(string table, CancellationToken ct)
+    {
+        var exists = await _db.ExecuteScalarAsync<int?>(new CommandDefinition(
+            "SELECT OBJECT_ID(@t, N'U')", new { t = $"dbo.{table}" }, cancellationToken: ct));
+        if (exists is null) return new();
+        var rows = await _db.QueryAsync<(string Name, string TypeName)>(new CommandDefinition(
+            @"SELECT c.name, ty.name
+              FROM sys.columns c
+              JOIN sys.types ty ON c.user_type_id = ty.user_type_id
+              WHERE c.object_id = OBJECT_ID(@t)
+                AND c.is_identity = 0
+                AND c.is_computed = 0
+                AND ty.name NOT IN (N'varbinary', N'image', N'xml', N'timestamp', N'rowversion', N'geography', N'hierarchyid', N'sql_variant')
+              ORDER BY c.column_id",
+            new { t = $"dbo.{table}" }, cancellationToken: ct));
+        return rows.ToList();
+    }
+
+    private static void AddColumn(
+        List<ImportFieldDef> list, HashSet<string> used, Dictionary<string, string> labels,
+        string table, (string Name, string TypeName) col, bool line)
+    {
+        if (string.IsNullOrWhiteSpace(col.Name)) return;
+        if (col.Name.Equals("AdditionalFields", StringComparison.OrdinalIgnoreCase)) return;
+        var key = line ? "L_" + col.Name : col.Name;
+        if (!used.Add(key)) return;
+        if (line && used.Contains(col.Name)) return;
+        labels.TryGetValue($"{table}.{col.Name}", out var extraLabel);
+        var additional = col.Name.StartsWith("U_", StringComparison.OrdinalIgnoreCase);
+        list.Add(new ImportFieldDef
+        {
+            Key = key,
+            Label = line
+                ? "Satır · " + (extraLabel ?? col.Name)
+                : (extraLabel ?? col.Name),
+            Type = col.TypeName.ToLowerInvariant() switch
+            {
+                "bit" => "bool",
+                "tinyint" or "smallint" or "int" or "bigint" => "int",
+                "decimal" or "numeric" or "float" or "real" or "money" or "smallmoney" => "decimal",
+                "date" or "datetime" or "datetime2" or "smalldatetime" => "date",
+                _ => "text",
+            },
+            Additional = additional,
+            DefaultOn = false,
+            Hint = line ? "Satır kolonu" : additional ? "Ek alan" : "Tablo kolonu",
+        });
+    }
 
     // ── Uygula / ön izleme ──────────────────────────────────────────────────
 
@@ -230,6 +380,7 @@ public sealed class ImportRepository
         public string Code = "";
         public Dictionary<string, object?> Values = new(StringComparer.OrdinalIgnoreCase);
         public List<string> Errors = new();
+        public List<string> Warnings = new();
     }
 
     private sealed class ExistingRow
@@ -243,18 +394,45 @@ public sealed class ImportRepository
         var def = GetTarget(kind) ?? throw new InvalidOperationException($"Bilinmeyen içe aktarım türü: {kind}");
         if (_db.State != ConnectionState.Open) _db.Open();
 
+        if (def.Kind is "invoice" or "customer-voucher" or "bank-voucher" or "account-voucher")
+        {
+            var voucher = await ApplyVouchersAsync(def, req, ct);
+            if (!req.DryRun) await WriteLogAsync(def, req, voucher, ct);
+            return voucher;
+        }
+
         var mode = (req.Mode ?? "upsert").Trim().ToLowerInvariant();
-        var productType = req.ProductType is >= 1 and <= 3 ? req.ProductType.Value : 1;
+        var defaultProductType = req.ProductType is >= 1 and <= 3 ? req.ProductType.Value : 1;
         var result = new ImportApplyResult { DryRun = req.DryRun, Total = req.Rows.Count };
 
         var existing = await LoadExistingAsync(def, ct);
         var parsed = ParseRows(def, req.Rows);
 
+        // Ad / ünvan / hesap adı boşsa açıklama, yetkili adı veya kod kullanılır.
+        // Malzeme, cari ve hesap aktarımında aynı kural geçerlidir.
+        foreach (var r in parsed)
+        {
+            if (HasText(r, "Title")) continue;
+            foreach (var key in new[] { "U_Description", "Description", "Contact_Name" })
+            {
+                if (!HasText(r, key)) continue;
+                r.Values["Title"] = r.Values[key]?.ToString()?.Trim();
+                break;
+            }
+            if (!HasText(r, "Title") && r.Code.Length > 0)
+                r.Values["Title"] = r.Code;
+        }
+
+        if (def.Kind == "product")
+            await ResolveProductUnitsAsync(parsed, req.DryRun, ct);
+
+        // Aynı kod kaynakta birden çok kez gelirse (ör. JOIN çoğaltması) ilk satır aktarılır, diğerleri atlanır
         var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        var duplicates = new HashSet<ParsedRow>();
         foreach (var r in parsed)
         {
             if (r.Code.Length == 0) continue;
-            if (!seen.Add(r.Code)) r.Errors.Add("Dosyada tekrar eden kod");
+            if (!seen.Add(r.Code)) duplicates.Add(r);
         }
 
         if (def.Kind == "account")
@@ -277,11 +455,27 @@ public sealed class ImportRepository
             var res = new ImportRowResult { RowNo = row.RowNo, Code = row.Code };
             result.Rows.Add(res);
 
+            if (duplicates.Contains(row))
+            {
+                res.Action = "skip";
+                res.Message = "Kaynakta tekrar eden kod — ilk satır aktarıldı, bu satır atlandı";
+                result.Skipped++;
+                continue;
+            }
+
             var found = existing.TryGetValue(row.Code, out var ex);
             if (row.Errors.Count == 0 && !found && !row.Values.ContainsKey("Title"))
                 row.Errors.Add("Ad / ünvan zorunlu (yeni kayıt)");
-            if (row.Errors.Count == 0 && found && def.Kind == "product" && ex!.ProductType is { } pt && pt != productType)
-                row.Errors.Add($"Bu kod başka kart tipinde kayıtlı (ProductType={pt})");
+
+            // Hesap: üst hesap yoksa alt hesap eklenmez (120.01 → 120 zorunlu)
+            if (row.Errors.Count == 0
+                && def.Kind == "account"
+                && accountParents.TryGetValue(row.Code, out var needParent)
+                && !string.IsNullOrEmpty(needParent)
+                && !existing.ContainsKey(needParent!))
+            {
+                row.Errors.Add($"Üst hesap «{needParent}» yok — önce ana hesabı ekleyin");
+            }
 
             if (row.Errors.Count > 0)
             {
@@ -308,7 +502,9 @@ public sealed class ImportRepository
             }
 
             var warnings = new List<string>();
-            var save = await BuildSaveRequestAsync(def, row, found ? ex!.Id : 0, productType,
+            warnings.AddRange(row.Warnings);
+            var rowProductType = ResolveProductType(row, found ? ex : null, defaultProductType);
+            var save = await BuildSaveRequestAsync(def, row, found ? ex!.Id : 0, rowProductType,
                 accountParents, hasChildren, existing, warnings, req.DryRun, ct);
 
             res.Action = found ? "update" : "insert";
@@ -325,11 +521,17 @@ public sealed class ImportRepository
                     continue;
                 }
                 res.RecordId = id;
-                if (!found) existing[row.Code] = new ExistingRow { Id = id, ProductType = def.Kind == "product" ? productType : null };
+                if (!found) existing[row.Code] = new ExistingRow { Id = id, ProductType = def.Kind == "product" ? rowProductType : null };
+                else if (def.Kind == "product" && existing.TryGetValue(row.Code, out var upd))
+                    upd.ProductType = rowProductType;
+                if (def.Kind == "product" && id > 0
+                    && row.Values.TryGetValue("DefaultUnitID", out var linked)
+                    && linked is int unitId)
+                    await EnsureMainProductUnitAsync(id, unitId, ct);
             }
             else if (!found)
             {
-                existing[row.Code] = new ExistingRow { Id = 0, ProductType = def.Kind == "product" ? productType : null };
+                existing[row.Code] = new ExistingRow { Id = 0, ProductType = def.Kind == "product" ? rowProductType : null };
             }
 
             if (warnings.Count > 0) res.Message = string.Join("; ", warnings);
@@ -341,6 +543,9 @@ public sealed class ImportRepository
         if (!req.DryRun) await WriteLogAsync(def, req, result, ct);
         return result;
     }
+
+    private static bool HasText(ParsedRow row, string key) =>
+        row.Values.TryGetValue(key, out var v) && !string.IsNullOrWhiteSpace(v?.ToString());
 
     private static List<ParsedRow> ParseRows(ImportTargetDef def, List<Dictionary<string, string?>> rows)
     {
@@ -361,7 +566,17 @@ public sealed class ImportRepository
                     continue;
                 }
                 if (TryParseValue(f, text, out var value, out var err)) row.Values[f.Key] = value;
+                else if (f.Key.Equals("DefaultUnitID", StringComparison.OrdinalIgnoreCase))
+                    row.Values[f.Key] = text;
                 else row.Errors.Add(err!);
+            }
+
+            var known = new HashSet<string>(def.Fields.Select(f => f.Key), StringComparer.OrdinalIgnoreCase) { RowNoKey };
+            foreach (var kv in raw)
+            {
+                if (known.Contains(kv.Key) || string.IsNullOrWhiteSpace(kv.Value)) continue;
+                if (!ExtraKey.IsMatch(kv.Key)) continue;
+                row.Values[kv.Key] = kv.Value.Trim();
             }
 
             row.Code = row.Values.TryGetValue("Code", out var c) ? c?.ToString()?.Trim() ?? "" : "";
@@ -416,6 +631,7 @@ public sealed class ImportRepository
         CancellationToken ct)
     {
         var isNew = recordId == 0;
+        _ = hasChildren; // tip artık koda göre; imza uyumu
         var std = new Dictionary<string, object?>(StringComparer.OrdinalIgnoreCase);
         var add = new Dictionary<string, object?>(StringComparer.OrdinalIgnoreCase);
 
@@ -424,6 +640,13 @@ public sealed class ImportRepository
             if (f.Special || !row.Values.TryGetValue(f.Key, out var v)) continue;
             if (f.Additional) add[f.Key] = v;
             else std[f.Key] = v;
+        }
+        var known = new HashSet<string>(def.Fields.Select(f => f.Key), StringComparer.OrdinalIgnoreCase);
+        foreach (var kv in row.Values)
+        {
+            if (known.Contains(kv.Key) || kv.Key.StartsWith("L_", StringComparison.OrdinalIgnoreCase)) continue;
+            if (kv.Key.StartsWith("U_", StringComparison.OrdinalIgnoreCase)) add[kv.Key] = kv.Value;
+            else std[kv.Key] = kv.Value;
         }
 
         var save = new RecordSaveRequest { RecordId = recordId, StandardFields = std };
@@ -439,12 +662,17 @@ public sealed class ImportRepository
         switch (def.Kind)
         {
             case "product":
-                std["ProductType"] = productType;
+                // Kaynakta Kart Tipi / CARDTYPE varsa o yazılır; yoksa yeni kartta varsayılan, güncellemede mevcut tip korunur
+                if (row.Values.ContainsKey("ProductType"))
+                    std["ProductType"] = productType;
+                else if (isNew)
+                    std["ProductType"] = productType;
                 if (isNew)
                 {
                     std.TryAdd("IsActive", true);
                     std.TryAdd("DefaultUnitID", 1);
-                    std.TryAdd("UseInMaterial", true);
+                    var material = productType == 1;
+                    std.TryAdd("UseInMaterial", material);
                     std.TryAdd("UseInSales", true);
                     std.TryAdd("UseInPurchase", true);
                 }
@@ -494,57 +722,74 @@ public sealed class ImportRepository
                     new { id = recordId }, cancellationToken: ct));
                 if (isNew || (hasAddr && addrCount == 0))
                 {
-                    string? V(string k) => row.Values.TryGetValue(k, out var o) ? o?.ToString() : null;
-                    save.Addresses = new List<Dictionary<string, object?>>
+                    string? V(string k) => row.Values.TryGetValue(k, out var o) && o != null && o.ToString()!.Length > 0 ? o.ToString() : null;
+                    var addr = new Dictionary<string, object?>
                     {
-                        new()
-                        {
-                            ["AdressType"] = 1,
-                            ["IsDefault"] = true,
-                            ["Active"] = true,
-                            ["Title"] = "Merkez",
-                            ["Country"] = V("Addr_Country") ?? "Türkiye",
-                            ["City"] = V("Addr_City"),
-                            ["Town"] = V("Addr_Town"),
-                            ["Dictrict"] = V("Addr_District"),
-                            ["Adress"] = V("Addr_Address"),
-                            ["TaxNr"] = std.TryGetValue("TaxNr", out var t) ? t : null,
-                        },
+                        ["AdressType"] = row.Values.TryGetValue("Addr_Type", out var at) && at != null ? at : 1,
+                        ["IsDefault"] = true,
+                        ["Active"] = true,
+                        ["Title"] = V("Addr_Name") ?? "Merkez",
+                        ["Country"] = V("Addr_Country") ?? "Türkiye",
+                        ["City"] = V("Addr_City"),
+                        ["Town"] = V("Addr_Town"),
+                        ["Dictrict"] = V("Addr_District"),
+                        ["Adress"] = V("Addr_Address"),
+                        ["TaxNr"] = std.TryGetValue("TaxNr", out var t) ? t : null,
                     };
+                    if (V("Addr_Code") is string ac) addr["AdressCode"] = ac;
+                    if (V("Addr_PostLabel") is string pk) addr["PostLabel"] = pk;
+                    if (V("Addr_SenderLabel") is string gb) addr["SenderLabel"] = gb;
+                    if (V("Addr_EinvoiceEmail") is string em) addr["EinvoiceEmailAdress"] = em;
+                    if (V("Addr_TaxOffice") is string vo) addr["TaxOffice"] = vo;
+                    save.Addresses = new List<Dictionary<string, object?>> { addr };
                 }
                 else if (hasAddr)
                 {
                     warnings.Add("Caride adres var — adres güncellenmedi");
                 }
+
+                var contactName = row.Values.TryGetValue("Contact_Name", out var cn) ? cn?.ToString()?.Trim() : null;
+                if (!string.IsNullOrWhiteSpace(contactName))
+                {
+                    var contactCount = isNew ? 0 : await _db.ExecuteScalarAsync<int>(new CommandDefinition(
+                        "SELECT COUNT(1) FROM dbo.CustomerContact WHERE CustomerCardID = @id",
+                        new { id = recordId }, cancellationToken: ct));
+                    if (isNew || contactCount == 0)
+                    {
+                        string? C(string k) => row.Values.TryGetValue(k, out var o) && o != null && o.ToString()!.Length > 0 ? o.ToString() : null;
+                        save.Contacts = new List<Dictionary<string, object?>>
+                        {
+                            new()
+                            {
+                                ["Name"] = contactName,
+                                ["ContactTitle"] = C("Contact_Title"),
+                                ["Phone"] = C("Contact_Phone"),
+                                ["Email"] = C("Contact_Email"),
+                                ["IsDefault"] = true,
+                            },
+                        };
+                    }
+                    else warnings.Add("Caride yetkili var — yetkili güncellenmedi");
+                }
                 break;
 
             case "account":
                 if (isNew)
-                {
                     std.TryAdd("IsActive", true);
-                    if (!std.ContainsKey("Type_"))
-                    {
-                        var isParent = hasChildren.Contains(row.Code);
-                        std["Type_"] = isParent ? 1 : 2;
-                        std["MainAccount"] = isParent;
-                    }
-                }
-                else if (hasChildren.Contains(row.Code) && !std.ContainsKey("Type_"))
+                // Tip her zaman koda göre (aktarımda boş/yanlış olsa bile)
                 {
-                    std["MainAccount"] = true;
+                    var t = InferAccountTypeFromCode(row.Code);
+                    std["Type_"] = t;
+                    std["MainAccount"] = t is 1 or 2;
                 }
 
                 if (accountParents.TryGetValue(row.Code, out var parentCode) && !string.IsNullOrEmpty(parentCode))
                 {
-                    var exists = existing.ContainsKey(parentCode);
-                    if (!exists)
-                        warnings.Add($"Üst hesap {parentCode} bulunamadı — bağlantısız kaydedilir");
-                    else if (!row.Code.Contains('.'))
-                    {
-                        var pid = existing[parentCode].Id;
-                        if (pid > 0) std["MainAccountID"] = pid;
-                        else if (!dryRun) warnings.Add($"Üst hesap {parentCode} bağlanamadı");
-                    }
+                    // Üst yoksa satır zaten hata; burada yalnızca MainAccountID bağla
+                    if (existing.TryGetValue(parentCode!, out var parentRow) && parentRow.Id > 0)
+                        std["MainAccountID"] = parentRow.Id;
+                    else if (!row.Code.Contains('.') && dryRun && existing.ContainsKey(parentCode!))
+                        std["MainAccount"] = false; // dry-run: üst aynı dosyada, ID sonra gelir
                 }
                 break;
         }
@@ -604,15 +849,20 @@ public sealed class ImportRepository
     {
         var exists = await _db.ExecuteScalarAsync<int?>(new CommandDefinition(
             "SELECT OBJECT_ID(N'dbo.SYS_ImportLog', N'U')", cancellationToken: ct));
-        if (exists is null) return;
+        if (exists is null || !req.WriteLog) return;
 
         var errors = res.Rows.Where(r => r.Action == "error").Take(500)
             .Select(r => new { r.RowNo, r.Code, r.Message });
-        await _db.ExecuteAsync(new CommandDefinition(
-            @"INSERT INTO dbo.SYS_ImportLog
+        var hasProfile = await _db.ExecuteScalarAsync<int?>(new CommandDefinition(
+            "SELECT COL_LENGTH(N'dbo.SYS_ImportLog', N'ImportProfileID')", cancellationToken: ct));
+        var sql = hasProfile is > 0
+            ? @"INSERT INTO dbo.SYS_ImportLog
+                (Kind, TableName, FileName, Mode, TotalRows, Inserted, Updated, Skipped, Failed, ErrorsJson, ImportedBy, ImportedAt, ImportProfileID)
+              VALUES (@Kind, @TableName, @FileName, @Mode, @Total, @Inserted, @Updated, @Skipped, @Failed, @ErrorsJson, @ImportedBy, SYSUTCDATETIME(), @ProfileId)"
+            : @"INSERT INTO dbo.SYS_ImportLog
                 (Kind, TableName, FileName, Mode, TotalRows, Inserted, Updated, Skipped, Failed, ErrorsJson, ImportedBy, ImportedAt)
-              VALUES (@Kind, @TableName, @FileName, @Mode, @Total, @Inserted, @Updated, @Skipped, @Failed, @ErrorsJson, @ImportedBy, SYSUTCDATETIME())",
-            new
+              VALUES (@Kind, @TableName, @FileName, @Mode, @Total, @Inserted, @Updated, @Skipped, @Failed, @ErrorsJson, @ImportedBy, SYSUTCDATETIME())";
+        await _db.ExecuteAsync(new CommandDefinition(sql, new
             {
                 def.Kind,
                 def.TableName,
@@ -625,12 +875,228 @@ public sealed class ImportRepository
                 res.Failed,
                 ErrorsJson = JsonSerializer.Serialize(errors),
                 ImportedBy = Trunc(req.ImportedBy, 100),
+                req.ProfileId,
             },
             cancellationToken: ct));
     }
 
+    /// <summary>1 Bilanço · 2 Ana · 3 Alt · 4 Detay</summary>
+    private static byte InferAccountTypeFromCode(string? code)
+    {
+        var c = (code ?? "").Trim();
+        if (c.Length == 0) return 2;
+        var parts = c.Split('.', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+        if (parts.Length >= 3) return 4;
+        if (parts.Length == 2) return 3;
+        var head = parts.Length == 1 ? parts[0] : c;
+        if (head.Length is >= 1 and <= 2 && head.All(char.IsDigit)) return 1;
+        return 2;
+    }
+
     private static string? Trunc(string? s, int max) =>
         s is null ? null : s.Length <= max ? s : s[..max];
+
+    private static int ResolveProductType(ParsedRow row, ExistingRow? existing, int defaultType)
+    {
+        if (row.Values.TryGetValue("ProductType", out var raw) && raw != null)
+        {
+            if (raw is int i && i is >= 1 and <= 3) return i;
+            if (int.TryParse(raw.ToString(), NumberStyles.Integer, CultureInfo.InvariantCulture, out var n) && n is >= 1 and <= 3)
+                return n;
+        }
+        if (existing?.ProductType is >= 1 and <= 3) return existing.ProductType.Value;
+        return defaultType is >= 1 and <= 3 ? defaultType : 1;
+    }
+
+    // ── Birim: metin → UnitCard.UnitID ──────────────────────────────────────
+
+    private static readonly Dictionary<string, string[]> UnitAliases = new(StringComparer.Ordinal)
+    {
+        ["adet"] = ["adet", "adt", "ea", "c62"],
+        ["ad"] = ["adet", "adt", "ea"],
+        ["ea"] = ["adet", "adt", "ea"],
+        ["c62"] = ["adet", "adt", "ea"],
+        ["koli"] = ["koli", "bx"],
+        ["bx"] = ["koli", "bx"],
+        ["paket"] = ["paket", "pkt", "pa"],
+        ["pkt"] = ["paket", "pkt", "pa"],
+        ["pa"] = ["paket", "pkt", "pa"],
+        ["kg"] = ["kg", "kgm"],
+        ["kilo"] = ["kg", "kgm"],
+        ["kilogram"] = ["kg", "kgm"],
+        ["kgm"] = ["kg", "kgm"],
+        ["lt"] = ["lt", "litre", "ltr"],
+        ["l"] = ["lt", "litre", "ltr"],
+        ["litre"] = ["litre", "lt", "ltr"],
+        ["ltr"] = ["litre", "lt", "ltr"],
+        ["mt"] = ["mt", "metre", "mtr"],
+        ["m"] = ["mt", "metre", "mtr"],
+        ["metre"] = ["metre", "mt", "mtr"],
+        ["mtr"] = ["metre", "mt", "mtr"],
+        ["saat"] = ["saat", "hur"],
+        ["hur"] = ["saat", "hur"],
+        ["gun"] = ["gun", "day"],
+        ["day"] = ["gun", "day"],
+    };
+
+    private sealed class UnitLookup
+    {
+        public Dictionary<string, int> ByKey { get; } = new(StringComparer.Ordinal);
+        public Dictionary<int, string> TitleById { get; } = new();
+        public bool TableExists { get; set; }
+
+        public void Add(int id, string? code, string? title, string? globalCode)
+        {
+            if (id <= 0) return;
+            if (!string.IsNullOrWhiteSpace(title)) TitleById[id] = title.Trim();
+            void Put(string? raw)
+            {
+                if (string.IsNullOrWhiteSpace(raw)) return;
+                var key = ImportRepository.Normalize(raw);
+                if (key.Length > 0) ByKey.TryAdd(key, id);
+            }
+            Put(code);
+            Put(title);
+            Put(globalCode);
+            Put(id.ToString(CultureInfo.InvariantCulture));
+        }
+
+        public int? Find(string raw)
+        {
+            var key = ImportRepository.Normalize(raw);
+            if (key.Length == 0) return null;
+            if (ByKey.TryGetValue(key, out var id)) return id;
+            if (UnitAliases.TryGetValue(key, out var alts))
+            {
+                foreach (var alt in alts)
+                    if (ByKey.TryGetValue(alt, out id)) return id;
+            }
+            return null;
+        }
+    }
+
+    private async Task<UnitLookup> LoadUnitLookupAsync(CancellationToken ct)
+    {
+        var lookup = new UnitLookup();
+        var exists = await _db.ExecuteScalarAsync<int?>(new CommandDefinition(
+            "SELECT OBJECT_ID(N'dbo.UnitCard', N'U')", cancellationToken: ct));
+        lookup.TableExists = exists is not null;
+        if (!lookup.TableExists) return lookup;
+        var rows = await _db.QueryAsync<(int UnitID, string? Code, string? Title, string? GlobalCode)>(new CommandDefinition(
+            "SELECT UnitID, Code, Title, GlobalCode FROM dbo.UnitCard", cancellationToken: ct));
+        foreach (var r in rows)
+            lookup.Add(r.UnitID, r.Code, r.Title, r.GlobalCode);
+        return lookup;
+    }
+
+    private async Task ResolveProductUnitsAsync(List<ParsedRow> rows, bool dryRun, CancellationToken ct)
+    {
+        var lookup = await LoadUnitLookupAsync(ct);
+        foreach (var row in rows)
+        {
+            if (row.Errors.Count > 0) continue;
+            string? text = null;
+            int? id = null;
+            if (row.Values.TryGetValue("DefaultUnitID", out var current) && current != null)
+            {
+                if (current is int n) id = n;
+                else if (int.TryParse(current.ToString(), NumberStyles.Integer, CultureInfo.InvariantCulture, out var parsed)
+                         && lookup.TitleById.ContainsKey(parsed))
+                    id = parsed;
+                else text = current.ToString()?.Trim();
+            }
+            if (id is null && row.Values.TryGetValue("MainUnitName", out var name) && name != null)
+                text ??= name.ToString()?.Trim();
+            if (id is > 0 && !lookup.TitleById.ContainsKey(id.Value))
+                id = null;
+
+            if (id is null && !string.IsNullOrWhiteSpace(text))
+            {
+                id = lookup.Find(text);
+                if (id is null && lookup.TableExists)
+                {
+                    if (dryRun)
+                        row.Warnings.Add($"Birim kartında yok — aktarımda açılacak: {text}");
+                    else
+                    {
+                        id = await CreateUnitAsync(text, lookup, ct);
+                        var title = lookup.TitleById.TryGetValue(id.Value, out var t) ? t : text;
+                        row.Warnings.Add($"Birim kartı açıldı: {title}");
+                    }
+                }
+                else if (id is null)
+                {
+                    row.Errors.Add($"Birim bulunamadı: {text}");
+                    continue;
+                }
+            }
+
+            if (id is > 0)
+            {
+                row.Values["DefaultUnitID"] = id.Value;
+                if (lookup.TitleById.TryGetValue(id.Value, out var title))
+                    row.Values["MainUnitName"] = title;
+            }
+        }
+    }
+
+    private async Task<int> CreateUnitAsync(string raw, UnitLookup lookup, CancellationToken ct)
+    {
+        var title = raw.Trim();
+        if (title.Length > 80) title = title[..80];
+        var code = new string(title.Where(char.IsLetterOrDigit).ToArray()).ToUpper(new CultureInfo("tr-TR"));
+        if (code.Length == 0) code = "BIRIM";
+        if (code.Length > 20) code = code[..20];
+        var baseCode = code;
+        for (var n = 2; n < 50; n++)
+        {
+            var taken = await _db.ExecuteScalarAsync<int>(new CommandDefinition(
+                "SELECT COUNT(1) FROM dbo.UnitCard WHERE Code = @c", new { c = code }, cancellationToken: ct));
+            if (taken == 0) break;
+            var suffix = n.ToString(CultureInfo.InvariantCulture);
+            var room = Math.Max(1, 20 - suffix.Length);
+            code = (baseCode.Length > room ? baseCode[..room] : baseCode) + suffix;
+        }
+        var id = await _db.ExecuteScalarAsync<int>(new CommandDefinition(
+            @"INSERT INTO dbo.UnitCard (Code, Title, IsActive) VALUES (@c, @t, 1);
+              SELECT CAST(SCOPE_IDENTITY() AS INT);",
+            new { c = code, t = title }, cancellationToken: ct));
+        lookup.Add(id, code, title, null);
+        return id;
+    }
+
+    private async Task EnsureMainProductUnitAsync(int productId, int unitId, CancellationToken ct)
+    {
+        if (productId <= 0 || unitId <= 0) return;
+        var exists = await _db.ExecuteScalarAsync<int?>(new CommandDefinition(
+            "SELECT OBJECT_ID(N'dbo.ProductUnit', N'U')", cancellationToken: ct));
+        if (exists is null) return;
+        var has = await _db.ExecuteScalarAsync<int>(new CommandDefinition(
+            "SELECT COUNT(1) FROM dbo.ProductUnit WHERE ProductCardID = @p AND UnitID = @u",
+            new { p = productId, u = unitId }, cancellationToken: ct));
+        if (has == 0)
+        {
+            var hasRatio = await _db.ExecuteScalarAsync<int>(new CommandDefinition(
+                "SELECT CASE WHEN COL_LENGTH(N'dbo.ProductUnit', N'MainQty') IS NULL THEN 0 ELSE 1 END",
+                cancellationToken: ct));
+            var sql = hasRatio == 1
+                ? @"INSERT INTO dbo.ProductUnit (ProductCardID, UnitID, IsMain, LineNr, MainQty, UnitQty)
+                    VALUES (@p, @u, 1, 1, 1, 1)"
+                : @"INSERT INTO dbo.ProductUnit (ProductCardID, UnitID, IsMain, LineNr)
+                    VALUES (@p, @u, 1, 1)";
+            await _db.ExecuteAsync(new CommandDefinition(sql, new { p = productId, u = unitId }, cancellationToken: ct));
+        }
+        else
+        {
+            await _db.ExecuteAsync(new CommandDefinition(
+                "UPDATE dbo.ProductUnit SET IsMain = 1 WHERE ProductCardID = @p AND UnitID = @u",
+                new { p = productId, u = unitId }, cancellationToken: ct));
+        }
+        await _db.ExecuteAsync(new CommandDefinition(
+            @"UPDATE dbo.ProductUnit SET IsMain = 0
+              WHERE ProductCardID = @p AND UnitID <> @u AND ISNULL(IsMain, 0) = 1",
+            new { p = productId, u = unitId }, cancellationToken: ct));
+    }
 
     // ── Değer çevirme ───────────────────────────────────────────────────────
 
@@ -678,6 +1144,17 @@ public sealed class ImportRepository
             {
                 if (TryParseDecimal(text, out var d)) { value = d; return true; }
                 error = $"{f.Label}: '{text}' sayı değil";
+                return false;
+            }
+            case "date":
+            {
+                if (DateTime.TryParse(text, CultureInfo.GetCultureInfo("tr-TR"), DateTimeStyles.None, out var tr)
+                    || DateTime.TryParse(text, CultureInfo.InvariantCulture, DateTimeStyles.None, out tr))
+                {
+                    value = tr.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture);
+                    return true;
+                }
+                error = $"{f.Label}: '{text}' tarih değil";
                 return false;
             }
             case "enum":
