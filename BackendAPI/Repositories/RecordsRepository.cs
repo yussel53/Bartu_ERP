@@ -1,4 +1,5 @@
 using System.Data;
+using System.Globalization;
 using System.Text.Json;
 using System.Text.RegularExpressions;
 using Dapper;
@@ -24,6 +25,7 @@ public sealed class RecordGetResult
     public Dictionary<string, object?> AdditionalFields { get; set; } = new();
     public List<Dictionary<string, object?>>? Addresses { get; set; }
     public List<Dictionary<string, object?>>? Contacts { get; set; }
+    public List<Dictionary<string, object?>>? Ibans { get; set; }
     public List<Dictionary<string, object?>>? Accounts { get; set; }
     public List<Dictionary<string, object?>>? Barcodes { get; set; }
     public List<Dictionary<string, object?>>? UnitConvs { get; set; }
@@ -41,6 +43,9 @@ public sealed class RecordGetResult
     public List<Dictionary<string, object?>>? Distributions { get; set; }
     public List<Dictionary<string, object?>>? AuxilCodes { get; set; }
     public List<Dictionary<string, object?>>? AuxilValues { get; set; }
+    public List<Dictionary<string, object?>>? Prices { get; set; }
+    /// <summary>AccountCard: AccountTrans hareketi varsa true (kod kilit / alt hesap yasağı).</summary>
+    public bool? HasMovements { get; set; }
 }
 
 public sealed class SerialLotOptionDto
@@ -65,6 +70,7 @@ public sealed class RecordSaveRequest
     public Dictionary<string, object?>? AdditionalFields { get; set; }
     public List<Dictionary<string, object?>>? Addresses { get; set; }
     public List<Dictionary<string, object?>>? Contacts { get; set; }
+    public List<Dictionary<string, object?>>? Ibans { get; set; }
     public List<Dictionary<string, object?>>? Accounts { get; set; }
     public List<Dictionary<string, object?>>? Barcodes { get; set; }
     public List<Dictionary<string, object?>>? UnitConvs { get; set; }
@@ -82,6 +88,7 @@ public sealed class RecordSaveRequest
     public List<Dictionary<string, object?>>? Distributions { get; set; }
     public List<Dictionary<string, object?>>? AuxilCodes { get; set; }
     public List<Dictionary<string, object?>>? AuxilValues { get; set; }
+    public List<Dictionary<string, object?>>? Prices { get; set; }
     /** Form kodu — SYS_FormPostSave + şema postSave birleşimi */
     public string? FormCode { get; set; }
     /** Şemadan gelen kaydet-sonrası komutlar */
@@ -144,6 +151,13 @@ public sealed class RecordsRepository
                     TableName = "CustomerContact",
                     ParentFkColumn = "CustomerCardID",
                     PrimaryKeyColumn = "CustomerContactID",
+                },
+                new NestedChildSpec
+                {
+                    PayloadKey = "ibans",
+                    TableName = "CustomerIban",
+                    ParentFkColumn = "CustomerCardID",
+                    PrimaryKeyColumn = "CustomerIbanID",
                 },
                 new NestedChildSpec
                 {
@@ -239,6 +253,13 @@ public sealed class RecordsRepository
                     PrimaryKeyColumn = "AuxilCodeTransID",
                     FixedColumns = new Dictionary<string, object?> { ["ModuleNr"] = 1 },
                     FilterColumns = new Dictionary<string, object?> { ["ModuleNr"] = 1 },
+                },
+                new NestedChildSpec
+                {
+                    PayloadKey = "prices",
+                    TableName = "ProductPrice",
+                    ParentFkColumn = "ProductCardID",
+                    PrimaryKeyColumn = "ProductPriceID",
                 },
             ],
             ["BankCard"] =
@@ -547,7 +568,8 @@ public sealed class RecordsRepository
             return new RecordListResult { TableName = tableName, PrimaryKeyColumn = pk, Warning = "Kolon yok" };
         }
 
-        take = Math.Clamp(take, 1, 2000);
+        // Lookup (cari/malzeme) 10k’ya kadar; liste sayfaları genelde 50–500 ister
+        take = Math.Clamp(take, 1, 10000);
         skip = Math.Max(0, skip);
         var selectList = BuildSelectList(tableName, cols);
         var sql = $"SELECT {selectList} FROM [{tableName}]";
@@ -594,9 +616,18 @@ public sealed class RecordsRepository
         sql += where;
         var total = await _db.ExecuteScalarAsync<int>(new CommandDefinition($"SELECT COUNT(1) FROM [{tableName}]{where}", parameters, cancellationToken: ct));
 
-        sql += !string.IsNullOrWhiteSpace(pk) && cols.Contains(pk, StringComparer.OrdinalIgnoreCase)
-            ? $" ORDER BY [{pk}] DESC"
-            : " ORDER BY (SELECT NULL)";
+        // Hesap planı: kod artan (UI ayrıca 100 → 100.01 → 100.01.00001 hiyerarşik sıralar)
+        if (tableName.Equals("AccountCard", StringComparison.OrdinalIgnoreCase)
+            && cols.Contains("Code", StringComparer.OrdinalIgnoreCase))
+        {
+            sql += " ORDER BY [Code] ASC";
+        }
+        else
+        {
+            sql += !string.IsNullOrWhiteSpace(pk) && cols.Contains(pk, StringComparer.OrdinalIgnoreCase)
+                ? $" ORDER BY [{pk}] DESC"
+                : " ORDER BY (SELECT NULL)";
+        }
         sql += $" OFFSET {skip} ROWS FETCH NEXT {take} ROWS ONLY";
 
         var raw = await _db.QueryAsync(new CommandDefinition(sql, parameters, cancellationToken: ct));
@@ -642,6 +673,13 @@ public sealed class RecordsRepository
             ApplyProductCardStatsToRows(rows, stats);
         }
 
+        if (tableName.Equals("Invoice", StringComparison.OrdinalIgnoreCase)
+            || tableName.Equals("OrderVoucher", StringComparison.OrdinalIgnoreCase)
+            || tableName.Equals("ProductVoucher", StringComparison.OrdinalIgnoreCase)
+            || tableName.Equals("CustomerVoucher", StringComparison.OrdinalIgnoreCase)
+            || tableName.Equals("BankVoucher", StringComparison.OrdinalIgnoreCase))
+            await EnrichDocumentPartyRowsAsync(tableName, rows, ct);
+
         return new RecordListResult
         {
             TableName = tableName,
@@ -649,6 +687,89 @@ public sealed class RecordsRepository
             Total = Math.Max(total, skip + rows.Count),
             Rows = rows,
         };
+    }
+
+    /// <summary>Belge listeleri: CustomerID → kod — ünvan; faturalarda satır NetTotal toplamı.</summary>
+    private async Task EnrichDocumentPartyRowsAsync(string tableName, List<Dictionary<string, object?>> rows, CancellationToken ct)
+    {
+        if (rows.Count == 0) return;
+
+        object? Pick(Dictionary<string, object?> row, params string[] keys)
+        {
+            foreach (var k in keys)
+            {
+                if (row.TryGetValue(k, out var v) && v is not null and not DBNull && Convert.ToString(v)?.Trim() != "")
+                    return v;
+            }
+            return null;
+        }
+
+        var customerIds = rows
+            .Select(r => ToInt(Pick(r, "CustomerID", "customerID")))
+            .Where(id => id is > 0)
+            .Select(id => id!.Value)
+            .Distinct()
+            .ToList();
+
+        var titles = new Dictionary<int, string>();
+        if (customerIds.Count > 0 && await TableExistsAsync("CustomerCard"))
+        {
+            var custRows = await _db.QueryAsync<(int Id, string? Code, string? Title)>(new CommandDefinition(
+                @"SELECT CustomerCardID AS Id, Code, Title FROM dbo.CustomerCard WHERE CustomerCardID IN @ids",
+                new { ids = customerIds }, cancellationToken: ct));
+            foreach (var c in custRows)
+            {
+                var t = (c.Title ?? "").Trim();
+                var code = (c.Code ?? "").Trim();
+                if (t.Length == 0) titles[c.Id] = code;
+                else if (code.Length == 0 || string.Equals(t, code, StringComparison.OrdinalIgnoreCase))
+                    titles[c.Id] = t;
+                else
+                    titles[c.Id] = $"{code} — {t}";
+            }
+        }
+
+        var nets = new Dictionary<int, decimal>();
+        if (tableName.Equals("Invoice", StringComparison.OrdinalIgnoreCase)
+            && await TableExistsAsync("ProductTrans")
+            && (await GetColumnsAsync("ProductTrans")).Contains("NetTotal", StringComparer.OrdinalIgnoreCase))
+        {
+            var invIds = rows
+                .Select(r => ToInt(Pick(r, "InvoiceID", "id", "Id")))
+                .Where(id => id is > 0)
+                .Select(id => id!.Value)
+                .Distinct()
+                .ToList();
+            if (invIds.Count > 0)
+            {
+                var netRows = await _db.QueryAsync<(int InvoiceID, decimal NetSum)>(new CommandDefinition(
+                    @"SELECT InvoiceID, SUM(ISNULL(NetTotal, 0)) AS NetSum
+                      FROM dbo.ProductTrans
+                      WHERE InvoiceID IN @ids
+                      GROUP BY InvoiceID",
+                    new { ids = invIds }, cancellationToken: ct));
+                foreach (var n in netRows)
+                    nets[n.InvoiceID] = n.NetSum;
+            }
+        }
+
+        foreach (var row in rows)
+        {
+            var custId = ToInt(Pick(row, "CustomerID", "customerID"));
+            if (custId is > 0 && titles.TryGetValue(custId.Value, out var title) && title.Length > 0)
+            {
+                row["CustomerTitle"] = title;
+                row["customer"] = title;
+                row["customerTitle"] = title;
+            }
+            var invId = ToInt(Pick(row, "InvoiceID", "id", "Id"));
+            if (invId is > 0 && nets.TryGetValue(invId.Value, out var net))
+            {
+                row["NetTotal"] = net;
+                row["netTotal"] = net;
+                row["total"] = net;
+            }
+        }
     }
 
     private sealed class ProductCardStats
@@ -878,6 +999,57 @@ GROUP BY t.ItemsID, v.Type_",
     }
 
     /// <summary>
+    /// <summary>
+    /// Invoice.InvoiceType / ProductVoucher.VoucherType → TradeGroup (1 Satış · 2 Satınalma · 0 Diğer).
+    /// </summary>
+    private static void StampTradeGroup(string tableName, Dictionary<string, object?> incoming)
+    {
+        static int? ReadInt(Dictionary<string, object?> row, params string[] keys)
+        {
+            foreach (var k in keys)
+            {
+                if (!row.TryGetValue(k, out var v) || v == null || v is DBNull) continue;
+                if (v is int i) return i;
+                if (v is byte b) return b;
+                if (v is short s) return s;
+                if (v is long l) return (int)l;
+                if (int.TryParse(Convert.ToString(v, CultureInfo.InvariantCulture), out var n)) return n;
+            }
+            // case-insensitive
+            foreach (var kv in row)
+            {
+                if (!keys.Any(k => k.Equals(kv.Key, StringComparison.OrdinalIgnoreCase))) continue;
+                if (kv.Value == null || kv.Value is DBNull) continue;
+                if (int.TryParse(Convert.ToString(kv.Value, CultureInfo.InvariantCulture), out var n)) return n;
+            }
+            return null;
+        }
+
+        if (tableName.Equals("Invoice", StringComparison.OrdinalIgnoreCase))
+        {
+            var t = ReadInt(incoming, "InvoiceType") ?? 0;
+            incoming["TradeGroup"] = t switch
+            {
+                1 or 3 or 7 => (byte)1,
+                2 or 4 or 5 or 6 => (byte)2,
+                _ => (byte)0,
+            };
+            return;
+        }
+
+        if (tableName.Equals("ProductVoucher", StringComparison.OrdinalIgnoreCase))
+        {
+            var t = ReadInt(incoming, "VoucherType") ?? 0;
+            incoming["TradeGroup"] = t switch
+            {
+                3 or 5 => (byte)1,
+                2 or 4 => (byte)2,
+                _ => (byte)0,
+            };
+        }
+    }
+
+    /// <summary>
     /// ProductVoucher başlık alanlarını ProductTrans satırlarına işler (VoucherType, depo, tarih, ana birim miktarı).
     /// </summary>
     private static void StampProductTransLinesFromHeader(
@@ -907,8 +1079,8 @@ GROUP BY t.ItemsID, v.Type_",
         var aimWhouse = Pick("AimWhouseID");
         var status = Pick("Status_", "Status");
         var dept = Pick("DepartmentID");
-        var voucherDate = Pick("VoucherDate");
-        var lineNo = 0;
+            var voucherDate = Pick("VoucherDate", "InvoiceDate");
+            var lineNo = 0;
 
         foreach (var line in lines)
         {
@@ -1080,7 +1252,44 @@ GROUP BY t.ItemsID, v.Type_",
         };
 
         await AttachNestedChildrenAsync(result, tableName, recordId, ct);
+        if (tableName.Equals("AccountCard", StringComparison.OrdinalIgnoreCase) && recordId > 0)
+            result.HasMovements = await AccountHasMovementsAsync(recordId, ct);
         return result;
+    }
+
+    private static readonly string[] DocNumberFieldNames =
+        { "DocumentNumber", "OrderSlipNo", "VoucherNo" };
+
+    /// <summary>Aynı fiş no başka kayıtta var mı? (eşzamanlı kayıt çakışması)</summary>
+    public async Task<(string Field, string Number)?> FindDuplicateDocNumberAsync(
+        string tableName,
+        string? primaryKeyHint,
+        int recordId,
+        Dictionary<string, object?>? standardFields,
+        CancellationToken ct = default)
+    {
+        if (standardFields == null || standardFields.Count == 0) return null;
+        EnsureSafe(tableName);
+        if (_db.State != ConnectionState.Open) _db.Open();
+        if (!await TableExistsAsync(tableName)) return null;
+        var cols = await GetColumnsAsync(tableName);
+        var pk = await ResolvePrimaryKeyAsync(tableName, primaryKeyHint);
+        foreach (var field in DocNumberFieldNames)
+        {
+            if (!cols.Contains(field, StringComparer.OrdinalIgnoreCase)) continue;
+            var key = standardFields.Keys.FirstOrDefault(k => k.Equals(field, StringComparison.OrdinalIgnoreCase));
+            if (key == null) continue;
+            var num = NormalizeJsonElement(standardFields[key])?.ToString()?.Trim();
+            if (string.IsNullOrWhiteSpace(num)) continue;
+            var real = cols.First(c => c.Equals(field, StringComparison.OrdinalIgnoreCase));
+            var sql = string.IsNullOrWhiteSpace(pk)
+                ? $"SELECT CASE WHEN EXISTS (SELECT 1 FROM [{tableName}] WHERE [{real}] = @num) THEN 1 ELSE 0 END"
+                : $"SELECT CASE WHEN EXISTS (SELECT 1 FROM [{tableName}] WHERE [{real}] = @num AND [{pk}] <> @id AND [{pk}] > 0) THEN 1 ELSE 0 END";
+            var hit = await _db.ExecuteScalarAsync<int>(new CommandDefinition(
+                sql, new { num, id = recordId }, cancellationToken: ct));
+            if (hit == 1) return (real, num);
+        }
+        return null;
     }
 
     public async Task<(bool Ok, int RecordId, string Message)> SaveAsync(
@@ -1101,13 +1310,19 @@ GROUP BY t.ItemsID, v.Type_",
 
         var incoming = data.StandardFields ?? new Dictionary<string, object?>();
 
-        // Hesap kartı: kodda '.' varsa üst hesap zorunlu (yoksa kayıt engellenir)
-        if (tableName.Equals("AccountCard", StringComparison.OrdinalIgnoreCase)
-            && colSet.Contains("MainAccountID"))
+        // Hesap kartı: kodda '.' varsa üst hesap zorunlu; tip koda göre (Bilanço/Ana/Alt/Detay)
+        if (tableName.Equals("AccountCard", StringComparison.OrdinalIgnoreCase))
         {
-            var parentErr = await ApplyAccountParentLinkAsync(incoming, data.RecordId, ct);
-            if (parentErr != null)
-                return (false, data.RecordId, parentErr);
+            if (colSet.Contains("MainAccountID"))
+            {
+                var parentErr = await ApplyAccountParentLinkAsync(incoming, data.RecordId, ct);
+                if (parentErr != null)
+                    return (false, data.RecordId, parentErr);
+            }
+            var moveErr = await EnsureAccountCardMovementRulesAsync(incoming, data.RecordId, ct);
+            if (moveErr != null)
+                return (false, data.RecordId, moveErr);
+            ApplyAccountTypeFromCode(incoming);
         }
 
         // Masraf boyut kartı: CostDimID → DimNo senkron
@@ -1136,12 +1351,18 @@ GROUP BY t.ItemsID, v.Type_",
 
         if (tableName.Equals("AccountVoucher", StringComparison.OrdinalIgnoreCase))
         {
+            var leafErr = await EnsureVoucherLeafAccountsAsync(data, ct);
+            if (leafErr != null)
+                return (false, data.RecordId, leafErr);
             // Yevmiye no yalnızca Yevmiye Madde Numaralandırma işlemiyle verilir
             foreach (var key in incoming.Keys.Where(k => k.Equals("journalNO", StringComparison.OrdinalIgnoreCase)).ToList())
                 incoming.Remove(key);
             var ruleError = AccountVoucherRules.Apply(data, incoming);
             if (ruleError != null) return (false, data.RecordId, ruleError);
         }
+
+        // Satış / satınalma listeleri TradeGroup ile süzülür
+        StampTradeGroup(tableName, incoming);
 
         var colTypes = await GetColumnTypesAsync(tableName);
         // Aynı kolon Code ve code diye iki kez gelirse şema adı (Code) kazansın
@@ -1323,8 +1544,9 @@ SELECT CAST(SCOPE_IDENTITY() AS INT);";
 
             if (savedId != 0 && !headerOnlyTemplate && NestedByParent.TryGetValue(tableName, out var specs))
             {
-                // Malzeme / irsaliye: satırları ProductTrans'a yazmadan önce fiş başlığından tip/depo/tarih aktar
-                if (tableName.Equals("ProductVoucher", StringComparison.OrdinalIgnoreCase)
+                // Malzeme / irsaliye / fatura: satırları ProductTrans'a yazmadan önce fiş başlığından tip/depo/tarih aktar
+                if ((tableName.Equals("ProductVoucher", StringComparison.OrdinalIgnoreCase)
+                        || tableName.Equals("Invoice", StringComparison.OrdinalIgnoreCase))
                     && data.Lines != null)
                 {
                     StampProductTransLinesFromHeader(data.Lines, incoming);
@@ -1519,6 +1741,7 @@ SELECT CAST(SCOPE_IDENTITY() AS INT);";
             {
                 case "addresses": result.Addresses = rows; break;
                 case "contacts": result.Contacts = rows; break;
+                case "ibans": result.Ibans = rows; break;
                 case "accounts": result.Accounts = rows; break;
                 case "barcodes": result.Barcodes = rows; break;
                 case "unitConvs": result.UnitConvs = rows; break;
@@ -1535,6 +1758,7 @@ SELECT CAST(SCOPE_IDENTITY() AS INT);";
                 case "distributions": result.Distributions = rows; break;
                 case "auxilCodes": result.AuxilCodes = rows; break;
                 case "auxilValues": result.AuxilValues = rows; break;
+                case "prices": result.Prices = rows; break;
                 case "whouses":
                     await EnrichWhouseWorkplaceCodesAsync(rows, recordId, ct);
                     result.Whouses = rows;
@@ -1847,6 +2071,7 @@ VALUES ({string.Join(", ", writeCols.Select(c => "@" + c))});";
     private static bool HasAnyNestedPayload(RecordSaveRequest data) =>
         data.Addresses != null
         || data.Contacts != null
+        || data.Ibans != null
         || data.Accounts != null
         || data.Barcodes != null
         || data.UnitConvs != null
@@ -1863,7 +2088,8 @@ VALUES ({string.Join(", ", writeCols.Select(c => "@" + c))});";
         || data.PaymentPlans != null
         || data.Distributions != null
         || data.AuxilCodes != null
-        || data.AuxilValues != null;
+        || data.AuxilValues != null
+        || data.Prices != null;
 
     private static string ResolveNestedPk(string preferred, HashSet<string> colSet)
     {
@@ -1920,11 +2146,179 @@ VALUES ({string.Join(", ", writeCols.Select(c => "@" + c))});";
 
         SetIncoming(incoming, "MainAccountID", parentId.Value);
         SetIncoming(incoming, "MainAccount", false);
+        return null;
+    }
 
-        // Noktalı kod = detay hesap
-        var hasType = incoming.Keys.Any(k => k.Equals("Type_", StringComparison.OrdinalIgnoreCase));
-        if (!hasType || IsIncomingEmpty(incoming, "Type_"))
-            SetIncoming(incoming, "Type_", (byte)2);
+    /// <summary>
+    /// 1 Bilanço (1, 10) · 2 Ana (100) · 3 Alt (100.01) · 4 Detay (100.01.001)
+    /// </summary>
+    private static byte InferAccountType(string code)
+    {
+        var c = code.Trim();
+        var parts = c.Split('.', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+        if (parts.Length >= 3) return 4;
+        if (parts.Length == 2) return 3;
+        var head = parts.Length == 1 ? parts[0] : c;
+        if (head.Length is >= 1 and <= 2 && head.All(char.IsDigit)) return 1;
+        return 2;
+    }
+
+    private static void ApplyAccountTypeFromCode(Dictionary<string, object?> incoming)
+    {
+        object? codeRaw = null;
+        foreach (var key in incoming.Keys)
+        {
+            if (key.Equals("Code", StringComparison.OrdinalIgnoreCase))
+            {
+                codeRaw = incoming[key];
+                break;
+            }
+        }
+        var code = NormalizeJsonElement(codeRaw)?.ToString()?.Trim();
+        if (string.IsNullOrWhiteSpace(code)) return;
+        var type = InferAccountType(code);
+        SetIncoming(incoming, "Type_", type);
+        SetIncoming(incoming, "MainAccount", type is 1 or 2);
+    }
+
+    private async Task<bool> AccountHasMovementsAsync(int accountCardId, CancellationToken ct)
+    {
+        if (accountCardId <= 0) return false;
+        if (!await TableExistsAsync("AccountTrans")) return false;
+        if (!await ColumnExistsAsync("AccountTrans", "AccountCardID")) return false;
+        var n = await _db.ExecuteScalarAsync<int>(new CommandDefinition(
+            "SELECT CASE WHEN EXISTS (SELECT 1 FROM dbo.AccountTrans WHERE AccountCardID = @id) THEN 1 ELSE 0 END",
+            new { id = accountCardId }, cancellationToken: ct));
+        return n == 1;
+    }
+
+    private async Task<bool> ColumnExistsAsync(string table, string column)
+    {
+        var cols = await GetColumnsAsync(table);
+        return cols.Contains(column, StringComparer.OrdinalIgnoreCase);
+    }
+
+    /// <summary>
+    /// Hareket görmüş hesap: kod değiştirilemez; altına yeni alt hesap açılamaz.
+    /// </summary>
+    private async Task<string?> EnsureAccountCardMovementRulesAsync(
+        Dictionary<string, object?> incoming,
+        int recordId,
+        CancellationToken ct)
+    {
+        // 1) Bu kart hareket görmüşse kod değişmesin
+        if (recordId > 0 && await AccountHasMovementsAsync(recordId, ct))
+        {
+            var newCode = GetIncomingString(incoming, "Code");
+            var oldCode = await _db.ExecuteScalarAsync<string?>(new CommandDefinition(
+                "SELECT TOP (1) LTRIM(RTRIM(Code)) FROM dbo.AccountCard WHERE AccountCardID = @id",
+                new { id = recordId }, cancellationToken: ct));
+            if (!string.IsNullOrWhiteSpace(newCode)
+                && !string.Equals(newCode.Trim(), (oldCode ?? "").Trim(), StringComparison.OrdinalIgnoreCase))
+            {
+                return $"«{oldCode}» hareket görmüş — hesap kodu değiştirilemez.";
+            }
+        }
+
+        // 2) Üst hesap hareket görmüşse yeni alt hesap tanıtılamaz
+        var parentId = 0;
+        var parentRaw = GetIncomingObject(incoming, "MainAccountID");
+        if (parentRaw != null)
+            int.TryParse(Convert.ToString(parentRaw), out parentId);
+
+        if (parentId <= 0)
+        {
+            var code = GetIncomingString(incoming, "Code");
+            var lastDot = code?.LastIndexOf('.') ?? -1;
+            if (lastDot > 0)
+            {
+                var parentCode = code![..lastDot].Trim();
+                if (!string.IsNullOrWhiteSpace(parentCode))
+                {
+                    parentId = await _db.ExecuteScalarAsync<int?>(new CommandDefinition(
+                        @"SELECT TOP (1) AccountCardID FROM dbo.AccountCard
+                          WHERE Code = @parentCode AND (@selfId <= 0 OR AccountCardID <> @selfId)",
+                        new { parentCode, selfId = recordId }, cancellationToken: ct)) ?? 0;
+                }
+            }
+        }
+
+        if (parentId <= 0 || !await AccountHasMovementsAsync(parentId, ct))
+            return null;
+
+        // Mevcut kayıt zaten bu üstteyse (yalnızca ünvan vb. güncelleme) izin ver
+        if (recordId > 0)
+        {
+            var oldParent = await _db.ExecuteScalarAsync<int?>(new CommandDefinition(
+                "SELECT MainAccountID FROM dbo.AccountCard WHERE AccountCardID = @id",
+                new { id = recordId }, cancellationToken: ct));
+            if (oldParent == parentId)
+                return null;
+        }
+
+        var parentCodeLabel = await _db.ExecuteScalarAsync<string?>(new CommandDefinition(
+            "SELECT LTRIM(RTRIM(Code)) FROM dbo.AccountCard WHERE AccountCardID = @id",
+            new { id = parentId }, cancellationToken: ct));
+        return $"«{parentCodeLabel ?? parentId.ToString()}» hareket görmüş — altına alt hesap tanıtılamaz.";
+    }
+
+    private static string? GetIncomingString(Dictionary<string, object?> incoming, string key)
+    {
+        var v = GetIncomingObject(incoming, key);
+        return NormalizeJsonElement(v)?.ToString()?.Trim();
+    }
+
+    private static object? GetIncomingObject(Dictionary<string, object?> incoming, string key)
+    {
+        var existing = incoming.Keys.FirstOrDefault(k => k.Equals(key, StringComparison.OrdinalIgnoreCase));
+        return existing == null ? null : incoming[existing];
+    }
+
+    /// <summary>
+    /// Muhasebe fişi: alt hesabı olan üst hesap satırda seçilemez (MainAccountID veya kod öneki).
+    /// </summary>
+    private async Task<string?> EnsureVoucherLeafAccountsAsync(RecordSaveRequest data, CancellationToken ct)
+    {
+        if (data.Lines == null || data.Lines.Count == 0) return null;
+        if (!await TableExistsAsync("AccountCard")) return null;
+
+        for (var i = 0; i < data.Lines.Count; i++)
+        {
+            var row = data.Lines[i];
+            object? idRaw = null;
+            foreach (var key in row.Keys)
+            {
+                if (key.Equals("AccountCardID", StringComparison.OrdinalIgnoreCase))
+                {
+                    idRaw = row[key];
+                    break;
+                }
+            }
+            var idObj = NormalizeJsonElement(idRaw);
+            if (idObj == null || !int.TryParse(Convert.ToString(idObj), out var accId) || accId <= 0)
+                continue;
+
+            var code = await _db.ExecuteScalarAsync<string?>(new CommandDefinition(
+                "SELECT TOP (1) LTRIM(RTRIM(Code)) FROM dbo.AccountCard WHERE AccountCardID = @accId",
+                new { accId }, cancellationToken: ct));
+
+            var hasChild = await _db.ExecuteScalarAsync<int>(new CommandDefinition(
+                @"SELECT CASE WHEN EXISTS (
+                    SELECT 1 FROM dbo.AccountCard c
+                    WHERE c.AccountCardID <> @accId
+                      AND (
+                        c.MainAccountID = @accId
+                        OR (@code IS NOT NULL AND c.Code LIKE @code + N'.%')
+                      )
+                  ) THEN 1 ELSE 0 END",
+                new { accId, code }, cancellationToken: ct));
+
+            if (hasChild == 1)
+            {
+                var label = string.IsNullOrWhiteSpace(code) ? $"#{accId}" : code;
+                return $"{i + 1}. satır: «{label}» alt hesabı var — üst hesap muhasebe fişinde seçilemez";
+            }
+        }
         return null;
     }
 
@@ -1999,6 +2393,7 @@ VALUES ({string.Join(", ", writeCols.Select(c => "@" + c))});";
         {
             "addresses" => data.Addresses,
             "contacts" => data.Contacts,
+            "ibans" => data.Ibans,
             "accounts" => data.Accounts,
             "barcodes" => data.Barcodes,
             "unitConvs" => data.UnitConvs,
@@ -2016,6 +2411,7 @@ VALUES ({string.Join(", ", writeCols.Select(c => "@" + c))});";
             "distributions" => data.Distributions,
             "auxilCodes" => data.AuxilCodes,
             "auxilValues" => data.AuxilValues,
+            "prices" => data.Prices,
             _ => null,
         };
 

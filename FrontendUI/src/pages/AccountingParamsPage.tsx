@@ -10,6 +10,7 @@ interface AccConfig {
   poolSafe: boolean;
   invoiceTypes: string;
   safeTypes: string;
+  balanceYear: number;
 }
 
 function parseTypes(raw: string): Set<string> {
@@ -35,6 +36,7 @@ export const AccountingParamsPage: React.FC<{ onBack: () => void }> = ({ onBack 
   const [poolSafe, setPoolSafe] = useState(true);
   const [invTypes, setInvTypes] = useState<Set<string>>(new Set(['*']));
   const [safeTypes, setSafeTypes] = useState<Set<string>>(new Set(['*']));
+  const [balanceYear, setBalanceYear] = useState(new Date().getFullYear());
 
   useEffect(() => {
     void (async () => {
@@ -45,6 +47,8 @@ export const AccountingParamsPage: React.FC<{ onBack: () => void }> = ({ onBack 
         setPoolSafe((c.poolSafe ?? c.PoolSafe) !== false);
         setInvTypes(parseTypes(String(c.invoiceTypes ?? c.InvoiceTypes ?? '*')));
         setSafeTypes(parseTypes(String(c.safeTypes ?? c.SafeTypes ?? '*')));
+        const y = Number(c.balanceYear ?? c.BalanceYear);
+        if (Number.isFinite(y) && y >= 1900 && y <= 2100) setBalanceYear(Math.trunc(y));
       } catch (e) {
         appToast(e instanceof Error ? e.message : String(e), { kind: 'error' });
       } finally {
@@ -84,6 +88,7 @@ export const AccountingParamsPage: React.FC<{ onBack: () => void }> = ({ onBack 
           poolSafe,
           invoiceTypes: serializeTypes(invTypes, INV_KEYS),
           safeTypes: serializeTypes(safeTypes, SAFE_KEYS),
+          balanceYear,
         }),
       });
       appToast('Parametreler kaydedildi');
@@ -117,6 +122,29 @@ export const AccountingParamsPage: React.FC<{ onBack: () => void }> = ({ onBack 
           Kayıt sonrası havuza alınacak modül / fiş türleri ve otomatik muhasebeleştirme
         </p>
       </div>
+
+      <section className="rounded-md border border-slate-200 bg-white p-4 space-y-3">
+        <h2 className="text-[12px] font-semibold uppercase tracking-wide text-slate-500">
+          Hesap bakiyesi
+        </h2>
+        <label className="flex flex-col gap-1 text-[13px] text-slate-800 max-w-xs">
+          <span className="font-semibold">Bakiye yılı (öndeğer)</span>
+          <input
+            type="number"
+            min={1900}
+            max={2100}
+            value={balanceYear}
+            onChange={(e) => {
+              const n = Number(e.target.value);
+              if (Number.isFinite(n) && n >= 1900 && n <= 2100) setBalanceYear(Math.trunc(n));
+            }}
+            className="h-8 px-2 rounded-sm border border-slate-200 text-[13px] tabular-nums outline-none focus:border-blue-500"
+          />
+          <span className="text-[11px] text-slate-500">
+            Hesap Kartları listesinde üstteki yıl kutusu bu değerle açılır (ACC_BALANCE_YEAR)
+          </span>
+        </label>
+      </section>
 
       <section className="rounded-md border border-slate-200 bg-white p-4 space-y-3">
         <h2 className="text-[12px] font-semibold uppercase tracking-wide text-slate-500">

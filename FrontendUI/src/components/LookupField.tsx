@@ -104,24 +104,27 @@ export const LookupField: React.FC<LookupFieldProps> = ({
 
   const src = fieldName ? lookupSourceForField(fieldName) : null;
 
-  /** Üst hesap (120.01→120): seçili ID yalnız sayıysa Code — Ad getir */
+  /** Seçili ID listede yoksa / yalnız sayıysa Code — Title getir (önce tek kayıt, sonra liste) */
   React.useEffect(() => {
     if (!fieldName || !src || !value || value === '0') return;
     const lbl = selected?.label?.trim() ?? '';
-    const looksLikeBareId = !lbl || lbl === value || /^#?\d+$/.test(lbl);
+    const looksLikeBareId = !lbl || lbl === value || /^#?\d+$/.test(lbl) || /^#\d+$/.test(lbl);
     if (!looksLikeBareId) return;
     let cancelled = false;
     void (async () => {
-      const cached = await loadLookupOptions(fieldName);
-      const hit = cached?.find((o) => o.value === value);
+      // Büyük cari/malzeme listesini beklemeden seçili kartı çöz
+      const opt = await resolveLookupOption(fieldName, value);
       if (cancelled) return;
-      if (hit?.label && hit.label !== value && !/^#?\d+$/.test(hit.label.trim())) {
-        setOptions((prev) => [hit, ...prev.filter((p) => p.value !== hit.value)]);
+      if (opt?.label && opt.label !== value && !/^#?\d+$/.test(opt.label.trim())) {
+        setOptions((prev) => [opt, ...prev.filter((p) => p.value !== opt.value)]);
         return;
       }
-      const opt = await resolveLookupOption(fieldName, value);
-      if (cancelled || !opt) return;
-      setOptions((prev) => [opt, ...prev.filter((p) => p.value !== opt.value)]);
+      const cached = await loadLookupOptions(fieldName);
+      if (cancelled) return;
+      const hit = cached?.find((o) => o.value === value);
+      if (hit?.label && hit.label !== value && !/^#?\d+$/.test(hit.label.trim())) {
+        setOptions((prev) => [hit, ...prev.filter((p) => p.value !== hit.value)]);
+      }
     })();
     return () => {
       cancelled = true;

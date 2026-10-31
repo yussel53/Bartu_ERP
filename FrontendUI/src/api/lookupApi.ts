@@ -44,6 +44,11 @@ export type LookupSource = {
   productStats?: boolean;
   /** CustomerCard seçiminde bakiye / il / telefon / son hareket */
   customerStats?: boolean;
+  /**
+   * AccountCard: altı olan (MainAccountID veya kod öneki) üst hesapları listeden çıkar.
+   * Muhasebe fişi / hareket — yalnızca yaprak hesap.
+   */
+  leafOnly?: boolean;
 };
 
 /** Form alan adı → SQL lookup kaynağı */
@@ -53,6 +58,7 @@ const FIELD_LOOKUP: Record<string, LookupSource> = {
     pk: 'CustomerCardID',
     codeCols: ['Code'],
     titleCols: ['Title'],
+    take: 10000,
     createFormCode: 'CustomerCardForm',
     createTitle: 'Yeni Cari',
     customerStats: true,
@@ -62,6 +68,7 @@ const FIELD_LOOKUP: Record<string, LookupSource> = {
     pk: 'CustomerCardID',
     codeCols: ['Code'],
     titleCols: ['Title'],
+    take: 10000,
     createFormCode: 'CustomerCardForm',
     createTitle: 'Yeni Cari',
     customerStats: true,
@@ -71,6 +78,7 @@ const FIELD_LOOKUP: Record<string, LookupSource> = {
     pk: 'ProductCardID',
     codeCols: ['Code'],
     titleCols: ['Title'],
+    take: 10000,
     createFormCode: 'ProductCardForm',
     createTitle: 'Yeni Malzeme',
     productStats: true,
@@ -108,6 +116,7 @@ const FIELD_LOOKUP: Record<string, LookupSource> = {
     codeCols: ['Code'],
     titleCols: ['Title'],
     take: 2000,
+    leafOnly: true,
     createFormCode: 'AccountCardForm',
     createTitle: 'Yeni Muhasebe Hesabı',
   },
@@ -117,6 +126,7 @@ const FIELD_LOOKUP: Record<string, LookupSource> = {
     codeCols: ['Code'],
     titleCols: ['Title'],
     take: 2000,
+    leafOnly: true,
     createFormCode: 'AccountCardForm',
     createTitle: 'Yeni Muhasebe Hesabı',
   },
@@ -126,6 +136,7 @@ const FIELD_LOOKUP: Record<string, LookupSource> = {
     codeCols: ['Code'],
     titleCols: ['Title'],
     take: 2000,
+    leafOnly: true,
     createFormCode: 'AccountCardForm',
     createTitle: 'Yeni Muhasebe Hesabı',
   },
@@ -427,7 +438,32 @@ export function injectLookupOption(fieldName: string, opt: LookupOption): void {
 }
 
 function cacheKey(src: LookupSource): string {
-  return `${src.table}|${src.pk}|take:${src.take ?? 500}|${src.filterColumn || ''}|${src.filterValue ?? ''}`;
+  return `${src.table}|${src.pk}|take:${src.take ?? 500}|${src.filterColumn || ''}|${src.filterValue ?? ''}|leaf:${src.leafOnly ? 1 : 0}`;
+}
+
+/** Alt hesabı olan üst hesap ID’leri (MainAccountID + kod öneki) */
+function parentAccountIds(rows: Record<string, unknown>[], pk: string): Set<string> {
+  const parents = new Set<string>();
+  const byCode = new Map<string, string>();
+  for (const r of rows) {
+    const id = String(r[pk] ?? r.id ?? r.Id ?? '').trim();
+    if (!id || id === '0') continue;
+    const mid = r.MainAccountID ?? r.mainAccountID;
+    if (mid != null && String(mid).trim() !== '' && Number(mid) > 0) parents.add(String(mid));
+    const code = String(r.Code ?? r.code ?? '').trim();
+    if (code) byCode.set(code.toLocaleLowerCase('tr'), id);
+  }
+  const codes = [...byCode.keys()];
+  for (const code of codes) {
+    for (const other of codes) {
+      if (other.length > code.length && other.startsWith(code + '.')) {
+        const id = byCode.get(code);
+        if (id) parents.add(id);
+        break;
+      }
+    }
+  }
+  return parents;
 }
 
 export function lookupSourceForField(fieldName: string): LookupSource | null {
@@ -502,9 +538,17 @@ export async function loadLookupOptions(
         const n = Number(v);
         return Number.isFinite(n) ? n : 0;
       };
-      return (res.rows || [])
+      let rawRows = (res.rows || []) as Record<string, unknown>[];
+      if (src.leafOnly && src.table === 'AccountCard') {
+        const blocked = parentAccountIds(rawRows, src.pk);
+        rawRows = rawRows.filter((r) => {
+          const id = String(r[src.pk] ?? r.id ?? r.Id ?? '').trim();
+          return id && !blocked.has(id);
+        });
+      }
+      return rawRows
         .map((row) => {
-          const r = row as Record<string, unknown>;
+          const r = row;
           const id = row[src.pk] ?? row.id ?? row.Id;
           const label = formatLookupLabel(r, src, id != null ? String(id) : '') || String(id ?? '');
           const opt: LookupOption = { label, value: String(id ?? '') };
@@ -576,6 +620,7 @@ export async function enrichSchemaLookups<T extends {
   lineFields?: { fieldName: string; fieldType: string; optionsJson?: string }[];
   addressFields?: { fieldName: string; fieldType: string; optionsJson?: string }[];
   contactFields?: { fieldName: string; fieldType: string; optionsJson?: string }[];
+  ibanFields?: { fieldName: string; fieldType: string; optionsJson?: string }[];
   barcodeFields?: { fieldName: string; fieldType: string; optionsJson?: string }[];
   unitConvFields?: { fieldName: string; fieldType: string; optionsJson?: string }[];
   productSubFields?: { fieldName: string; fieldType: string; optionsJson?: string }[];
@@ -589,6 +634,7 @@ export async function enrichSchemaLookups<T extends {
     schema.lineFields,
     schema.addressFields,
     schema.contactFields,
+    schema.ibanFields,
     schema.barcodeFields,
     schema.unitConvFields,
     schema.productSubFields,
@@ -627,6 +673,7 @@ export async function enrichSchemaLookups<T extends {
     lineFields: schema.lineFields?.map(patch),
     addressFields: schema.addressFields?.map(patch),
     contactFields: schema.contactFields?.map(patch),
+    ibanFields: schema.ibanFields?.map(patch),
     barcodeFields: schema.barcodeFields?.map(patch),
     unitConvFields: schema.unitConvFields?.map(patch),
     productSubFields: schema.productSubFields?.map(patch),

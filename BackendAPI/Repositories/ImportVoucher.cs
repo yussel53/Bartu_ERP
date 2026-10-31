@@ -14,9 +14,11 @@ public sealed partial class ImportRepository
         Notes =
         {
             "Aynı fatura no + fatura türü satırları tek faturada birleşir.",
+            "Ambar (WhouseCode) ve işyeri (WorkplaceCode) zorunludur — Bartu SYS_Whouse / SYS_Workplace kodlarıyla eşleşmeli.",
+            "Cari / malzeme ünvanı (CustomerTitle, ProductTitle) kart ve satır açıklamasına yazılır.",
+            "Birim fiyat boşsa tutar ÷ miktar kullanılır. KDV tutarı veya net tutar gelirse onlar esas alınır.",
             "«Kartı yoksa oluştur» her aktarımda kartı yazar. Kod çakışırsa «kart var» der ve fişe devam eder.",
-            "Birim fiyat boşsa tutar ÷ miktar kullanılır. Aktarılan fatura onaylı kaydedilir.",
-            "Kontrol ve kayıt fiş bazındadır.",
+            "Aktarılan fatura onaylı kaydedilir. Kontrol ve kayıt fiş bazındadır.",
         },
         Fields =
         [
@@ -25,13 +27,18 @@ public sealed partial class ImportRepository
             Enum("InvoiceType", "Fatura Türü", true, InvoiceTypes(), "Alınan Hizmet"),
             Text("Description", "Açıklama", false),
             CodeField("CustomerCode", "Cari Kodu", true, "320.01.001"),
-            CodeField("WhouseCode", "Depo Kodu", false, "MRK"),
+            Text("CustomerTitle", "Cari Ünvan", false, "ABC Ticaret A.Ş."),
+            CodeField("WhouseCode", "Ambar Kodu", true, "0"),
+            CodeField("WorkplaceCode", "İşyeri Kodu", true, "0"),
             CodeField("ProductCode", "Malzeme / Hizmet Kodu", true, "HZM-001"),
+            Text("ProductTitle", "Malzeme / Hizmet Adı", false, "Kurulum"),
             Dec("Quantity", "Miktar", false, "1"),
             Dec("Price", "Birim Fiyat", false, "1000"),
-            Dec("LineAmount", "Tutar", false, "1000"),
+            Dec("LineAmount", "Tutar (matrah)", false, "1000"),
             Dec("Discount", "İskonto", false, "0"),
             Dec("TaxRate", "KDV Oranı", false, "20"),
+            Dec("TaxAmount", "KDV Tutarı", false, "200"),
+            Dec("NetTotal", "Net Tutar", false, "1200"),
             Text("LineDescription", "Satır Açıklama", false),
         ],
     };
@@ -147,6 +154,7 @@ public sealed partial class ImportRepository
         var accounts = def.Kind == "account-voucher" ? await LoadCodeMapAsync("AccountCard", "AccountCardID", "Code", ct) : new();
         var banks = def.Kind == "bank-voucher" ? await LoadCodeMapAsync("BankAccountCard", "BankAccountCardID", "Code", ct) : new();
         var whouses = def.Kind == "invoice" ? await LoadCodeMapAsync("SYS_Whouse", "WhouseId", "WhouseCode", ct) : new();
+        var workplaces = def.Kind == "invoice" ? await LoadCodeMapAsync("SYS_Workplace", "WorkplaceID", "Code", ct) : new();
         var existing = await LoadVoucherKeysAsync(def, ct);
 
         var groups = new Dictionary<string, List<ParsedRow>>(StringComparer.OrdinalIgnoreCase);
@@ -197,6 +205,7 @@ public sealed partial class ImportRepository
             int? headerCustomer = null;
             int? headerBank = null;
             int? headerWhouse = null;
+            int? headerWorkplace = null;
 
             var opened = new List<string>();
             var cards = new CardMaker
@@ -215,13 +224,14 @@ public sealed partial class ImportRepository
                 {
                     saveLines.Add(def.Kind switch
                     {
-                        "invoice" => await InvoiceLineAsync(line, cards, whouses, opened, ct),
+                        "invoice" => await InvoiceLineAsync(line, cards, whouses, workplaces, opened, ct),
                         "customer-voucher" => await CustomerLineAsync(line, cards, opened, ct),
                         "bank-voucher" => await BankLineAsync(line, cards, opened, ct),
                         _ => await AccountLineAsync(line, cards, opened, ct),
                     });
                     headerCustomer ??= cards.LastCustomer;
                     headerWhouse ??= cards.LastWhouse;
+                    headerWorkplace ??= cards.LastWorkplace;
                     headerBank ??= cards.LastBank;
                 }
                 catch (InvalidOperationException ex)
@@ -240,9 +250,22 @@ public sealed partial class ImportRepository
                 Fail(result, first.RowNo, no, "Fişte satır yok");
                 continue;
             }
+            if (def.Kind == "invoice")
+            {
+                if (headerWhouse is null or <= 0)
+                {
+                    Fail(result, first.RowNo, no, "Ambar kodu zorunlu — WhouseCode eşleşmeli");
+                    continue;
+                }
+                if (headerWorkplace is null or <= 0)
+                {
+                    Fail(result, first.RowNo, no, "İşyeri kodu zorunlu — WorkplaceCode eşleşmeli");
+                    continue;
+                }
+            }
 
             var cardNote = CardNote(req.DryRun, opened, cards.Existing);
-            var header = HeaderOf(def, first, headerCustomer, headerBank, headerWhouse, saveLines);
+            var header = HeaderOf(def, first, headerCustomer, headerBank, headerWhouse, headerWorkplace, saveLines);
             var res = new ImportRowResult
             {
                 RowNo = first.RowNo,
@@ -277,22 +300,34 @@ public sealed partial class ImportRepository
     }
 
     private static Dictionary<string, object?> HeaderOf(
-        ImportTargetDef def, ParsedRow row, int? customer, int? bank, int? whouse, List<Dictionary<string, object?>> lines)
+        ImportTargetDef def, ParsedRow row, int? customer, int? bank, int? whouse, int? workplace, List<Dictionary<string, object?>> lines)
     {
+        var desc = Str(row, "Description");
+        if (desc.Length == 0) desc = Str(row, "CustomerTitle");
         var header = new Dictionary<string, object?>(StringComparer.OrdinalIgnoreCase)
         {
             ["DocumentNumber"] = Str(row, "DocumentNumber"),
-            ["Description"] = Str(row, "Description"),
+            ["Description"] = desc,
         };
         switch (def.Kind)
         {
             case "invoice":
+            {
+                var invType = TypeOf(def, row);
                 header["InvoiceDate"] = Str(row, "InvoiceDate");
-                header["InvoiceType"] = TypeOf(def, row);
+                header["InvoiceType"] = invType;
                 header["CustomerID"] = customer;
                 header["WhouseID"] = whouse;
+                header["DepartmentID"] = workplace;
                 header["Status_"] = 1;
+                header["TradeGroup"] = invType switch
+                {
+                    "1" or "3" or "7" => 1,
+                    "2" or "4" or "5" or "6" => 2,
+                    _ => 0,
+                };
                 break;
+            }
             case "customer-voucher":
                 header["VoucherDate"] = Str(row, "VoucherDate");
                 header["Type"] = TypeOf(def, row);
@@ -336,11 +371,16 @@ public sealed partial class ImportRepository
     }
 
     private async Task<Dictionary<string, object?>> InvoiceLineAsync(
-        ParsedRow row, CardMaker cards, Dictionary<string, int> whouses, List<string> opened, CancellationToken ct)
+        ParsedRow row, CardMaker cards, Dictionary<string, int> whouses, Dictionary<string, int> workplaces, List<string> opened, CancellationToken ct)
     {
-        cards.LastCustomer ??= await EnsureCustomerAsync(cards, Str(row, "CustomerCode"), TitleOf(row, Str(row, "CustomerCode")), opened, ct);
+        var custCode = Str(row, "CustomerCode");
+        cards.LastCustomer ??= await EnsureCustomerAsync(cards, custCode, TitleOf(row, "CustomerTitle", custCode), opened, ct);
         var wh = Str(row, "WhouseCode");
-        if (wh.Length > 0) cards.LastWhouse ??= Need(whouses, wh, "Depo kodu");
+        if (wh.Length == 0) throw new InvalidOperationException("Ambar kodu (WhouseCode) zorunlu");
+        cards.LastWhouse ??= Need(whouses, wh, "Ambar kodu");
+        var wp = Str(row, "WorkplaceCode");
+        if (wp.Length == 0) throw new InvalidOperationException("İşyeri kodu (WorkplaceCode) zorunlu");
+        cards.LastWorkplace ??= Need(workplaces, wp, "İşyeri kodu");
         var qty = DecOf(row, "Quantity");
         if (qty == 0) qty = 1;
         var price = DecOf(row, "Price");
@@ -348,20 +388,35 @@ public sealed partial class ImportRepository
         if (price == 0 && amount != 0) price = amount / qty;
         var discount = DecOf(row, "Discount");
         var rate = DecOf(row, "TaxRate");
-        var net = qty * price - discount;
-        var tax = rate == 0 ? 0 : Math.Round(net * rate / 100m, 2, MidpointRounding.AwayFromZero);
+        // Matrah: verilen tutar varsa onu kullan (Logo VATMATRAH / TOTAL)
+        var matrah = amount != 0 ? amount : qty * price;
+        matrah = Math.Round(matrah - discount, 2, MidpointRounding.AwayFromZero);
+        if (price == 0 && qty != 0) price = Math.Round((matrah + discount) / qty, 6, MidpointRounding.AwayFromZero);
+        var taxGiven = DecOf(row, "TaxAmount");
+        var tax = taxGiven != 0
+            ? taxGiven
+            : rate == 0 ? 0 : Math.Round(matrah * rate / 100m, 2, MidpointRounding.AwayFromZero);
+        var netGiven = DecOf(row, "NetTotal");
+        var netTotal = netGiven != 0 ? netGiven : matrah + tax;
         var productType = Str(row, "InvoiceType") == "5" ? 3 : 1;
+        var productCode = Str(row, "ProductCode");
+        var productTitle = TitleOf(row, "ProductTitle", productCode);
+        var lineDesc = Str(row, "LineDescription");
+        if (lineDesc.Length == 0) lineDesc = Str(row, "ProductTitle");
+        if (lineDesc.Length == 0) lineDesc = productTitle;
         var line = new Dictionary<string, object?>
         {
-            ["ProductCardID"] = await EnsureProductAsync(cards, Str(row, "ProductCode"), TitleOf(row, Str(row, "ProductCode")), productType, opened, ct),
+            ["ProductCardID"] = await EnsureProductAsync(cards, productCode, productTitle, productType, opened, ct),
             ["Quantity"] = qty,
             ["Price"] = price,
             ["TotalDiscount"] = discount,
             ["TaxRate"] = rate,
             ["TotalTax"] = tax,
-            ["TotalPrice"] = net,
-            ["NetTotal"] = net + tax,
-            ["Description1"] = Str(row, "LineDescription"),
+            ["TotalPrice"] = matrah,
+            ["NetTotal"] = netTotal,
+            ["Description1"] = lineDesc,
+            ["WhouseID"] = cards.LastWhouse,
+            ["DepartmentID"] = cards.LastWorkplace,
         };
         CopyLineExtras(row, line);
         return line;
@@ -371,7 +426,7 @@ public sealed partial class ImportRepository
     {
         var line = new Dictionary<string, object?>
         {
-            ["CustomerID"] = await EnsureCustomerAsync(cards, Str(row, "CustomerCode"), TitleOf(row, Str(row, "CustomerCode")), opened, ct),
+            ["CustomerID"] = await EnsureCustomerAsync(cards, Str(row, "CustomerCode"), TitleOf(row, "CustomerTitle", Str(row, "CustomerCode")), opened, ct),
             ["Amount"] = MoneyOf(row),
             ["Description"] = Str(row, "LineDescription"),
             ["DueDate"] = NullIfEmpty(Str(row, "DueDate")),
@@ -389,7 +444,7 @@ public sealed partial class ImportRepository
             ["Description"] = Str(row, "LineDescription"),
         };
         var cari = Str(row, "CustomerCode");
-        if (cari.Length > 0) line["CustomerID"] = await EnsureCustomerAsync(cards, cari, TitleOf(row, cari), opened, ct);
+        if (cari.Length > 0) line["CustomerID"] = await EnsureCustomerAsync(cards, cari, TitleOf(row, "CustomerTitle", cari), opened, ct);
         var counter = Str(row, "CounterAccountCode");
         if (counter.Length > 0) line["BankAccountCardID"] = await EnsureBankAccountAsync(cards, counter, opened, ct);
         CopyLineExtras(row, line);
@@ -607,9 +662,11 @@ public sealed partial class ImportRepository
         return parts.Count == 0 ? null : string.Join(" · ", parts);
     }
 
-    private static string TitleOf(ParsedRow row, string code)
+    /// <summary>Önce titleKey (CustomerTitle / ProductTitle), sonra satır/fiş açıklaması, en sonda kod.</summary>
+    private static string TitleOf(ParsedRow row, string titleKey, string code)
     {
-        var title = Str(row, "LineDescription");
+        var title = Str(row, titleKey);
+        if (title.Length == 0) title = Str(row, "LineDescription");
         if (title.Length == 0) title = Str(row, "Description");
         if (title.Length == 0) title = code;
         return title.Length > 200 ? title[..200] : title;
@@ -622,6 +679,7 @@ public sealed partial class ImportRepository
         public int Fake = 0;
         public int? LastCustomer;
         public int? LastWhouse;
+        public int? LastWorkplace;
         public int? LastBank;
         public int? TransferBankId;
         public HashSet<string> Existing = new(StringComparer.OrdinalIgnoreCase);

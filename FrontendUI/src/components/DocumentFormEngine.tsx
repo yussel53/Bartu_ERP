@@ -14,9 +14,11 @@ import { FieldRenderer } from './FieldRenderer';
 import { FormTabs } from './FormTabs';
 import { canField } from '../data/permissions';
 import { getCurrency, getCurrencyRate, LOCAL_CURRENCY_ID, CURRENCIES } from '../data/currencies';
-import { Plus, Minus, RefreshCw, ClipboardPaste, Pencil, Printer, Loader2 } from 'lucide-react';
+import { Plus, Minus, RefreshCw, ClipboardPaste, Pencil, Printer, Loader2, Columns3 } from 'lucide-react';
+import { getFormSchema } from '../data/formSchemas';
 import { printDocumentForm } from '../utils/printDocumentForm';
 import { appToast } from '../utils/appToast';
+import { appConfirm } from '../utils/appConfirm';
 import { FieldLayoutContext, FormFieldContext, InlineColsContext, InlineFieldGrid } from './FormFieldContext';
 import { useOrgFieldCascade } from '../hooks/useOrgFieldCascade';
 import { allocateDocumentNumber } from '../api/numberTemplateApi';
@@ -40,9 +42,17 @@ import { AuxilCodeAssignmentEditor } from './AuxilCodeAssignmentEditor';
 import { UnitPricePicker } from './UnitPricePicker';
 import { LineDistributionPanel } from './LineDistributionPanel';
 import { SerialLotLineCell, invoiceSerialDirection, serialLotDirection } from './SerialLotLineCell';
+import { RowContextMenu } from './RowContextMenu';
 import { fetchPriceSuggestions } from '../api/productPricesApi';
 import { DispatchType, InvoiceType, OrderType } from '../data/documentTypes';
 import { computeFormulaValues, formulaExtraFields, lineTableFor } from '../data/extraFields';
+import {
+  defaultVisibleTradeCols,
+  loadVisibleTradeCols,
+  saveVisibleTradeCols,
+} from '../data/tradeLineFields';
+import { TRADE_DOCUMENT_CONTEXT_MENU } from '../data/tradeDocumentContextMenu';
+import { TradeColumnSettingsModal } from './TradeColumnSettingsModal';
 import {
   emptyProductUnits,
   fetchProductUnitOptions,
@@ -71,7 +81,9 @@ function resolvePriceDirection(schema: FormSchemaDto, sf: Record<string, unknown
     typeVal === DispatchType.Alis ||
     typeVal === DispatchType.AlisIade ||
     typeVal === InvoiceType.Alis ||
-    typeVal === InvoiceType.AlisIade
+    typeVal === InvoiceType.AlisIade ||
+    typeVal === InvoiceType.AlinanHizmet ||
+    typeVal === InvoiceType.AlisFiyatFarki
   ) {
     return 'purchase';
   }
@@ -128,6 +140,8 @@ interface DocumentFormEngineProps {
   postedLock?: boolean;
   /** Açık fiş tray — form değiştikçe taslak güncelle */
   onLiveChange?: (data: DynamicFormDataDto) => void;
+  /** CRM belge aksiyonları — Detaylar / Detaylar II altına */
+  documentActionsSlot?: React.ReactNode;
 }
 
 const DOC_NUMBER_FIELDS = ['DocumentNumber', 'OrderSlipNo', 'VoucherNo'] as const;
@@ -392,6 +406,7 @@ export const DocumentFormEngine: React.FC<DocumentFormEngineProps> = ({
   readOnly = false,
   postedLock = false,
   onLiveChange,
+  documentActionsSlot,
 }) => {
   const bodyRo = readOnly || postedLock;
   const payRo = readOnly; // inceleme; postedLock ödeme serbest
@@ -801,6 +816,36 @@ export const DocumentFormEngine: React.FC<DocumentFormEngineProps> = ({
   const watchedPaymentPlans = watch('paymentPlans') as Record<string, unknown>[] | undefined;
   const paymentTotal = sumLineField(watchedPaymentPlans || [], 'Amount');
 
+  const allLineFieldKeys = React.useMemo(
+    () => (schema.lineFields || []).map((f) => f.fieldName),
+    [schema.lineFields],
+  );
+  const [visibleLineKeys, setVisibleLineKeys] = React.useState<string[]>(() =>
+    loadVisibleTradeCols(schema.formCode, allLineFieldKeys.length ? allLineFieldKeys : ['Quantity']),
+  );
+  React.useEffect(() => {
+    setVisibleLineKeys(loadVisibleTradeCols(schema.formCode, allLineFieldKeys));
+  }, [schema.formCode, allLineFieldKeys]);
+
+  const visibleLineFields = React.useMemo(() => {
+    const all = schema.lineFields || [];
+    if (!visibleLineKeys.length) return all;
+    const set = new Set(visibleLineKeys);
+    const filtered = all.filter((f) => set.has(f.fieldName));
+    return filtered.length ? filtered : all;
+  }, [schema.lineFields, visibleLineKeys]);
+
+  const [colSettingsOpen, setColSettingsOpen] = React.useState(false);
+  const [ctxMenu, setCtxMenu] = React.useState<{ x: number; y: number; rowIndex: number } | null>(
+    null,
+  );
+  const [discountOpen, setDiscountOpen] = React.useState(false);
+  const [discountPct, setDiscountPct] = React.useState('10');
+  const [discountRow, setDiscountRow] = React.useState(0);
+  const [findOpen, setFindOpen] = React.useState(false);
+  const [findText, setFindText] = React.useState('');
+  const [infoModal, setInfoModal] = React.useState<string | null>(null);
+
   const totalFields = React.useMemo(() => {
     if (!schema.lineFields?.length) return [];
     return schema.lineFields.filter(
@@ -836,10 +881,18 @@ export const DocumentFormEngine: React.FC<DocumentFormEngineProps> = ({
   const [taxEditText, setTaxEditText] = React.useState('');
   const taxEditOnRef = React.useRef(false);
   taxEditOnRef.current = taxEditOn;
+  /** Dip KDV düzeltme yalnız alış tarafında (tedarikçi faturası yuvarlama farkı) */
+  const allowTaxEdit = priceDirection === 'purchase';
+  React.useEffect(() => {
+    if (allowTaxEdit || !taxEditOn) return;
+    setTaxEditOn(false);
+    setTaxEditValue(null);
+    setTaxEditText('');
+  }, [allowTaxEdit, taxEditOn]);
   const productTaxCache = React.useRef<Record<number, string>>({});
   const appliedProductTax = React.useRef<Record<number, number>>({});
   const payableTotal =
-    taxEditOn && taxEditValue != null && hasMaterialLineTotals
+    allowTaxEdit && taxEditOn && taxEditValue != null && hasMaterialLineTotals
       ? roundMoney((lineMoney?.total ?? 0) + taxEditValue)
       : lineMoney?.net ?? grandTotal;
 
@@ -1143,6 +1196,7 @@ export const DocumentFormEngine: React.FC<DocumentFormEngineProps> = ({
   const watchedWhouseId = String(watch('standardFields.WhouseID') ?? '').trim();
   const numberManual = React.useRef(false);
   const numberAllocated = React.useRef(false);
+  const lastAutoNumber = React.useRef('');
   const [numberHint, setNumberHint] = React.useState<string | null>(null);
   const [numberBusy, setNumberBusy] = React.useState(false);
 
@@ -1185,13 +1239,14 @@ export const DocumentFormEngine: React.FC<DocumentFormEngineProps> = ({
       setNumberBusy(true);
       setNumberHint(null);
       try {
-        // Y-05: yalnız önizleme — sayaç kayıtta artar (açılıp vazgeçilen fiş numara tüketmez)
+        // Önizleme: sayaç artmaz; numara alana yazılır (kayıtta gerçek sıra alınır)
         const res = await allocateDocumentNumber({ ...buildAllocateBody(), peek: true });
         if (res.success && res.number) {
-          if (force) setValue(`standardFields.${docNumberField}`, '', { shouldDirty: true });
+          lastAutoNumber.current = res.number;
+          setValue(`standardFields.${docNumberField}`, res.number, { shouldDirty: true });
           numberAllocated.current = true;
           numberManual.current = false;
-          setNumberHint(`Otomatik: ${res.number} — numara kayıtta verilir`);
+          setNumberHint('Sıradaki fiş no — kayıtta kesinleşir');
         } else {
           setNumberHint(res.message || 'Şablon bulunamadı');
         }
@@ -1223,6 +1278,24 @@ export const DocumentFormEngine: React.FC<DocumentFormEngineProps> = ({
     watchedWhouseId,
   ]);
 
+  // Kullanıcı fiş noyu elle değiştirirse otomatik sıra bırakılır
+  React.useEffect(() => {
+    if (!isNewRecord || !docNumberField) return;
+    const sub = watch((vals, info) => {
+      if (info.name !== `standardFields.${docNumberField}`) return;
+      const v = String(
+        (vals as { standardFields?: Record<string, unknown> })?.standardFields?.[docNumberField] ?? '',
+      ).trim();
+      if (!v) return;
+      if (lastAutoNumber.current && v === lastAutoNumber.current) {
+        numberManual.current = false;
+        return;
+      }
+      if (numberAllocated.current || lastAutoNumber.current) numberManual.current = true;
+    });
+    return () => sub.unsubscribe();
+  }, [watch, docNumberField, isNewRecord]);
+
   const applySerialLotQty = (index: number, q: number) => {
     setValue(`lines.${index}.Quantity`, q, { shouldDirty: true, shouldValidate: true });
     const input = document.querySelector<HTMLInputElement>(`input[name="lines.${index}.Quantity"]`);
@@ -1232,7 +1305,7 @@ export const DocumentFormEngine: React.FC<DocumentFormEngineProps> = ({
     }
   };
 
-  const handleFormSubmit = (data: FieldValues) => {
+  const handleFormSubmit = async (data: FieldValues) => {
     if (bodyRo) return;
     const rawLines = hasLines ? ((data.lines as Record<string, unknown>[]) || []) : undefined;
     let lines = rawLines
@@ -1276,8 +1349,9 @@ export const DocumentFormEngine: React.FC<DocumentFormEngineProps> = ({
           return String(v).trim() !== '';
         });
       });
-    // KDV düzelt: dip toplam ile satır KDV farkını son dolu satıra yaz
+    // KDV düzelt (yalnız alış): dip toplam ile satır KDV farkını son dolu satıra yaz
     if (
+      allowTaxEdit &&
       taxEditOn &&
       taxEditValue != null &&
       lines &&
@@ -1383,6 +1457,36 @@ export const DocumentFormEngine: React.FC<DocumentFormEngineProps> = ({
       const raw = String(standardFields[key] ?? '').trim();
       if (raw && !/^\d+$/.test(raw) && letterType[raw]) standardFields[key] = letterType[raw];
     }
+    // Yeni fiş: sıradan kesin numara al; çakışırsa / sıra ilerlediyse sor
+    if (isNewRecord && docNumberField && !numberManual.current) {
+      const shown = String(standardFields[docNumberField] ?? '').trim();
+      try {
+        const alloc = await allocateDocumentNumber({ ...buildAllocateBody(), peek: false });
+        if (!alloc.success || !alloc.number) {
+          appToast(alloc.message || 'Fiş numarası alınamadı', { kind: 'error', durationMs: 5000 });
+          return;
+        }
+        if (shown && shown !== alloc.number) {
+          const ok = await appConfirm(
+            `«${shown}» fiş numarası kullanılıyor veya sıra ilerledi (aynı anda başka kullanıcı kaydetmiş olabilir).\n\n«${alloc.number}» ile kaydedilsin mi?`,
+            {
+              title: 'Fiş numarası',
+              okLabel: 'Yeni numara ile kaydet',
+              cancelLabel: 'İptal',
+            },
+          );
+          if (!ok) return;
+        }
+        standardFields[docNumberField] = alloc.number;
+        lastAutoNumber.current = alloc.number;
+        setValue(`standardFields.${docNumberField}`, alloc.number, { shouldDirty: true });
+        setNumberHint(`Fiş no: ${alloc.number}`);
+      } catch (e) {
+        appToast(e instanceof Error ? e.message : 'Fiş numarası alınamadı', { kind: 'error' });
+        return;
+      }
+    }
+
     const payload: DynamicFormDataDto = {
       recordId: initialData?.recordId ?? 0,
       standardFields,
@@ -1391,9 +1495,9 @@ export const DocumentFormEngine: React.FC<DocumentFormEngineProps> = ({
       paymentPlans: showPaymentPlan ? paymentPlans : undefined,
       distributions,
       auxilCodes,
-      // Y-05: numara alanı boşsa sunucu kaydetmeden hemen önce şablondan numara verir
+      // Elle boş bırakıldıysa sunucu yine numara verir
       autoNumber:
-        isNewRecord && docNumberField && !String((data.standardFields as Record<string, unknown>)?.[docNumberField] ?? '').trim()
+        isNewRecord && docNumberField && !String(standardFields[docNumberField] ?? '').trim()
           ? { field: docNumberField, request: buildAllocateBody() }
           : undefined,
     };
@@ -1537,7 +1641,7 @@ export const DocumentFormEngine: React.FC<DocumentFormEngineProps> = ({
     !bodyRo && docNumberField ? (
       <button
         type="button"
-        title="Sıradaki fiş no (önizleme — numara kayıtta verilir)"
+        title="Sıradaki fiş numarasını al"
         disabled={numberBusy}
         onClick={() => {
           numberManual.current = false;
@@ -1548,6 +1652,80 @@ export const DocumentFormEngine: React.FC<DocumentFormEngineProps> = ({
         <RefreshCw className={`w-3.5 h-3.5 ${numberBusy ? 'animate-spin' : ''}`} />
       </button>
     ) : null;
+
+  const applyPercentDiscount = React.useCallback(
+    (pct: number, rowIndex: number | 'all') => {
+      const rows = (getValues('lines') as Record<string, unknown>[]) || [];
+      const indices =
+        rowIndex === 'all' ? rows.map((_, i) => i) : [rowIndex];
+      for (const i of indices) {
+        const row = rows[i];
+        if (!row) continue;
+        const lineType = String(row.LineType ?? '1');
+        if (lineType === '2') continue;
+        const qty = Number(row.Quantity) || 0;
+        const price = Number(row.Price) || 0;
+        const base = qty * price;
+        const disc = Math.round((base * pct) / 100 * 100) / 100;
+        setValue(`lines.${i}.TotalDiscount`, disc, { shouldDirty: true });
+      }
+      appToast(`%${pct} indirim uygulandı`);
+    },
+    [getValues, setValue],
+  );
+
+  const runTradeCtx = React.useCallback(
+    (action: (typeof TRADE_DOCUMENT_CONTEXT_MENU)[number]['action'], rowIndex: number) => {
+      setCtxMenu(null);
+      if (action === 'stub') {
+        appToast('Bu sürümde henüz yok');
+        return;
+      }
+      if (action === 'discount') {
+        setDiscountRow(rowIndex);
+        setDiscountOpen(true);
+        return;
+      }
+      if (action === 'lineCount') {
+        appToast(`${fields.length} satır`);
+        return;
+      }
+      if (action === 'resetCols') {
+        const keys = defaultVisibleTradeCols(allLineFieldKeys);
+        setVisibleLineKeys(keys);
+        saveVisibleTradeCols(schema.formCode, keys);
+        appToast('Kolon görünümü sıfırlandı');
+        return;
+      }
+      if (action === 'find') {
+        setFindOpen(true);
+        return;
+      }
+      if (action === 'kdvSummary' || action === 'detailInfo') {
+        const lm = lineMoney;
+        const text =
+          action === 'kdvSummary'
+            ? `KDV: ${(lm?.tax ?? 0).toLocaleString('tr-TR', { minimumFractionDigits: 2 })}\nMatrah (toplam): ${(lm?.total ?? 0).toLocaleString('tr-TR', { minimumFractionDigits: 2 })}\nNet: ${(lm?.net ?? 0).toLocaleString('tr-TR', { minimumFractionDigits: 2 })}`
+            : `Satır: ${fields.length}\nİskonto: ${(lm?.discount ?? 0).toLocaleString('tr-TR', { minimumFractionDigits: 2 })}\nToplam: ${(lm?.total ?? 0).toLocaleString('tr-TR', { minimumFractionDigits: 2 })}\nKDV: ${(lm?.tax ?? 0).toLocaleString('tr-TR', { minimumFractionDigits: 2 })}\nNet: ${(lm?.net ?? 0).toLocaleString('tr-TR', { minimumFractionDigits: 2 })}`;
+        setInfoModal(text);
+        return;
+      }
+      if (action === 'priceUpdate') {
+        appToast('Birim fiyat: satırdaki fiyat seçicisini kullanın');
+        return;
+      }
+      if (action === 'accountCodes') {
+        appToast('Muhasebe kodları kart / fiş muhasebe sekmesinden yönetilir');
+        return;
+      }
+      if (action === 'withholding') {
+        appToast('Tevkifat parametreleri Sistem → Fatura parametrelerinden');
+        return;
+      }
+      void rowIndex;
+    },
+    [allLineFieldKeys, fields.length, lineMoney, schema.formCode],
+  );
 
   const renderLinesTable = (opts?: { fill?: boolean }) =>
     hasLines && schema.lineFields ? (
@@ -1691,7 +1869,7 @@ export const DocumentFormEngine: React.FC<DocumentFormEngineProps> = ({
             <thead>
               <tr className="bg-slate-100 dark:bg-slate-800 border-b border-slate-200 dark:border-slate-700 sticky top-0 z-[1]">
                 <th className="w-8 px-1 py-1 text-center text-[10px] font-semibold text-slate-500 border-r border-b border-slate-300 dark:border-slate-600">#</th>
-                {schema.lineFields.map((field) => {
+                {visibleLineFields.map((field) => {
                   const name = field.fieldName.toLowerCase();
                   const isPrice = field.fieldName === 'Price';
                   const isNum = field.fieldType === 'number';
@@ -1729,6 +1907,11 @@ export const DocumentFormEngine: React.FC<DocumentFormEngineProps> = ({
                   key={row.id}
                   onClick={hasDistribution ? () => setSelectedLine(index) : undefined}
                   onFocusCapture={hasDistribution ? () => setSelectedLine(index) : undefined}
+                  onContextMenu={(e) => {
+                    e.preventDefault();
+                    setSelectedLine(index);
+                    setCtxMenu({ x: e.clientX, y: e.clientY, rowIndex: index });
+                  }}
                   className={`border-b border-slate-200 dark:border-slate-700 ${
                     hasDistribution && index === activeLine
                       ? 'bg-blue-50/70 dark:bg-blue-950/30'
@@ -1738,7 +1921,7 @@ export const DocumentFormEngine: React.FC<DocumentFormEngineProps> = ({
                   <td className="w-8 px-1 py-0.5 align-middle text-center text-[11px] text-slate-500 font-medium bg-slate-50 dark:bg-slate-800/60 border-r border-slate-200 dark:border-slate-700">
                     {index + 1}
                   </td>
-                  {schema.lineFields!.map((field, colIdx) => {
+                  {visibleLineFields.map((field, colIdx) => {
                     const isPrice = field.fieldName === 'Price';
                     const isUnit = field.fieldName === 'UnitID';
                     const productId =
@@ -2008,7 +2191,7 @@ export const DocumentFormEngine: React.FC<DocumentFormEngineProps> = ({
   const sumTax = lineMoney?.tax ?? sumLineField(watchedLines || [], 'TotalTax');
   const sumLineTotal = lineMoney?.total ?? sumLineField(watchedLines || [], 'TotalPrice');
   const sumQty = lineMoney?.qty ?? sumLineField(watchedLines || [], 'Quantity');
-  const displayTax = taxEditOn && taxEditValue != null ? taxEditValue : sumTax;
+  const displayTax = allowTaxEdit && taxEditOn && taxEditValue != null ? taxEditValue : sumTax;
   const footerNet = roundMoney(sumLineTotal + displayTax);
 
   const currencyChoices = React.useMemo(() => {
@@ -2088,6 +2271,44 @@ export const DocumentFormEngine: React.FC<DocumentFormEngineProps> = ({
     const now = new Date();
     return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
   };
+
+  const renderDetailFooterPanels = () => (
+    <>
+      {documentActionsSlot}
+      <div className="rounded-md border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800/40 p-2.5 space-y-2">
+        <h3 className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">
+          Belge işlemleri
+        </h3>
+        <div className="flex flex-wrap gap-1.5">
+          {schema.lineFields && (
+            <button
+              type="button"
+              onClick={() => setColSettingsOpen(true)}
+              className="inline-flex items-center gap-1 px-2 h-7 text-[11px] font-semibold text-slate-800 bg-white border border-slate-400 hover:bg-slate-100 rounded-sm"
+            >
+              <Columns3 className="w-3.5 h-3.5" />
+              Kolonlar
+            </button>
+          )}
+          {TRADE_DOCUMENT_CONTEXT_MENU.map((m) => (
+            <button
+              key={m.key}
+              type="button"
+              onClick={() => runTradeCtx(m.action, 0)}
+              className={`inline-flex items-center px-2 h-7 text-[11px] rounded-sm border transition-colors ${
+                m.action === 'stub'
+                  ? 'text-slate-400 border-slate-200 bg-white/60 hover:bg-slate-50'
+                  : 'text-slate-700 font-medium border-slate-300 bg-white hover:bg-slate-100'
+              }`}
+              title={m.action === 'stub' ? 'Bu sürümde henüz yok' : m.label}
+            >
+              {m.label}
+            </button>
+          ))}
+        </div>
+      </div>
+    </>
+  );
 
   const applySinglePayment = () => {
     const amount = roundMoney(footerNet > 0 ? footerNet : sumLineTotal);
@@ -2337,13 +2558,13 @@ export const DocumentFormEngine: React.FC<DocumentFormEngineProps> = ({
                                 <h3 className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">
                                   Toplam
                                 </h3>
-                                {!bodyRo && (
+                                {!bodyRo && allowTaxEdit && (
                                   <button
                                     type="button"
                                     title={
                                       taxEditOn
                                         ? 'KDV düzeltmeyi kapat (satır hesabına dön)'
-                                        : 'Dip toplam KDV tutarına elle müdahale'
+                                        : 'Alış faturası: dip KDV tutarına elle müdahale (tedarikçi yuvarlama)'
                                     }
                                     onClick={() => {
                                       if (taxEditOn) {
@@ -2378,7 +2599,7 @@ export const DocumentFormEngine: React.FC<DocumentFormEngineProps> = ({
                                 </div>
                                 <div className="text-slate-500">Toplam KDV</div>
                                 <div className="text-right font-semibold tabular-nums text-slate-800 dark:text-slate-100">
-                                  {taxEditOn && !bodyRo ? (
+                                  {allowTaxEdit && taxEditOn && !bodyRo ? (
                                     <input
                                       type="text"
                                       inputMode="decimal"
@@ -2405,7 +2626,7 @@ export const DocumentFormEngine: React.FC<DocumentFormEngineProps> = ({
                                     formatTrNumber(displayTax)
                                   )}
                                 </div>
-                                {taxEditOn && Math.abs(displayTax - sumTax) > 0.0005 ? (
+                                {allowTaxEdit && taxEditOn && Math.abs(displayTax - sumTax) > 0.0005 ? (
                                   <>
                                     <div className="text-[10px] text-amber-700">Hesaplanan KDV</div>
                                     <div className="text-right text-[10px] tabular-nums text-amber-700">
@@ -2427,6 +2648,7 @@ export const DocumentFormEngine: React.FC<DocumentFormEngineProps> = ({
                           ) : null}
                         </div>
                       </div>
+                      {renderDetailFooterPanels()}
                     </>
                   )}
                   {detailTab === 'detaylar-toplam' && (
@@ -2523,7 +2745,12 @@ export const DocumentFormEngine: React.FC<DocumentFormEngineProps> = ({
                       </aside>
                     </div>
                   )}
-                  {detailTab === 'detaylar2' && showCustomTab && renderGrid(custom, true)}
+                  {detailTab === 'detaylar2' && showCustomTab && (
+                    <>
+                      {renderGrid(custom, true)}
+                      {renderDetailFooterPanels()}
+                    </>
+                  )}
                   {detailTab === 'masraf-dagitim' && hasDistribution && renderDistributionPanel(true)}
                   {detailTab === 'e-defter' && hasELedger && renderELedgerTab()}
                   {detailTab === 'odeme-planı' && (
@@ -2780,11 +3007,24 @@ export const DocumentFormEngine: React.FC<DocumentFormEngineProps> = ({
                   {hasLines && (
                     <section className="rounded-md border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800/40 px-3 py-2.5">
                       <div className="flex flex-wrap items-end justify-between gap-3">
-                        <div>
-                          <h3 className="text-[11px] font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">
-                            Dip Toplamlar
-                          </h3>
-                          <p className="text-[11px] text-slate-400 mt-0.5">{fields.length} satır</p>
+                        <div className="flex flex-wrap items-center gap-2">
+                          <div>
+                            <h3 className="text-[11px] font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">
+                              Dip Toplamlar
+                            </h3>
+                            <p className="text-[11px] text-slate-400 mt-0.5">{fields.length} satır</p>
+                          </div>
+                          {schema.lineFields && (
+                            <button
+                              type="button"
+                              onClick={() => setColSettingsOpen(true)}
+                              className="inline-flex items-center gap-1 px-2 h-7 text-[11px] font-semibold text-slate-700 bg-white border border-slate-400 hover:bg-slate-50 rounded-sm"
+                              title="Kalem kolonlarını göster / gizle"
+                            >
+                              <Columns3 className="w-3.5 h-3.5" />
+                              Kolonlar
+                            </button>
+                          )}
                         </div>
                         <div className="flex flex-wrap items-end gap-x-5 gap-y-1 justify-end">
                           {lineTotals.length > 0 ? (
@@ -2808,12 +3048,183 @@ export const DocumentFormEngine: React.FC<DocumentFormEngineProps> = ({
                       </div>
                     </section>
                   )}
+                  {documentActionsSlot}
                 </>
               )}
               {saveBar}
             </>
           )}
         </form>
+
+        {colSettingsOpen && schema.lineFields && (
+          <TradeColumnSettingsModal
+            fields={schema.lineFields}
+            selectedKeys={visibleLineKeys}
+            currentFormCode={schema.formCode}
+            screens={(
+              [
+                { formCode: 'OrderVoucherForm', title: 'Sipariş' },
+                { formCode: 'ProductVoucherForm', title: 'İrsaliye' },
+                { formCode: 'InvoiceForm', title: 'Fatura' },
+                { formCode: 'MaterialVoucherForm', title: 'Malzeme Fişi' },
+              ] as const
+            )
+              .map((s) => {
+                const fs = getFormSchema(s.formCode);
+                if (!fs?.lineFields?.length) return null;
+                return {
+                  formCode: s.formCode,
+                  title: s.title,
+                  fields: fs.lineFields,
+                  selectedKeys: loadVisibleTradeCols(
+                    s.formCode,
+                    fs.lineFields.map((f) => f.fieldName),
+                  ),
+                };
+              })
+              .filter(Boolean) as {
+              formCode: string;
+              title: string;
+              fields: FormFieldDto[];
+              selectedKeys: string[];
+            }[]}
+            onCancel={() => setColSettingsOpen(false)}
+            onApply={(formCode, keys) => {
+              saveVisibleTradeCols(formCode, keys);
+              if (formCode === schema.formCode) setVisibleLineKeys(keys);
+              setColSettingsOpen(false);
+              appToast(
+                formCode === schema.formCode
+                  ? 'Kolon görünümü kaydedildi'
+                  : `Kolon görünümü kaydedildi (${formCode.replace(/Form$/, '')})`,
+              );
+            }}
+          />
+        )}
+
+        {ctxMenu && (
+          <RowContextMenu
+            x={ctxMenu.x}
+            y={ctxMenu.y}
+            title="Belge işlemleri"
+            items={TRADE_DOCUMENT_CONTEXT_MENU.map((m) => ({
+              key: m.key,
+              label: m.label,
+              separatorBefore: m.separatorBefore,
+              onClick: () => runTradeCtx(m.action, ctxMenu.rowIndex),
+            }))}
+            onClose={() => setCtxMenu(null)}
+          />
+        )}
+
+        {discountOpen && (
+          <div className="fixed inset-0 z-[10000] flex items-center justify-center bg-black/30 p-3">
+            <div className="w-full max-w-sm rounded-md border border-slate-200 bg-white p-3 shadow-lg space-y-2">
+              <h4 className="text-[13px] font-semibold text-slate-800">İndirim Uygula</h4>
+              <label className="block text-[11px] text-slate-600">
+                Yüzde
+                <input
+                  className="mt-0.5 w-full h-8 px-2 border border-slate-300 rounded-sm text-[12px]"
+                  value={discountPct}
+                  onChange={(e) => setDiscountPct(e.target.value)}
+                />
+              </label>
+              <div className="flex flex-wrap gap-1.5 justify-end pt-1">
+                <button
+                  type="button"
+                  className="h-7 px-2 text-[11px] border border-slate-300 rounded-sm"
+                  onClick={() => setDiscountOpen(false)}
+                >
+                  Vazgeç
+                </button>
+                <button
+                  type="button"
+                  className="h-7 px-2 text-[11px] bg-slate-800 text-white rounded-sm"
+                  onClick={() => {
+                    const pct = Number(String(discountPct).replace(',', '.')) || 0;
+                    applyPercentDiscount(pct, discountRow);
+                    setDiscountOpen(false);
+                  }}
+                >
+                  Seçili satır
+                </button>
+                <button
+                  type="button"
+                  className="h-7 px-2 text-[11px] bg-blue-700 text-white rounded-sm"
+                  onClick={() => {
+                    const pct = Number(String(discountPct).replace(',', '.')) || 0;
+                    applyPercentDiscount(pct, 'all');
+                    setDiscountOpen(false);
+                  }}
+                >
+                  Tüm satırlar
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {findOpen && (
+          <div className="fixed inset-0 z-[10000] flex items-center justify-center bg-black/30 p-3">
+            <div className="w-full max-w-sm rounded-md border border-slate-200 bg-white p-3 shadow-lg space-y-2">
+              <h4 className="text-[13px] font-semibold text-slate-800">Satırda Bul</h4>
+              <input
+                autoFocus
+                className="w-full h-8 px-2 border border-slate-300 rounded-sm text-[12px]"
+                value={findText}
+                onChange={(e) => setFindText(e.target.value)}
+                placeholder="Kod veya açıklama"
+              />
+              <div className="flex justify-end gap-1.5">
+                <button
+                  type="button"
+                  className="h-7 px-2 text-[11px] border rounded-sm"
+                  onClick={() => setFindOpen(false)}
+                >
+                  Kapat
+                </button>
+                <button
+                  type="button"
+                  className="h-7 px-2 text-[11px] bg-slate-800 text-white rounded-sm"
+                  onClick={() => {
+                    const q = findText.trim().toLocaleLowerCase('tr-TR');
+                    const rows = (getValues('lines') as Record<string, unknown>[]) || [];
+                    const idx = rows.findIndex((r) =>
+                      [r.Description, r.Description1, r.Description2, r.ProductCardID, r.ItemsID]
+                        .map((x) => String(x ?? '').toLocaleLowerCase('tr-TR'))
+                        .some((s) => s.includes(q)),
+                    );
+                    if (idx >= 0) {
+                      setSelectedLine(idx);
+                      appToast(`Satır ${idx + 1}`);
+                      setFindOpen(false);
+                    } else appToast('Bulunamadı');
+                  }}
+                >
+                  Ara
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {infoModal && (
+          <div className="fixed inset-0 z-[10000] flex items-center justify-center bg-black/30 p-3">
+            <div className="w-full max-w-sm rounded-md border border-slate-200 bg-white p-3 shadow-lg space-y-2">
+              <h4 className="text-[13px] font-semibold text-slate-800">Özet</h4>
+              <pre className="text-[12px] text-slate-700 whitespace-pre-wrap font-sans">{infoModal}</pre>
+              <div className="flex justify-end">
+                <button
+                  type="button"
+                  className="h-7 px-2 text-[11px] bg-slate-800 text-white rounded-sm"
+                  onClick={() => setInfoModal(null)}
+                >
+                  Tamam
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
       </div>
     </FormFieldContext.Provider>
   );

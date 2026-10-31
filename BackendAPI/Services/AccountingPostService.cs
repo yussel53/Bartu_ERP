@@ -21,6 +21,8 @@ public sealed class AccPoolConfig
     public bool PoolSafe { get; set; } = true;
     public string InvoiceTypes { get; set; } = "*";
     public string SafeTypes { get; set; } = "*";
+    /// <summary>Hesap kartları listesi bakiyesi için öndeğer yıl (ACC_BALANCE_YEAR).</summary>
+    public int BalanceYear { get; set; }
 }
 
 /// <summary>
@@ -66,6 +68,8 @@ public sealed class AccountingPostService
     public async Task<AccPoolConfig> GetConfigAsync()
     {
         Open();
+        var yearRaw = await SettingAsync("ACC_BALANCE_YEAR");
+        var year = int.TryParse(yearRaw, out var y) && y >= 1900 && y <= 2100 ? y : DateTime.Now.Year;
         return new AccPoolConfig
         {
             AutoPost = (await SettingAsync("ACC_AUTO_POST")) == "1",
@@ -73,6 +77,7 @@ public sealed class AccountingPostService
             PoolSafe = (await SettingAsync("ACC_POOL_SAFE")) != "0",
             InvoiceTypes = (await SettingAsync("ACC_INV_TYPES")) ?? "*",
             SafeTypes = (await SettingAsync("ACC_SAFE_TYPES")) ?? "*",
+            BalanceYear = year,
         };
     }
 
@@ -86,6 +91,8 @@ public sealed class AccountingPostService
             string.IsNullOrWhiteSpace(cfg.InvoiceTypes) ? "*" : cfg.InvoiceTypes.Trim());
         await UpsertSettingAsync("ACC_SAFE_TYPES", "Havuza kasa türleri (* veya 1,2,..)",
             string.IsNullOrWhiteSpace(cfg.SafeTypes) ? "*" : cfg.SafeTypes.Trim());
+        var year = cfg.BalanceYear is >= 1900 and <= 2100 ? cfg.BalanceYear : DateTime.Now.Year;
+        await UpsertSettingAsync("ACC_BALANCE_YEAR", "Hesap bakiyesi yılı (öndeğer)", year.ToString());
     }
 
     private async Task UpsertSettingAsync(string code, string title, string value)

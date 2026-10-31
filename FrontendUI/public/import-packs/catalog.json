@@ -1,0 +1,31 @@
+{
+  "vendors": [
+    {
+      "id": "logo",
+      "title": "Logo",
+      "note": "Tiger — firma 421 (LG_421_*). Sunucu ve veritabanını bir kez girin; paketler listeye eklenir.",
+      "defaultDatabase": "LOGODB",
+      "defaultPort": "1433",
+      "windowsAuth": true,
+      "packs": [
+        { "file": "account.json", "title": "Muhasebe hesapları" },
+        { "file": "customer.json", "title": "Cari kartlar" },
+        { "file": "product.json", "title": "Malzeme / hizmet" },
+        { "file": "invoice.json", "title": "Faturalar (satır)" }
+      ]
+    },
+    {
+      "id": "mikro",
+      "title": "Mikro",
+      "note": "Jump / Fly klasik tablolar (CARI_HESAPLAR, STOKLAR, MUHASEBE_HESAPLARI). Tablo adları firmanıza göre değişebilir.",
+      "defaultDatabase": "",
+      "defaultPort": "1433",
+      "windowsAuth": false,
+      "packs": [
+        { "file": "account.json", "title": "Muhasebe hesapları" },
+        { "file": "customer.json", "title": "Cari kartlar" },
+        { "file": "product.json", "title": "Stok kartları" }
+      ]
+    }
+  ]
+}

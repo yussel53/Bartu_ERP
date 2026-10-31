@@ -42,8 +42,11 @@ public static class ImportSources
                     ("IsActive", "Durum"), ("DefaultCurrency", "Döviz")),
                 ["invoice"] = Map(
                     ("DocumentNumber", "Fatura Numarası"), ("InvoiceDate", "Tarih"), ("InvoiceType", "Fatura Tipi"),
-                    ("CustomerCode", "Cari Hesap Kodu"), ("WhouseCode", "Ambar"), ("ProductCode", "Malzeme Kodu"),
-                    ("Discount", "İndirim"), ("TaxRate", "KDV"), ("LineDescription", "Satır Açıklaması")),
+                    ("CustomerCode", "Cari Hesap Kodu"), ("CustomerTitle", "Cari Hesap Unvanı"),
+                    ("WhouseCode", "Ambar"), ("WorkplaceCode", "İşyeri"),
+                    ("ProductCode", "Malzeme Kodu"), ("ProductTitle", "Malzeme Açıklaması"),
+                    ("Discount", "İndirim"), ("TaxRate", "KDV"), ("TaxAmount", "KDV Tutarı"),
+                    ("NetTotal", "Net Tutar"), ("LineDescription", "Satır Açıklaması")),
                 ["customer-voucher"] = Map(
                     ("DocumentNumber", "Fiş No"), ("Type", "Fiş Türü"), ("CustomerCode", "Cari Hesap Kodu"),
                     ("LineDescription", "Satır Açıklaması")),
@@ -75,8 +78,11 @@ public static class ImportSources
                     ("IsActive", "Durum")),
                 ["invoice"] = Map(
                     ("DocumentNumber", "Evrak No"), ("InvoiceDate", "Tarih"), ("InvoiceType", "Evrak Tipi"),
-                    ("Description", "Evrak Açıklaması"), ("WhouseCode", "Depo"), ("ProductCode", "Stok Kodu"),
-                    ("TaxRate", "Vergi Yüzdesi"), ("LineDescription", "Satır Açıklaması")),
+                    ("Description", "Evrak Açıklaması"), ("CustomerTitle", "Cari Ünvanı"),
+                    ("WhouseCode", "Depo"), ("WorkplaceCode", "İşyeri"),
+                    ("ProductCode", "Stok Kodu"), ("ProductTitle", "Stok İsmi"),
+                    ("TaxRate", "Vergi Yüzdesi"), ("TaxAmount", "Vergi Tutarı"),
+                    ("NetTotal", "Net Tutar"), ("LineDescription", "Satır Açıklaması")),
                 ["customer-voucher"] = Map(
                     ("DocumentNumber", "Evrak No"), ("Type", "Evrak Tipi"), ("Description", "Evrak Açıklaması"),
                     ("LineDescription", "Satır Açıklaması")),
@@ -105,8 +111,11 @@ public static class ImportSources
                 ["account"] = Map(
                     ("Title", "Hesap Adı"), ("MainAccountCode", "Üst Hesap"), ("Type_", "Hesap Tipi")),
                 ["invoice"] = Map(
-                    ("InvoiceDate", "Tarih"), ("InvoiceType", "Fatura Tipi"), ("WhouseCode", "Depo Kodu"),
-                    ("ProductCode", "Stok Kodu"), ("Price", "Fiyat"), ("TaxRate", "KDV Oranı")),
+                    ("InvoiceDate", "Tarih"), ("InvoiceType", "Fatura Tipi"),
+                    ("WhouseCode", "Depo Kodu"), ("WorkplaceCode", "İşyeri"),
+                    ("CustomerTitle", "Cari İsim"), ("ProductTitle", "Stok Adı"),
+                    ("ProductCode", "Stok Kodu"), ("Price", "Fiyat"), ("TaxRate", "KDV Oranı"),
+                    ("NetTotal", "Net Tutar")),
                 ["customer-voucher"] = Map(
                     ("DocumentNumber", "Belge No"), ("Type", "Fiş Tipi"), ("Description", "Açıklama")),
                 ["bank-voucher"] = Map(
@@ -133,8 +142,11 @@ public static class ImportSources
                 ["account"] = Map(
                     ("Title", "Hesap Adı"), ("Type_", "Hesap Tipi"), ("MainAccountCode", "Üst Hesap Kodu")),
                 ["invoice"] = Map(
-                    ("InvoiceDate", "Tarih"), ("InvoiceType", "Fatura Tipi"), ("WhouseCode", "Depo"),
-                    ("ProductCode", "Stok Kodu"), ("Price", "Fiyat"), ("TaxRate", "KDV Oranı")),
+                    ("InvoiceDate", "Tarih"), ("InvoiceType", "Fatura Tipi"),
+                    ("WhouseCode", "Depo"), ("WorkplaceCode", "İşyeri"),
+                    ("CustomerTitle", "Cari Adı"), ("ProductTitle", "Stok Adı"),
+                    ("ProductCode", "Stok Kodu"), ("Price", "Fiyat"), ("TaxRate", "KDV Oranı"),
+                    ("NetTotal", "Net Tutar")),
                 ["customer-voucher"] = Map(
                     ("DocumentNumber", "Fiş No"), ("VoucherDate", "Tarih"), ("Type", "Fiş Tipi")),
                 ["bank-voucher"] = Map(

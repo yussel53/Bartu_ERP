@@ -24,6 +24,7 @@ import { ExtraFieldsAdminPage } from '../pages/ExtraFieldsAdminPage';
 import { UserPermissionsPage } from '../pages/UserPermissionsPage';
 import { ExternalEmbedPage } from '../pages/ExternalEmbedPage';
 import { AddressAdminPage } from '../pages/AddressAdminPage';
+import { BankCatalogAdminPage } from '../pages/BankCatalogAdminPage';
 import { DatabaseAdminPage } from '../pages/DatabaseAdminPage';
 import { CardDefaultsPage } from '../pages/CardDefaultsPage';
 import { SqlReportsPage } from '../pages/SqlReportsPage';
@@ -217,6 +218,15 @@ export const ModuleWorkspace: React.FC<ModuleWorkspaceProps> = ({
           key={activeScreen.addressLevel || 'province'}
           onBack={() => onNavigate(module.path)}
           initialLevel={activeScreen.addressLevel || 'province'}
+        />
+      );
+    }
+    if (activeScreen.isBankCatalogAdmin) {
+      return (
+        <BankCatalogAdminPage
+          key={activeScreen.bankCatalogTab || 'bank'}
+          onBack={() => onNavigate(module.path)}
+          initialTab={activeScreen.bankCatalogTab || 'bank'}
         />
       );
     }

@@ -310,6 +310,21 @@ public sealed class RecordsController : ControllerBase
                 }
             }
 
+            // Eşzamanlı kayıt: aynı fiş no başka kayıtta varsa uyar (istemci yeni numara sorar)
+            var dup = await _repo.FindDuplicateDocNumberAsync(
+                tableName, pk, body.RecordId, body.StandardFields, ct);
+            if (dup is { } d)
+            {
+                return Conflict(new
+                {
+                    success = false,
+                    code = "DUPLICATE_DOC_NUMBER",
+                    field = d.Field,
+                    number = d.Number,
+                    message = $"«{d.Number}» fiş numarası zaten kullanılıyor.",
+                });
+            }
+
             // Y-15: değişiklik geçmişi için kaydın önceki hali
             var auditBefore = body.RecordId > 0 ? await _repo.GetAsync(tableName, pk, body.RecordId, ct) : null;
             var (ok, id, message) = await _repo.SaveAsync(tableName, pk, body, ct);

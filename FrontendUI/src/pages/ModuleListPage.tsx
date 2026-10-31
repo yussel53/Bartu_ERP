@@ -28,15 +28,24 @@ import {
 import { RowContextMenu, RowContextMenuItem } from '../components/RowContextMenu';
 import { AuditHistoryModal } from '../components/AuditHistoryModal';
 import { CardStatementModal } from '../components/CardStatementModal';
+import { CardQuickInfoButton } from '../components/CardQuickInfoButton';
 import { getCardStatementDef } from '../data/cardStatementKinds';
 import { ActiveStatusBadge, isActiveValue } from '../components/ActiveToggle';
 import { canScreen, getCurrentProfile, resolveScreenAuthCode } from '../data/permissions';
 import { filterRowsByAuthCode } from '../data/authCodes';
 import { filterRowsByOrgAuth, orgAuthSummary } from '../data/orgUnits';
 import { FORM_SCHEMAS } from '../data/formSchemas';
+import { ACCOUNT_TYPE_LABELS } from '../data/accountParentLink';
 import { DispatchTypeLabels } from '../data/documentTypes';
 import { listRecords, deleteRecord } from '../api/recordsApi';
-import { convertCustomerToCari, CustomerListSummary, getCustomerSummaries } from '../api/cardStatementApi';
+import { resolveLookupOption } from '../api/lookupApi';
+import {
+  AccountListSummary,
+  convertCustomerToCari,
+  CustomerListSummary,
+  getAccountSummaries,
+  getCustomerSummaries,
+} from '../api/cardStatementApi';
 import { ModuleOverviewPage } from './ModuleOverviewPage';
 import { FormTabs } from '../components/FormTabs';
 import { appConfirm } from '../utils/appConfirm';
@@ -101,6 +110,9 @@ function resolveListFilter(
   if (screen.productTypeFilter != null) {
     return { column: 'ProductType', value: screen.productTypeFilter };
   }
+  if (screen.tradeGroupFilter != null) {
+    return { column: 'TradeGroup', value: screen.tradeGroupFilter };
+  }
   if (screen.documentTypeFilter != null) {
     const col =
       schema?.fields.some((f) => f.fieldName === 'VoucherType') ||
@@ -116,6 +128,50 @@ function resolveListFilter(
 }
 
 const fmtMoney = (n: number) => n.toLocaleString('tr-TR', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+
+const DOC_PARTY_TABLES = new Set([
+  'Invoice',
+  'OrderVoucher',
+  'ProductVoucher',
+  'CustomerVoucher',
+  'BankVoucher',
+  'SafeVoucher',
+]);
+
+/** Fatura / irsaliye / sipariş listesinde CustomerID → «kod — ünvan» (API zenginleştirmesi yoksa yedek) */
+async function withDocCustomerTitles(rows: Record<string, unknown>[]): Promise<Record<string, unknown>[]> {
+  if (rows.length === 0) return rows;
+  const need = new Map<string, true>();
+  for (const row of rows) {
+    const id = String(row.CustomerID ?? row.customerID ?? '').trim();
+    if (!id || id === '0') continue;
+    const have = String(row.CustomerTitle ?? row.customerTitle ?? row.customer ?? '').trim();
+    // Zaten ünvan var ve yalnız ID değilse atla
+    if (have && have !== id && !/^#?\d+$/.test(have)) continue;
+    need.set(id, true);
+  }
+  if (need.size === 0) return rows;
+  const labels = new Map<string, string>();
+  await Promise.all(
+    [...need.keys()].map(async (id) => {
+      try {
+        const opt = await resolveLookupOption('CustomerID', id);
+        if (opt?.label && opt.label !== id && !/^#?\d+$/.test(opt.label.trim())) {
+          labels.set(id, opt.label);
+        }
+      } catch {
+        /* yok say */
+      }
+    }),
+  );
+  if (labels.size === 0) return rows;
+  return rows.map((row) => {
+    const id = String(row.CustomerID ?? row.customerID ?? '').trim();
+    const label = labels.get(id);
+    if (!label) return row;
+    return { ...row, CustomerTitle: label, customerTitle: label, customer: label };
+  });
+}
 
 /** Cari listesi: bakiye, son hareket, açık sipariş, il/ilçe, iletişim, risk grubu (özet okunamazsa liste yine açılır) */
 async function withCustomerSummaries(rows: Record<string, unknown>[], pk: string): Promise<Record<string, unknown>[]> {
@@ -146,6 +202,161 @@ async function withCustomerSummaries(rows: Record<string, unknown>[], pk: string
   });
 }
 
+/** Hesap kodu: 100 → 100.01 → 100.01.00001 (segmentleri sayısal) */
+function compareAccountCode(a: string, b: string): number {
+  const pa = String(a || '')
+    .trim()
+    .split(/[.\-\s/]+/)
+    .filter(Boolean);
+  const pb = String(b || '')
+    .trim()
+    .split(/[.\-\s/]+/)
+    .filter(Boolean);
+  const n = Math.max(pa.length, pb.length);
+  for (let i = 0; i < n; i++) {
+    const sa = pa[i] ?? '';
+    const sb = pb[i] ?? '';
+    if (!sa && sb) return -1;
+    if (sa && !sb) return 1;
+    if (/^\d+$/.test(sa) && /^\d+$/.test(sb)) {
+      const na = Number(sa);
+      const nb = Number(sb);
+      if (na !== nb) return na - nb;
+      if (sa !== sb) return sa.localeCompare(sb, 'tr');
+    } else {
+      const c = sa.localeCompare(sb, 'tr', { numeric: true, sensitivity: 'base' });
+      if (c !== 0) return c;
+    }
+  }
+  return 0;
+}
+
+function sortAccountRows(rows: Record<string, unknown>[]): Record<string, unknown>[] {
+  return [...rows].sort((a, b) =>
+    compareAccountCode(String(pickCell(a, 'code') ?? ''), String(pickCell(b, 'code') ?? '')),
+  );
+}
+
+/**
+ * MainAccountID ağacı: üst hesap sayısı (derinlik) + DFS sıra
+ * 1 → üst 0 · 10 → üst 1 · 100 → üst 2 · 100.01 → üst 3
+ */
+function enrichAccountHierarchy(rows: Record<string, unknown>[], pk: string): Record<string, unknown>[] {
+  const byId = new Map<number, Record<string, unknown>>();
+  for (const r of rows) {
+    const id = Number(pickCell(r, pk) ?? pickCell(r, 'id') ?? 0);
+    if (Number.isFinite(id) && id > 0) byId.set(id, r);
+  }
+  const children = new Map<number, number[]>();
+  const roots: number[] = [];
+  for (const id of byId.keys()) {
+    const r = byId.get(id)!;
+    const parentId = Number(r.MainAccountID ?? r.mainAccountID ?? 0);
+    if (parentId > 0 && byId.has(parentId) && parentId !== id) {
+      const list = children.get(parentId) ?? [];
+      list.push(id);
+      children.set(parentId, list);
+    } else {
+      roots.push(id);
+    }
+  }
+  const sortIds = (ids: number[]) =>
+    ids.sort((a, b) =>
+      compareAccountCode(
+        String(pickCell(byId.get(a)!, 'code') ?? ''),
+        String(pickCell(byId.get(b)!, 'code') ?? ''),
+      ),
+    );
+  sortIds(roots);
+  for (const kids of children.values()) sortIds(kids);
+
+  const out: Record<string, unknown>[] = [];
+  const visit = (id: number, depth: number, isLast: boolean, ancestorContinues: boolean[]) => {
+    const r = byId.get(id)!;
+    const kids = children.get(id) ?? [];
+    out.push({
+      ...r,
+      _accDepth: depth,
+      _accIsLast: isLast,
+      _accGuides: ancestorContinues,
+      ust: depth,
+    });
+    kids.forEach((cid, i) => {
+      const last = i === kids.length - 1;
+      // Bu seviyedeki kardeşlerden sonra devam var mı → dikey çizgi
+      visit(cid, depth + 1, last, depth === 0 ? [] : [...ancestorContinues, !isLast]);
+    });
+  };
+  roots.forEach((id, i) => visit(id, 0, i === roots.length - 1, []));
+
+  // Ağaca girmeyenler (döngü / kopuk) — sonda kod sırasıyla
+  if (out.length < byId.size) {
+    const seen = new Set(out.map((r) => Number(pickCell(r, pk) ?? 0)));
+    const rest = [...byId.entries()]
+      .filter(([id]) => !seen.has(id))
+      .map(([, r]) => ({ ...r, _accDepth: 0, _accIsLast: true, _accGuides: [] as boolean[], ust: 0 }));
+    out.push(...sortAccountRows(rest));
+  }
+  return out;
+}
+
+/** Hesap kodu hücresi: sola yaslı, üst hesap kadar girinti + ağaç çizgisi */
+function AccountCodeCell({ row }: { row: Record<string, unknown> }) {
+  const code = String(pickCell(row, 'code') ?? '');
+  const depth = Number(row._accDepth ?? row.ust ?? 0) || 0;
+  const isLast = Boolean(row._accIsLast);
+  const guides = Array.isArray(row._accGuides) ? (row._accGuides as boolean[]) : [];
+  if (depth <= 0) {
+    return (
+      <span className="block text-left font-semibold text-slate-900 dark:text-slate-100 tabular-nums">{code}</span>
+    );
+  }
+  return (
+    <span className="flex items-center justify-start font-mono text-[12px] tabular-nums leading-none text-left">
+      {guides.map((cont, i) => (
+        <span
+          key={i}
+          className="inline-flex w-3.5 shrink-0 justify-center text-slate-300 dark:text-slate-600 select-none"
+          aria-hidden
+        >
+          {cont ? '│' : '\u00A0'}
+        </span>
+      ))}
+      <span className="inline-flex w-3.5 shrink-0 justify-center text-slate-400 dark:text-slate-500 select-none" aria-hidden>
+        {isLast ? '└' : '├'}
+      </span>
+      <span className="text-slate-700 dark:text-slate-200">{code}</span>
+    </span>
+  );
+}
+
+/** Hesap kartı listesi: yıl bakiyesi + üst hesap derinliği + ağaç sırası */
+async function withAccountSummaries(
+  rows: Record<string, unknown>[],
+  pk: string,
+  year: number,
+): Promise<Record<string, unknown>[]> {
+  let list: AccountListSummary[] = [];
+  try {
+    list = await getAccountSummaries(year);
+  } catch {
+    return enrichAccountHierarchy(rows, pk);
+  }
+  const map = new Map(list.map((s) => [String(s.accountCardID), s]));
+  const enriched = rows.map((row) => {
+    const s = map.get(String(pickCell(row, pk) ?? ''));
+    const bal = s?.balance ?? 0;
+    return {
+      ...row,
+      borc: s?.debit ? fmtMoney(s.debit) : '',
+      alacak: s?.credit ? fmtMoney(s.credit) : '',
+      bakiye: s && (s.debit || s.credit) ? fmtMoney(Math.abs(bal)) : '',
+      ba: !s || Math.abs(bal) < 0.005 ? '' : bal > 0 ? 'B' : 'A',
+    };
+  });
+  return enrichAccountHierarchy(enriched, pk);
+}
+
 function pickCell(row: Record<string, unknown>, key: string): unknown {
   if (row[key] != null && row[key] !== '') return row[key];
   const lower = key.toLowerCase();
@@ -162,13 +373,16 @@ function pickCell(row: Record<string, unknown>, key: string): unknown {
     date: ['VoucherDate', 'OrderDate', 'InvoiceDate', 'TransDate', 'CreditDate'],
     status: ['status', 'IsActive', 'Active', 'Status_', 'Status'],
     taxNr: ['TaxNr', 'TaxNumber'],
-    customer: ['CustomerID'],
+    customer: ['CustomerTitle', 'customerTitle', 'CustomerName', 'CustomerID'],
     type: ['Type_', 'Type', 'InvoiceType', 'VoucherType', 'PlanType', 'Kind'],
-    warehouse: ['WhouseID', 'Whouse', 'warehouse'],
+    warehouse: ['WhouseTitle', 'WhouseName', 'Whouse', 'WhouseID', 'warehouse'],
+    workplace: ['WorkplaceTitle', 'WorkplaceName', 'DepartmentTitle', 'DepartmentID', 'workplace'],
+    description: ['Description', 'Decription', 'description'],
+    currencyTotal: ['CurrencyTotal', 'CustomerCurrencyTotal', 'currencyTotal'],
     planType: ['PlanType', 'Type_', 'Type'],
     days: ['DayCount', 'DayOffset'],
     installments: ['InstallmentCnt', 'InstallmentNo'],
-    total: ['Amount', 'CreditAmount', 'TotalPrice', 'CurrencyTotal', 'SumDebit'],
+    total: ['NetTotal', 'netTotal', 'Amount', 'CreditAmount', 'TotalPrice', 'CurrencyTotal', 'SumDebit'],
     rate: ['Rate', 'InterestRate', 'RatePercent', 'TaxRate'],
     authCode: ['AuthCode'],
     group: ['AccountGroup', 'ModuleKey'],
@@ -217,14 +431,40 @@ export const ModuleListPage: React.FC<ModuleListPageProps> = ({
   );
   const [statement, setStatement] = useState<{ cardId: number; tab: string } | null>(null);
   // Y-15: sunucu tarafı sayfalama / arama ve değişiklik geçmişi
-  const PAGE = 500;
+  // Hesap planı: tüm hesaplar kod sırasıyla gelsin (500 kesilince 100 gibi düşük ID’ler kayboluyordu)
+  const PAGE = tableName === 'AccountCard' ? 2000 : 500;
   const [serverTotal, setServerTotal] = useState(0);
   const [serverSearch, setServerSearch] = useState('');
   const [searchInput, setSearchInput] = useState('');
   const [loadingMore, setLoadingMore] = useState(false);
   const [audit, setAudit] = useState<{ id: number; label: string } | null>(null);
+  /** Hesap kartları: bakiye yılı (öndeğer muhasebe parametrelerinden) */
+  const [accountYear, setAccountYear] = useState<number>(() => new Date().getFullYear());
+  const [accountYearReady, setAccountYearReady] = useState(tableName !== 'AccountCard');
   const closeCtxMenu = useCallback(() => setCtxMenu(null), []);
   const stmtDef = getCardStatementDef(tableName);
+
+  useEffect(() => {
+    if (tableName !== 'AccountCard') {
+      setAccountYearReady(true);
+      return;
+    }
+    let cancelled = false;
+    void (async () => {
+      try {
+        const c = await apiJson<{ balanceYear?: number; BalanceYear?: number }>('/api/accounting/config');
+        const y = Number(c.balanceYear ?? c.BalanceYear);
+        if (!cancelled && Number.isFinite(y) && y >= 1900 && y <= 2100) setAccountYear(Math.trunc(y));
+      } catch {
+        /* öndeğer: sistem yılı */
+      } finally {
+        if (!cancelled) setAccountYearReady(true);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [tableName]);
 
   const typeFilterNum = useMemo(() => {
     if (screen.documentTypeFilter != null) {
@@ -242,6 +482,7 @@ export const ModuleListPage: React.FC<ModuleListPageProps> = ({
       setLoading(false);
       return;
     }
+    if (tableName === 'AccountCard' && !accountYearReady) return;
     setLoading(true);
     setError(null);
     try {
@@ -256,6 +497,8 @@ export const ModuleListPage: React.FC<ModuleListPageProps> = ({
       });
       let rows = res.rows as Record<string, unknown>[];
       if (tableName === 'CustomerCard') rows = await withCustomerSummaries(rows, pk || 'CustomerCardID');
+      if (tableName === 'AccountCard') rows = await withAccountSummaries(rows, pk || 'AccountCardID', accountYear);
+      if (tableName && DOC_PARTY_TABLES.has(tableName)) rows = await withDocCustomerTitles(rows);
       setDbRows(rows);
       setServerTotal(res.total ?? rows.length);
       setSource('db');
@@ -267,7 +510,7 @@ export const ModuleListPage: React.FC<ModuleListPageProps> = ({
     } finally {
       setLoading(false);
     }
-  }, [useDb, tableName, pk, screen, schema, serverSearch]);
+  }, [useDb, tableName, pk, screen, schema, serverSearch, accountYear, accountYearReady]);
 
   useEffect(() => {
     void loadDb();
@@ -282,7 +525,20 @@ export const ModuleListPage: React.FC<ModuleListPageProps> = ({
       const res = await listRecords(tableName, { pk, filterColumn, filterValue, take: PAGE, skip: dbRows.length, search: serverSearch });
       let more = res.rows as Record<string, unknown>[];
       if (tableName === 'CustomerCard') more = await withCustomerSummaries(more, pk || 'CustomerCardID');
-      setDbRows((prev) => [...prev, ...more]);
+      if (tableName && DOC_PARTY_TABLES.has(tableName)) more = await withDocCustomerTitles(more);
+      if (tableName === 'AccountCard') {
+        // Ağaç tüm satırlar üzerinden kurulmalı — kısmi sayfada yeniden zenginleştir
+        const mergedRaw = [...dbRows, ...more].map((r) => {
+          const { _accDepth: _d, _accIsLast: _l, _accGuides: _g, ust: _u, ...rest } = r as Record<
+            string,
+            unknown
+          > & { _accDepth?: unknown; _accIsLast?: unknown; _accGuides?: unknown; ust?: unknown };
+          return rest;
+        });
+        setDbRows(await withAccountSummaries(mergedRaw, pk || 'AccountCardID', accountYear));
+      } else {
+        setDbRows((prev) => [...prev, ...more]);
+      }
       setServerTotal(res.total ?? serverTotal);
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Sonraki sayfa okunamadı');
@@ -321,7 +577,11 @@ export const ModuleListPage: React.FC<ModuleListPageProps> = ({
     let raw = pickCell(row, col.key);
     if ((col.key === 'type' || col.key === 'VoucherType') && raw != null && raw !== '') {
       const label =
-        tableName === 'CustomerCard' ? CUSTOMER_TYPE_LABELS[String(raw)] : DispatchTypeLabels[String(raw)];
+        tableName === 'CustomerCard'
+          ? CUSTOMER_TYPE_LABELS[String(raw)]
+          : tableName === 'AccountCard'
+            ? ACCOUNT_TYPE_LABELS[String(raw)]
+            : DispatchTypeLabels[String(raw)];
       if (label) raw = label;
     }
     return raw;
@@ -572,6 +832,23 @@ export const ModuleListPage: React.FC<ModuleListPageProps> = ({
           </div>
         </div>
         <div className="flex items-center gap-1.5 shrink-0">
+          {tableName === 'AccountCard' && (
+            <label className="inline-flex items-center gap-1.5 text-[11px] text-slate-600 mr-1">
+              <span className="font-medium whitespace-nowrap">Bakiye yılı</span>
+              <input
+                type="number"
+                min={1900}
+                max={2100}
+                value={accountYear}
+                onChange={(e) => {
+                  const n = Number(e.target.value);
+                  if (Number.isFinite(n) && n >= 1900 && n <= 2100) setAccountYear(Math.trunc(n));
+                }}
+                className="w-[4.5rem] h-7 px-1.5 rounded-md border border-slate-200 bg-white text-[12px] tabular-nums text-slate-800 outline-none focus:border-blue-500"
+                title="Bakiyenin hesaplandığı yıl (öndeğer: Muhasebe Parametreleri)"
+              />
+            </label>
+          )}
           {showReportTab && (
             <FormTabs
               variant="segment"
@@ -608,34 +885,50 @@ export const ModuleListPage: React.FC<ModuleListPageProps> = ({
         </div>
       </div>
 
-      <div className={`overflow-hidden ${hideChrome ? '' : 'rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 shadow-sm'}`}>
-        <div className="overflow-x-auto">
-          <table className="min-w-full text-[12px]">
-            <thead>
-              <tr className="border-b border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800/60">
+      <div
+        className={`flex flex-col min-h-0 ${
+          hideChrome ? '' : 'rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 shadow-sm'
+        }`}
+      >
+        {/* Yatay çubuk panel altında sabit; dikey kaydırınca kaybolmaz */}
+        <div
+          className={`overflow-auto min-h-[12rem] ${
+            hideChrome ? 'max-h-[calc(100vh-11.5rem)]' : 'max-h-[calc(100vh-14rem)]'
+          }`}
+        >
+          <table className="min-w-max w-full text-[12px]">
+            <thead className="sticky top-0 z-20">
+              <tr className="border-b border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 shadow-sm">
                 {showActions && (
-                  <th className="px-2 py-1.5 text-left font-semibold text-slate-600 dark:text-slate-300 w-16 sticky left-0 bg-slate-50 dark:bg-slate-800/60 z-10">
+                  <th className="px-2 py-1.5 text-left font-semibold text-slate-600 dark:text-slate-300 w-16 sticky left-0 top-0 bg-slate-50 dark:bg-slate-800 z-30">
                     İşlem
                   </th>
                 )}
-                {columns.map((col) => (
-                  <th
-                    key={col.key}
-                    className="px-3 py-1.5 text-left font-semibold text-slate-600 dark:text-slate-300 whitespace-nowrap"
-                  >
-                    <SortLabel
-                      label={col.label}
-                      colKey={col.key}
-                      sort={grid.sort}
-                      onSort={grid.toggleSort}
-                      align={numericCols.has(col.key) ? 'right' : 'left'}
-                    />
-                  </th>
-                ))}
+                {columns.map((col) => {
+                  const stickCode = tableName === 'AccountCard' && col.key === 'code';
+                  return (
+                    <th
+                      key={col.key}
+                      className={`px-3 py-1.5 text-left font-semibold text-slate-600 dark:text-slate-300 whitespace-nowrap bg-slate-50 dark:bg-slate-800 ${
+                        stickCode
+                          ? `sticky z-[29] ${showActions ? 'left-16' : 'left-0'} pl-1.5 shadow-[2px_0_4px_-2px_rgba(0,0,0,0.08)]`
+                          : ''
+                      }`}
+                    >
+                      <SortLabel
+                        label={col.label}
+                        colKey={col.key}
+                        sort={grid.sort}
+                        onSort={grid.toggleSort}
+                        align={numericCols.has(col.key) ? 'right' : 'left'}
+                      />
+                    </th>
+                  );
+                })}
               </tr>
-              <tr className="border-b border-slate-200 dark:border-slate-700 bg-slate-50/70 dark:bg-slate-800/40">
+              <tr className="border-b border-slate-200 dark:border-slate-700 bg-slate-50/95 dark:bg-slate-800/95">
                 {showActions && (
-                  <th className="px-2 py-1 sticky left-0 bg-slate-50 dark:bg-slate-800/60 z-10 text-left">
+                  <th className="px-2 py-1 sticky left-0 bg-slate-50 dark:bg-slate-800 z-30 text-left">
                     <FilterSummary
                       shown={grid.view.length}
                       total={rows.length}
@@ -644,16 +937,26 @@ export const ModuleListPage: React.FC<ModuleListPageProps> = ({
                     />
                   </th>
                 )}
-                {columns.map((col) => (
-                  <th key={col.key} className="px-2 py-1 font-normal">
-                    <FilterInput
-                      colKey={col.key}
-                      value={grid.filters[col.key] ?? ''}
-                      onChange={grid.setFilter}
-                      numeric={numericCols.has(col.key)}
-                    />
-                  </th>
-                ))}
+                {columns.map((col) => {
+                  const stickCode = tableName === 'AccountCard' && col.key === 'code';
+                  return (
+                    <th
+                      key={col.key}
+                      className={`px-2 py-1 font-normal bg-slate-50/95 dark:bg-slate-800/95 ${
+                        stickCode
+                          ? `sticky z-[29] ${showActions ? 'left-16' : 'left-0'} pl-1.5 shadow-[2px_0_4px_-2px_rgba(0,0,0,0.08)]`
+                          : ''
+                      }`}
+                    >
+                      <FilterInput
+                        colKey={col.key}
+                        value={grid.filters[col.key] ?? ''}
+                        onChange={grid.setFilter}
+                        numeric={numericCols.has(col.key)}
+                      />
+                    </th>
+                  );
+                })}
               </tr>
             </thead>
             <tbody>
@@ -729,21 +1032,77 @@ export const ModuleListPage: React.FC<ModuleListPageProps> = ({
                         const showToggle =
                           isStatusColumn(col.key, col.label) && cellLooksActivePassive(raw);
                         const current = isActiveValue(raw);
+                        const isAccCode = tableName === 'AccountCard' && col.key === 'code';
+                        const isAccUst = tableName === 'AccountCard' && col.key === 'ust';
                         return (
                           <td
                             key={col.key}
-                            className={`px-3 py-1.5 text-slate-700 dark:text-slate-200 whitespace-nowrap ${
-                              numericCols.has(col.key) ? 'text-right tabular-nums' : ''
+                            className={`px-3 py-1.5 text-left text-slate-700 dark:text-slate-200 whitespace-nowrap ${
+                              numericCols.has(col.key) || isAccUst ? 'text-right tabular-nums' : ''
                             } ${
                               (col.key === 'bakiye' || col.key === 'ba') && raw
                                 ? pickCell(row, 'ba') === 'B'
                                   ? 'font-semibold !text-red-700'
                                   : 'font-semibold !text-emerald-700'
                                 : ''
+                            } ${isAccUst ? 'text-slate-400 w-12' : ''} ${
+                              isAccCode
+                                ? `sticky z-[9] pl-1.5 pr-2 bg-white dark:bg-slate-900 group-hover:bg-slate-50 dark:group-hover:bg-slate-800/40 ${
+                                    showActions ? 'left-16' : 'left-0'
+                                  } shadow-[2px_0_4px_-2px_rgba(0,0,0,0.08)] ${
+                                    ctxMenu?.rowId === rowId ? '!bg-blue-50/70 dark:!bg-blue-900/20' : ''
+                                  }`
+                                : ''
                             }`}
                           >
-                            {showToggle ? (
+                            {isAccCode ? (
+                              <span className="inline-flex items-center gap-1 min-w-0">
+                                <AccountCodeCell row={row} />
+                                {stmtDef && Number(rowId) > 0 && (
+                                  <CardQuickInfoButton
+                                    kind={stmtDef.kind}
+                                    cardId={Number(rowId)}
+                                    label={[pickCell(row, 'code'), pickCell(row, 'title')]
+                                      .map((v) => String(v ?? '').trim())
+                                      .filter(Boolean)
+                                      .join(' · ')}
+                                    hint={{
+                                      borc: String(pickCell(row, 'borc') ?? ''),
+                                      alacak: String(pickCell(row, 'alacak') ?? ''),
+                                      bakiye: String(pickCell(row, 'bakiye') ?? ''),
+                                      ba: String(pickCell(row, 'ba') ?? ''),
+                                    }}
+                                    onOpenStatement={() => setStatement({ cardId: Number(rowId), tab: 'ekstre' })}
+                                  />
+                                )}
+                              </span>
+                            ) : showToggle ? (
                               <ActiveStatusBadge value={current} disabled />
+                            ) : col.key === 'code' && stmtDef && Number(rowId) > 0 ? (
+                              <span className="inline-flex items-center gap-1.5">
+                                <span>{String(raw ?? '')}</span>
+                                <CardQuickInfoButton
+                                  kind={stmtDef.kind}
+                                  cardId={Number(rowId)}
+                                  label={[pickCell(row, 'code'), pickCell(row, 'title')]
+                                    .map((v) => String(v ?? '').trim())
+                                    .filter(Boolean)
+                                    .join(' · ')}
+                                  hint={{
+                                    borc: String(pickCell(row, 'borc') ?? ''),
+                                    alacak: String(pickCell(row, 'alacak') ?? ''),
+                                    bakiye: String(pickCell(row, 'bakiye') ?? ''),
+                                    ba: String(pickCell(row, 'ba') ?? ''),
+                                    sonHareket: String(pickCell(row, 'sonHareket') ?? ''),
+                                    vadesiGecen: String(pickCell(row, 'vadesiGecen') ?? ''),
+                                    acikSiparis: String(pickCell(row, 'acikSiparis') ?? ''),
+                                    riskGrubu: String(pickCell(row, 'riskGrubu') ?? ''),
+                                    telefon: String(pickCell(row, 'telefon') ?? ''),
+                                    ilIlce: String(pickCell(row, 'ilIlce') ?? ''),
+                                  }}
+                                  onOpenStatement={() => setStatement({ cardId: Number(rowId), tab: 'ekstre' })}
+                                />
+                              </span>
                             ) : (
                               String(raw ?? '')
                             )}

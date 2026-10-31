@@ -242,7 +242,7 @@ public sealed partial class ImportRepository
                 "Satırlar koddaki seviyeye göre sıralanır; önce üst hesaplar kaydedilir.",
                 "Kodda nokta varsa üst hesap zorunlu (120.01 → 120); üst yoksa satır hata alır.",
                 "Noktasız kodlarda Üst Hesap Kodu kolonu veya önek kuralı kullanılır (1 ← 10 ← 100).",
-                "Hesap tipi boşsa: altı olan hesap Ana, diğerleri Detay.",
+                "Hesap tipi boşsa koda göre: 1/10 Bilanço · 100 Ana · 100.01 Alt · 100.01.001 Detay.",
             },
             Fields =
             {
@@ -254,7 +254,13 @@ public sealed partial class ImportRepository
                         Aliases = new[] { "ust hesap kodu", "ust hesap", "ana hesap kodu", "parent" },
                         Hint = "Noktalı kodlarda dikkate alınmaz" },
                 new() { Key = "Type_", Label = "Hesap Tipi", Type = "enum",
-                        Options = new() { ["Ana Hesap"] = "1", ["Ana"] = "1", ["Detay Hesap"] = "2", ["Detay"] = "2", ["Muavin"] = "2" },
+                        Options = new()
+                        {
+                            ["Bilanço Hesabı"] = "1", ["Bilanco"] = "1", ["Bilanço"] = "1",
+                            ["Ana Hesap"] = "2", ["Ana"] = "2",
+                            ["Alt Hesap"] = "3", ["Alt"] = "3",
+                            ["Detay Hesap"] = "4", ["Detay"] = "4", ["Muavin"] = "4",
+                        },
                         Aliases = new[] { "hesap tipi", "tip", "tur" } },
                 new() { Key = "IsActive", Label = "Aktif", Type = "bool", Options = BoolOptions,
                         Aliases = new[] { "aktif", "durum", "active" }, Hint = "Boşsa Evet" },
@@ -625,6 +631,7 @@ public sealed partial class ImportRepository
         CancellationToken ct)
     {
         var isNew = recordId == 0;
+        _ = hasChildren; // tip artık koda göre; imza uyumu
         var std = new Dictionary<string, object?>(StringComparer.OrdinalIgnoreCase);
         var add = new Dictionary<string, object?>(StringComparer.OrdinalIgnoreCase);
 
@@ -768,18 +775,12 @@ public sealed partial class ImportRepository
 
             case "account":
                 if (isNew)
-                {
                     std.TryAdd("IsActive", true);
-                    if (!std.ContainsKey("Type_"))
-                    {
-                        var isParent = hasChildren.Contains(row.Code);
-                        std["Type_"] = isParent ? 1 : 2;
-                        std["MainAccount"] = isParent;
-                    }
-                }
-                else if (hasChildren.Contains(row.Code) && !std.ContainsKey("Type_"))
+                // Tip her zaman koda göre (aktarımda boş/yanlış olsa bile)
                 {
-                    std["MainAccount"] = true;
+                    var t = InferAccountTypeFromCode(row.Code);
+                    std["Type_"] = t;
+                    std["MainAccount"] = t is 1 or 2;
                 }
 
                 if (accountParents.TryGetValue(row.Code, out var parentCode) && !string.IsNullOrEmpty(parentCode))
@@ -877,6 +878,19 @@ public sealed partial class ImportRepository
                 req.ProfileId,
             },
             cancellationToken: ct));
+    }
+
+    /// <summary>1 Bilanço · 2 Ana · 3 Alt · 4 Detay</summary>
+    private static byte InferAccountTypeFromCode(string? code)
+    {
+        var c = (code ?? "").Trim();
+        if (c.Length == 0) return 2;
+        var parts = c.Split('.', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+        if (parts.Length >= 3) return 4;
+        if (parts.Length == 2) return 3;
+        var head = parts.Length == 1 ? parts[0] : c;
+        if (head.Length is >= 1 and <= 2 && head.All(char.IsDigit)) return 1;
+        return 2;
     }
 
     private static string? Trunc(string? s, int max) =>

@@ -17,6 +17,7 @@ export interface RecordGetResult {
   additionalFields: Record<string, unknown>;
   addresses?: Record<string, unknown>[];
   contacts?: Record<string, unknown>[];
+  ibans?: Record<string, unknown>[];
   accounts?: Record<string, unknown>[];
   barcodes?: Record<string, unknown>[];
   unitConvs?: Record<string, unknown>[];
@@ -34,6 +35,8 @@ export interface RecordGetResult {
   distributions?: Record<string, unknown>[];
   auxilCodes?: Record<string, unknown>[];
   auxilValues?: Record<string, unknown>[];
+  /** AccountCard: muhasebe hareketi varsa kod kilitli / altına alt hesap açılamaz */
+  hasMovements?: boolean;
 }
 
 export async function listRecords(
@@ -94,6 +97,7 @@ export async function saveRecord(
       additionalFields: data.additionalFields || {},
       addresses: data.addresses,
       contacts: data.contacts,
+      ibans: data.ibans,
       accounts: data.accounts,
       barcodes: data.barcodes,
       unitConvs: data.unitConvs,

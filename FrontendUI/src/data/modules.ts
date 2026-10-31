@@ -78,6 +78,19 @@ const docCols = cols(
   ['total', 'Tutar'],
   ['status', 'Durum'],
 );
+/** Fatura listesi — Logo benzeri kolon seti (yatay kaydırma için geniş) */
+const invoiceCols = cols(
+  ['date', 'Tarih'],
+  ['no', 'Fiş No'],
+  ['type', 'Tür'],
+  ['customer', 'Cari'],
+  ['total', 'Tutar'],
+  ['currencyTotal', 'Dövizli Tutar'],
+  ['warehouse', 'Ambar'],
+  ['workplace', 'İşyeri'],
+  ['description', 'Açıklama'],
+  ['status', 'Durum'],
+);
 
 export const APP_MODULES: AppModule[] = [
   {
@@ -693,9 +706,10 @@ export const APP_MODULES: AppModule[] = [
             id: 'satis-fatura',
             path: 'satis/hareketler/fatura',
             title: 'Fatura',
-            subtitle: 'Invoice · Fiş türü: Satış / Satış İade (InvoiceType)',
+            subtitle: 'Invoice · TradeGroup=1 · Satış / Satış İade / Satış Fiyat Farkı',
             formCode: 'SalesInvoiceForm',
-            listColumns: docCols,
+            tradeGroupFilter: 1,
+            listColumns: invoiceCols,
             sampleRows: [
               { id: 1, no: 'SF-088', date: '23.09.2026', customer: 'ABC Ticaret', type: 'Satış', total: '58.200,00', status: 'Onaylı', authCode: 'SAT', companyId: '1', company: 'Kavi Soft Ticaret', workplaceId: '1', workplace: 'Merkez', whouseId: '1', whouse: 'Merkez Depo' },
               { id: 2, no: 'SIF-003', date: '24.09.2026', customer: 'XYZ Ltd.', type: 'Satış İade', total: '1.200,00', status: 'Taslak', authCode: 'SAT', companyId: '1', company: 'Kavi Soft Ticaret', workplaceId: '2', workplace: 'Şube Kadıköy', whouseId: '2', whouse: 'Şube Depo' },
@@ -840,9 +854,10 @@ export const APP_MODULES: AppModule[] = [
             id: 'alis-fatura',
             path: 'satinalma/hareketler/fatura',
             title: 'Fatura',
-            subtitle: 'Invoice · Fiş türü: Alış / Alış İade (InvoiceType)',
+            subtitle: 'Invoice · TradeGroup=2 · Alış / Alış İade / Alınan Hizmet / Alış Fiyat Farkı',
             formCode: 'PurchaseInvoiceForm',
-            listColumns: docCols,
+            tradeGroupFilter: 2,
+            listColumns: invoiceCols,
             sampleRows: [
               { id: 1, no: 'AF-089', date: '24.09.2026', customer: 'Demir Tedarik', type: 'Alış', total: '14.640,00', status: 'Taslak' },
               { id: 2, no: 'AIF-004', date: '24.09.2026', customer: 'Demir Tedarik', type: 'Alış İade', total: '800,00', status: 'Taslak' },
@@ -994,7 +1009,17 @@ export const APP_MODULES: AppModule[] = [
             title: 'Hesap Kartları',
             subtitle: 'AccountCard',
             formCode: 'AccountCardForm',
-            listColumns: cols(['code', 'Hesap'], ['title', 'Ad'], ['type', 'Tip'], ['status', 'Durum']),
+            listColumns: cols(
+              ['code', 'Hesap'],
+              ['ust', 'Üst'],
+              ['title', 'Ad'],
+              ['type', 'Tip'],
+              ['borc', 'Borç'],
+              ['alacak', 'Alacak'],
+              ['bakiye', 'Bakiye'],
+              ['ba', 'B/A'],
+              ['status', 'Durum'],
+            ),
             sampleRows: [
               { id: 1, code: '100', title: 'Kasa', type: 'Ana', status: 'Aktif' },
               { id: 2, code: '120', title: 'Alıcılar', type: 'Ana', status: 'Aktif' },
@@ -1812,6 +1837,38 @@ export const APP_MODULES: AppModule[] = [
             subtitle: 'TCMB günlük kurlar · SYS_CurrencyRate · otomatik indirilecek dövizler',
             isCurrencyRates: true,
           },
+          screen({
+            id: 'banka-katalog',
+            path: 'sistem/tanimlar/banka-katalog',
+            title: 'Banka / Şube',
+            subtitle: 'SYS_Bank · SYS_BankBranch · EFT kodları',
+            isBankCatalogAdmin: true,
+            bankCatalogTab: 'bank',
+            listColumns: cols(['code', 'EFT'], ['title', 'Banka']),
+            sampleRows: [],
+            children: [
+              screen({
+                id: 'banka-katalog-banka',
+                path: 'sistem/tanimlar/banka-katalog/banka',
+                title: 'Bankalar',
+                subtitle: 'SYS_Bank',
+                isBankCatalogAdmin: true,
+                bankCatalogTab: 'bank',
+                listColumns: cols(['code', 'EFT'], ['title', 'Banka']),
+                sampleRows: [],
+              }),
+              screen({
+                id: 'banka-katalog-sube',
+                path: 'sistem/tanimlar/banka-katalog/sube',
+                title: 'Şubeler',
+                subtitle: 'SYS_BankBranch',
+                isBankCatalogAdmin: true,
+                bankCatalogTab: 'branch',
+                listColumns: cols(['code', 'Kod'], ['title', 'Şube']),
+                sampleRows: [],
+              }),
+            ],
+          }),
           screen({
             id: 'adres',
             path: 'sistem/tanimlar/adres',

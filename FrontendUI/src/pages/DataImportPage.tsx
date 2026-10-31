@@ -1,5 +1,5 @@
 import React from 'react';
-import { FileSpreadsheet, Download, Upload, Eye, CheckCircle2, X, Play, ScrollText, Copy } from 'lucide-react';
+import { FileSpreadsheet, Download, Upload, Eye, CheckCircle2, X, Play, ScrollText, Copy, HelpCircle, Settings, FileJson } from 'lucide-react';
 import { RowActions } from '../components/RowActions';
 import {
   applyImport,
@@ -129,6 +129,51 @@ const fmtRun = (v?: string | null) => {
   return Number.isNaN(d.getTime()) ? '—' : d.toLocaleString('tr-TR');
 };
 
+const safeFileName = (t: string) =>
+  (t.trim() || 'aktarim').replace(/[^\w\u00C0-\u024F.-]+/gi, '_').replace(/_+/g, '_').slice(0, 80);
+
+type ImportProfilePack = {
+  title: string;
+  kind: ImportKind;
+  sourceKind: number;
+  source: ImportSourceRequest;
+  map: ImportMapItem[];
+  mode: ImportMode;
+  createMissingCards: boolean;
+  productType?: number | null;
+  intervalMinutes?: number | null;
+  afterSql?: string | null;
+  keepLog?: boolean;
+  isActive?: boolean;
+};
+
+type PackVendor = {
+  id: string;
+  title: string;
+  note: string;
+  defaultDatabase: string;
+  defaultPort: string;
+  windowsAuth: boolean;
+  packs: { file: string; title: string }[];
+};
+
+type PackCatalog = { vendors: PackVendor[] };
+
+const downloadProfileJson = (pack: ImportProfilePack, title: string) => {
+  const blob = new Blob([JSON.stringify(pack, null, 2)], { type: 'application/json;charset=utf-8' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = `${safeFileName(title)}.json`;
+  a.click();
+  URL.revokeObjectURL(url);
+};
+
+const stripSourceSecrets = (s: ImportSourceRequest): ImportSourceRequest => ({
+  ...s,
+  password: undefined,
+});
+
 export const DataImportPage: React.FC<DataImportPageProps> = () => {
   const [targets, setTargets] = React.useState<ImportTargetDef[]>([]);
   const [sources, setSources] = React.useState<ImportSourceDef[]>([]);
@@ -166,11 +211,26 @@ export const DataImportPage: React.FC<DataImportPageProps> = () => {
   const [error, setError] = React.useState<string | null>(null);
   const [info, setInfo] = React.useState<string | null>(null);
   const [linkTest, setLinkTest] = React.useState<{ ok: boolean; message: string } | null>(null);
+  const [connOpen, setConnOpen] = React.useState(false);
+  const [helpOpen, setHelpOpen] = React.useState(false);
   const [keepLog, setKeepLog] = React.useState(true);
   const [logFor, setLogFor] = React.useState<number | null>(null);
   const [profileLogs, setProfileLogs] = React.useState<ImportLogRow[]>([]);
   const [runningId, setRunningId] = React.useState<number | null>(null);
   const fileRef = React.useRef<HTMLInputElement>(null);
+  const jsonFileRef = React.useRef<HTMLInputElement>(null);
+  const [packCatalog, setPackCatalog] = React.useState<PackCatalog | null>(null);
+  const [packVendorId, setPackVendorId] = React.useState<string | null>(null);
+  const [packSelected, setPackSelected] = React.useState<string[]>([]);
+  const [packConn, setPackConn] = React.useState({
+    server: '',
+    port: '1433',
+    database: '',
+    user: '',
+    password: '',
+    windowsAuth: true,
+    trustCertificate: true,
+  });
 
   const target = targets.find((t) => t.kind === kind) ?? null;
   const source = sources.find((s) => s.id === sourceId) ?? sources[0] ?? null;
@@ -232,6 +292,10 @@ export const DataImportPage: React.FC<DataImportPageProps> = () => {
       .then(setSources)
       .catch(() => setSources([]));
     fetchImportProfiles().then(setProfiles).catch(() => setProfiles([]));
+    fetch('/import-packs/catalog.json')
+      .then((r) => (r.ok ? r.json() : Promise.reject()))
+      .then((c: PackCatalog) => setPackCatalog(c))
+      .catch(() => setPackCatalog(null));
     void loadHistory();
   }, [loadHistory]);
 
@@ -418,6 +482,161 @@ export const DataImportPage: React.FC<DataImportPageProps> = () => {
     }
   };
 
+  const buildMapFromForm = (): ImportMapItem[] => {
+    const built: ImportMapItem[] = [];
+    for (const f of templateFields) {
+      const fixed = constantOf(f.key);
+      if (fixed) {
+        built.push({ header: fixed, field: f.key, literal: true });
+        continue;
+      }
+      const bound = boundHeader(f.key);
+      if (bound) {
+        built.push({ header: bound, field: f.key });
+        continue;
+      }
+      const named = (alias[f.key] ?? '').trim();
+      if (!named) continue;
+      built.push(
+        fixedKeys.includes(f.key)
+          ? { header: named, field: f.key, literal: true }
+          : { header: named, field: f.key },
+      );
+    }
+    if (built.length > 0) return built;
+    if (profileId > 0) {
+      const prev = profiles.find((p) => p.importProfileID === profileId)?.map ?? [];
+      if (prev.length > 0) return prev;
+    }
+    if (savedMap.current && savedMap.current.length > 0) return savedMap.current;
+    return [];
+  };
+
+  const packFromForm = (): ImportProfilePack | null => {
+    const title = profileTitle.trim() || 'Aktarım';
+    const map = buildMapFromForm();
+    if (map.length === 0) return null;
+    return {
+      title,
+      kind,
+      sourceKind: channel === 'excel' ? 4 : Number(channel),
+      source: stripSourceSecrets(channel === 'excel' ? { ...emptySource(), sourceType: 4 } : sourceRequest()),
+      map,
+      mode,
+      createMissingCards,
+      productType: kind === 'product' ? productType : null,
+      intervalMinutes: channel === 'excel' || !intervalMin.trim() ? null : Number(intervalMin),
+      afterSql: channel === 'excel' || channel === '3' ? null : (afterSql.trim() || null),
+      keepLog,
+      isActive: true,
+    };
+  };
+
+  const exportFormAsJson = () => {
+    setError(null);
+    const pack = packFromForm();
+    if (!pack) {
+      setError('Şablon eşlemesi boş. Kolonları bağlayıp tekrar deneyin.');
+      return;
+    }
+    downloadProfileJson(pack, pack.title);
+    setInfo(`«${pack.title}» JSON dosyasına yazıldı.`);
+  };
+
+  const exportListProfile = async (p: ImportProfile) => {
+    setError(null);
+    try {
+      const full = await fetchImportProfile(p.importProfileID).catch(() => p);
+      downloadProfileJson(
+        {
+          title: full.title,
+          kind: full.kind,
+          sourceKind: full.sourceKind,
+          source: stripSourceSecrets({ ...emptySource(), ...full.source }),
+          map: full.map ?? [],
+          mode: full.mode,
+          createMissingCards: full.createMissingCards,
+          productType: full.productType ?? null,
+          intervalMinutes: full.intervalMinutes ?? null,
+          afterSql: full.afterSql ?? null,
+          keepLog: full.keepLog !== false,
+          isActive: full.isActive !== false,
+        },
+        full.title,
+      );
+      setInfo(`«${full.title}» JSON dosyasına yazıldı.`);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'JSON indirilemedi');
+    }
+  };
+
+  const applyPackToForm = (pack: ImportProfilePack) => {
+    const ch = pack.sourceKind === 4 ? 'excel' : (String(pack.sourceKind) as Channel);
+    setKind(pack.kind);
+    setChannel(ch);
+    setLink({ ...emptySource(), ...pack.source, password: '' });
+    setProfileId(0);
+    setProfileTitle(pack.title || 'Aktarım');
+    setIntervalMin(pack.intervalMinutes ? String(pack.intervalMinutes) : '');
+    setAfterSql(pack.afterSql ?? '');
+    setKeepLog(pack.keepLog !== false);
+    setMode(pack.mode || 'upsert');
+    setCreateMissingCards(Boolean(pack.createMissingCards));
+    if (pack.productType) setProductType(pack.productType);
+    const map = pack.map ?? [];
+    savedMap.current = map;
+    const baseKeys = new Set(
+      (targets.find((t) => t.kind === pack.kind)?.fields ?? [])
+        .filter((f) => f.required || f.defaultOn !== false)
+        .map((f) => f.key),
+    );
+    const mapped = map.map((m) => m.field).filter(Boolean);
+    setExtraKeys(mapped.filter((k) => !baseKeys.has(k)));
+    setRemovedKeys([...baseKeys].filter((k) => !mapped.includes(k)));
+    setAlias(Object.fromEntries(map.filter((m) => m.field).map((m) => [m.field, m.header])));
+    setFixedKeys(map.filter((m) => m.literal && m.field).map((m) => m.field));
+    setLinkTest(ch === '0' || ch === 'excel'
+      ? { ok: true, message: ch === '0' ? 'Bu veritabanı' : 'Excel / CSV' }
+      : null);
+    setConnOpen(ch !== 'excel');
+    setHelpOpen(false);
+    setSheet(null);
+    setResult(null);
+    setScreen('form');
+    setInfo('JSON yüklendi. Kontrol edip Kaydet ile yazın.');
+  };
+
+  const onJsonFile = async (file?: File | null) => {
+    if (!file) return;
+    setError(null);
+    try {
+      const text = await file.text();
+      const raw = JSON.parse(text) as Partial<ImportProfilePack>;
+      if (!raw.kind || !Array.isArray(raw.map)) {
+        setError('JSON aktarım profili değil (kind / map gerekli).');
+        return;
+      }
+      applyPackToForm({
+        title: (raw.title || file.name.replace(/\.json$/i, '')).trim() || 'Aktarım',
+        kind: raw.kind as ImportKind,
+        sourceKind: typeof raw.sourceKind === 'number' ? raw.sourceKind : 4,
+        source: { ...emptySource(), ...(raw.source ?? {}), password: '' },
+        map: raw.map as ImportMapItem[],
+        mode: (raw.mode as ImportMode) || 'upsert',
+        createMissingCards: Boolean(raw.createMissingCards),
+        productType: raw.productType ?? null,
+        intervalMinutes: raw.intervalMinutes ?? null,
+        afterSql: raw.afterSql ?? null,
+        keepLog: raw.keepLog !== false,
+        isActive: raw.isActive !== false,
+      });
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'JSON okunamadı');
+    } finally {
+      if (jsonFileRef.current) jsonFileRef.current.value = '';
+    }
+  };
+
   const saveProfile = async () => {
     const title = profileTitle.trim();
     if (!title) {
@@ -428,31 +647,7 @@ export const DataImportPage: React.FC<DataImportPageProps> = () => {
     setError(null);
     try {
       // Veri çekilmeden kaydetmede boundHeader boş kalır — alias / önceki eşleme korunur
-      const built: ImportMapItem[] = [];
-      for (const f of templateFields) {
-        const fixed = constantOf(f.key);
-        if (fixed) {
-          built.push({ header: fixed, field: f.key, literal: true });
-          continue;
-        }
-        const bound = boundHeader(f.key);
-        if (bound) {
-          built.push({ header: bound, field: f.key });
-          continue;
-        }
-        const named = (alias[f.key] ?? '').trim();
-        if (!named) continue;
-        built.push(
-          fixedKeys.includes(f.key)
-            ? { header: named, field: f.key, literal: true }
-            : { header: named, field: f.key },
-        );
-      }
-      let map = built;
-      if (map.length === 0 && profileId > 0) {
-        const prev = profiles.find((p) => p.importProfileID === profileId)?.map ?? [];
-        if (prev.length > 0) map = prev;
-      }
+      let map = buildMapFromForm();
       if (map.length === 0) {
         setError('Şablon eşlemesi boş. Kaynak başlıklarını alıp kolonları bağlayın, sonra kaydedin.');
         return;
@@ -503,7 +698,9 @@ export const DataImportPage: React.FC<DataImportPageProps> = () => {
     setResult(null);
     setError(null);
     setInfo(null);
-    setLinkTest(null);
+    setLinkTest({ ok: true, message: 'Excel / CSV' });
+    setConnOpen(false);
+    setHelpOpen(false);
     setKeepLog(true);
     setMode('upsert');
     setScreen('form');
@@ -511,10 +708,16 @@ export const DataImportPage: React.FC<DataImportPageProps> = () => {
 
   const openProfile = (p: ImportProfile, opts?: { asCopy?: boolean }) => {
     const asCopy = Boolean(opts?.asCopy);
+    const ch = p.sourceKind === 4 ? 'excel' : String(p.sourceKind) as Channel;
     setKind(p.kind);
-    setChannel(p.sourceKind === 4 ? 'excel' : String(p.sourceKind) as Channel);
+    setChannel(ch);
     setScreen('form');
     setLink({ ...emptySource(), ...p.source, password: '' });
+    setConnOpen(ch !== 'excel');
+    setHelpOpen(false);
+    setLinkTest(ch === '0' || ch === 'excel'
+      ? { ok: true, message: ch === '0' ? 'Bu veritabanı' : 'Excel / CSV' }
+      : null);
     setProfileId(asCopy ? 0 : p.importProfileID);
     const baseTitle = (p.title || '').trim() || 'Aktarım';
     setProfileTitle(asCopy ? `${baseTitle} (kopya)` : baseTitle);
@@ -708,26 +911,208 @@ export const DataImportPage: React.FC<DataImportPageProps> = () => {
     }
   };
 
+  const openPackVendor = (vendor: PackVendor) => {
+    setPackVendorId(vendor.id);
+    setPackSelected(vendor.packs.map((p) => p.file));
+    setPackConn({
+      server: '',
+      port: vendor.defaultPort || '1433',
+      database: vendor.defaultDatabase || '',
+      user: vendor.windowsAuth ? '' : 'sa',
+      password: '',
+      windowsAuth: vendor.windowsAuth,
+      trustCertificate: true,
+    });
+    setError(null);
+    setInfo(null);
+  };
+
+  const installPacks = async () => {
+    const vendor = packCatalog?.vendors.find((v) => v.id === packVendorId);
+    if (!vendor) return;
+    if (!packConn.server.trim()) {
+      setError('Sunucu adresini yazın.');
+      return;
+    }
+    if (!packConn.database.trim()) {
+      setError('Veritabanı adını yazın.');
+      return;
+    }
+    if (packSelected.length === 0) {
+      setError('En az bir paket seçin.');
+      return;
+    }
+    setBusy(true);
+    setError(null);
+    try {
+      let ok = 0;
+      for (const file of packSelected) {
+        const res = await fetch(`/import-packs/${vendor.id}/${file}`);
+        if (!res.ok) throw new Error(`${file} okunamadı (${res.status})`);
+        const pack = (await res.json()) as ImportProfilePack;
+        const source: ImportSourceRequest = {
+          ...emptySource(),
+          ...pack.source,
+          sourceType: 1,
+          server: packConn.server.trim(),
+          port: packConn.port.trim(),
+          database: packConn.database.trim(),
+          user: packConn.user.trim(),
+          password: packConn.password,
+          windowsAuth: packConn.windowsAuth,
+          trustCertificate: packConn.trustCertificate,
+        };
+        await saveImportProfile({
+          importProfileID: 0,
+          title: pack.title,
+          kind: pack.kind,
+          sourceKind: 1,
+          source,
+          map: pack.map ?? [],
+          mode: pack.mode || 'upsert',
+          createMissingCards: Boolean(pack.createMissingCards),
+          productType: pack.productType ?? null,
+          intervalMinutes: null,
+          afterSql: pack.afterSql ?? null,
+          keepLog: pack.keepLog !== false,
+          isActive: true,
+        });
+        ok += 1;
+      }
+      setProfiles(await fetchImportProfiles());
+      setPackVendorId(null);
+      setInfo(`${vendor.title}: ${ok} aktarım listesine eklendi. Şimdi aktar ile çalıştırabilirsiniz.`);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'Paketler eklenemedi');
+    } finally {
+      setBusy(false);
+    }
+  };
+
   const resultRows = result ? (onlyProblems ? result.rows.filter((r) => r.action === 'error' || r.message) : result.rows) : [];
   const sourceLabel = (sourceKind: number) =>
     sourceKind === 4 ? 'Excel / CSV' : (CHANNELS.find((c) => c.value === String(sourceKind))?.label ?? 'SQL');
+  const packVendor = packCatalog?.vendors.find((v) => v.id === packVendorId) ?? null;
 
   if (screen === 'list') {
     return (
       <div className="p-3 space-y-3">
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-2 flex-wrap">
           <FileSpreadsheet className="w-4 h-4 text-emerald-600" />
           <h2 className="text-[14px] font-semibold text-slate-800 dark:text-slate-100">Veri Aktarımı</h2>
-          <button
-            type="button"
-            onClick={startNew}
-            className="ml-auto inline-flex items-center px-3 h-8 text-[12px] font-semibold text-white bg-blue-600 hover:bg-blue-500 rounded-md"
-          >
-            Ekle
-          </button>
+          <div className="ml-auto flex items-center gap-1.5 flex-wrap">
+            {(packCatalog?.vendors ?? []).map((v) => (
+              <button
+                key={v.id}
+                type="button"
+                title={v.note}
+                onClick={() => openPackVendor(v)}
+                className="inline-flex items-center gap-1 px-3 h-8 text-[12px] font-semibold rounded-md border border-emerald-300 bg-emerald-50 text-emerald-800 hover:bg-emerald-100"
+              >
+                {v.title}’dan aktar
+              </button>
+            ))}
+            <button
+              type="button"
+              title="Aktarım profili JSON yükle"
+              onClick={() => jsonFileRef.current?.click()}
+              className="inline-flex items-center gap-1 px-3 h-8 text-[12px] font-semibold rounded-md border border-slate-300 text-slate-700 hover:bg-slate-50"
+            >
+              <Upload className="w-3.5 h-3.5" />
+              JSON yükle
+            </button>
+            <input
+              ref={jsonFileRef}
+              type="file"
+              accept=".json,application/json"
+              className="hidden"
+              onChange={(e) => void onJsonFile(e.target.files?.[0])}
+            />
+            <button
+              type="button"
+              onClick={startNew}
+              className="inline-flex items-center px-3 h-8 text-[12px] font-semibold text-white bg-blue-600 hover:bg-blue-500 rounded-md"
+            >
+              Ekle
+            </button>
+          </div>
         </div>
         {error && <div className="text-[12px] text-red-600">{error}</div>}
         {info && <div className="text-[12px] text-emerald-700">{info}</div>}
+        {packVendor && (
+          <section className="rounded-md border border-emerald-200 bg-emerald-50/40 dark:bg-slate-800/40 p-3 space-y-3">
+            <div className="flex items-start justify-between gap-2">
+              <div>
+                <h3 className="text-[13px] font-semibold text-slate-800 dark:text-slate-100">{packVendor.title} paketleri</h3>
+                <p className="text-[11px] text-slate-600 dark:text-slate-300 mt-0.5">{packVendor.note}</p>
+              </div>
+              <button type="button" className="text-slate-400 hover:text-slate-700" onClick={() => setPackVendorId(null)} title="Kapat">
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+            <div className="grid grid-cols-2 md:grid-cols-4 gap-2">
+              <label className="block text-[11px] col-span-2">Sunucu
+                <input className={inputCls} value={packConn.server} placeholder="NOTEBOOKX veya 192.168.x.x" onChange={(e) => setPackConn({ ...packConn, server: e.target.value })} />
+              </label>
+              <label className="block text-[11px]">Port
+                <input className={inputCls} value={packConn.port} onChange={(e) => setPackConn({ ...packConn, port: e.target.value })} />
+              </label>
+              <label className="block text-[11px]">Veritabanı
+                <input className={inputCls} value={packConn.database} placeholder={packVendor.defaultDatabase || 'DB adı'} onChange={(e) => setPackConn({ ...packConn, database: e.target.value })} />
+              </label>
+              <label className="col-span-2 flex items-center gap-2 text-[11px] h-8 mt-4">
+                <input type="checkbox" checked={packConn.windowsAuth} onChange={(e) => setPackConn({ ...packConn, windowsAuth: e.target.checked })} />
+                Windows kimliği
+              </label>
+              {!packConn.windowsAuth && (
+                <>
+                  <label className="block text-[11px]">Kullanıcı
+                    <input className={inputCls} value={packConn.user} autoComplete="off" onChange={(e) => setPackConn({ ...packConn, user: e.target.value })} />
+                  </label>
+                  <label className="block text-[11px]">Şifre
+                    <input type="password" className={inputCls} value={packConn.password} autoComplete="new-password" onChange={(e) => setPackConn({ ...packConn, password: e.target.value })} />
+                  </label>
+                </>
+              )}
+            </div>
+            <div className="space-y-1">
+              <span className="text-[11px] font-medium text-slate-600">Paketler</span>
+              <ul className="grid grid-cols-1 md:grid-cols-2 gap-1">
+                {packVendor.packs.map((p) => (
+                  <li key={p.file}>
+                    <label className="inline-flex items-center gap-2 text-[12px] text-slate-700 dark:text-slate-200">
+                      <input
+                        type="checkbox"
+                        className="accent-emerald-600"
+                        checked={packSelected.includes(p.file)}
+                        onChange={(e) => {
+                          setPackSelected((prev) =>
+                            e.target.checked ? [...prev, p.file] : prev.filter((f) => f !== p.file),
+                          );
+                        }}
+                      />
+                      {p.title}
+                      <span className="text-[10px] text-slate-400 font-mono">{p.file}</span>
+                    </label>
+                  </li>
+                ))}
+              </ul>
+            </div>
+            <div className="flex flex-wrap gap-2">
+              <button
+                type="button"
+                disabled={busy}
+                onClick={() => void installPacks()}
+                className="inline-flex items-center px-3 h-8 text-[12px] font-semibold text-white bg-emerald-700 hover:bg-emerald-600 rounded-md disabled:opacity-50"
+              >
+                Seçilenleri listeye ekle
+              </button>
+              <button type="button" className="px-3 h-8 text-[12px] rounded-md border border-slate-300" onClick={() => setPackVendorId(null)}>
+                Vazgeç
+              </button>
+            </div>
+          </section>
+        )}
         <div className="rounded-md border border-slate-200 dark:border-slate-700 overflow-auto">
           <table className="w-full min-w-[760px] border-collapse text-left text-[12px]">
             <thead className="bg-slate-100 dark:bg-slate-800">
@@ -762,6 +1147,12 @@ export const DataImportPage: React.FC<DataImportPageProps> = () => {
                           onDelete: () => void removeProfile(p),
                         }}
                         extraItems={[
+                          {
+                            key: 'export-json',
+                            label: 'Dışarı aktar',
+                            icon: <FileJson className="w-3.5 h-3.5" />,
+                            onClick: () => void exportListProfile(p),
+                          },
                           {
                             key: 'run',
                             label: runningId === p.importProfileID ? 'Aktarılıyor' : 'Şimdi aktar',
@@ -839,83 +1230,348 @@ export const DataImportPage: React.FC<DataImportPageProps> = () => {
     );
   }
 
+  const connOk = channel === '0' || channel === 'excel' || linkTest?.ok === true;
+  const connFail = linkTest?.ok === false;
+  const helpNotes = [
+    ...(target ? [`Hedef tablo: ${target.tableName}`] : []),
+    ...(target?.notes ?? []),
+    ...(channel === 'excel' && source?.note ? [source.note] : []),
+    'Kaynak kolon, listedeki bir başlıksa o kolondan okunur. Listede yoksa yazdığınız metin her satıra sabit değer olarak yazılır.',
+    ...(kind === 'account-voucher' ? ['e-Defter yevmiye XML veya ZIP yalnız bu aktarımda okunur.'] : []),
+  ];
+
   return (
     <div className="p-3 space-y-3">
-        <div className="flex items-center gap-2">
-          <button
-            type="button"
-            onClick={() => { setScreen('list'); setError(null); }}
-            className="px-3 h-8 text-[12px] font-semibold rounded-md border border-slate-300 text-slate-700 hover:bg-slate-50"
-          >
-            Geri
-          </button>
-          <h2 className="text-[14px] font-semibold text-slate-800 dark:text-slate-100">
-            {profileId ? 'Aktarımı düzenle' : 'Yeni aktarım'}
-          </h2>
-          <div className="ml-auto flex items-center gap-1.5">
-            {profileId > 0 && (
-              <button
-                type="button"
-                disabled={busy}
-                title="Bu kartı kopyala — Kaydet ile yeni kayıt oluşur"
-                onClick={() => {
-                  const t = (profileTitle || '').trim() || 'Aktarım';
-                  setProfileId(0);
-                  setProfileTitle(/\(\s*kopya\s*\)$/i.test(t) ? t : `${t} (kopya)`);
-                  setInfo('Kopya modu: Kaydet ile yeni aktarım kartı yazılır.');
-                }}
-                className="inline-flex items-center gap-1 px-3 h-8 text-[12px] font-semibold rounded-md border border-slate-300 text-slate-700 hover:bg-slate-50 disabled:opacity-50"
-              >
-                <Copy className="w-3.5 h-3.5" />
-                Kopyala
-              </button>
+      <div className="flex items-center gap-2">
+        <button
+          type="button"
+          onClick={() => { setScreen('list'); setError(null); }}
+          className="px-3 h-8 text-[12px] font-semibold rounded-md border border-slate-300 text-slate-700 hover:bg-slate-50"
+        >
+          Geri
+        </button>
+        <h2 className="text-[14px] font-semibold text-slate-800 dark:text-slate-100">
+          {profileId ? 'Aktarımı düzenle' : 'Yeni aktarım'}
+        </h2>
+      </div>
+
+      <section className="rounded-md border border-slate-200 dark:border-slate-700 bg-slate-50/60 dark:bg-slate-800/30 p-3 space-y-3">
+        <div className="flex flex-wrap items-end gap-2">
+          <label className="min-w-[180px] flex-1 max-w-xs space-y-1">
+            <span className="text-[11px] font-medium text-slate-600">Aktarım adı</span>
+            <input
+              className={inputCls}
+              value={profileTitle}
+              placeholder="Cari kart aktarımı"
+              onChange={(e) => setProfileTitle(e.target.value)}
+            />
+          </label>
+          <label className="w-[160px] space-y-1">
+            <span className="text-[11px] font-medium text-slate-600">Aktarım</span>
+            <select
+              className={inputCls}
+              value={kind}
+              onChange={(e) => {
+                setKind(e.target.value as ImportKind);
+                setCatalog([]);
+                setExtraKeys([]);
+                setRemovedKeys([]);
+                setAlias({});
+                setFixedKeys([]);
+                touchedRef.current = [];
+                setSheet(null);
+                setProfileId(0);
+              }}
+            >
+              {(targets.length ? [...targets.map((t) => t.kind)].sort((a, b) => KIND_ORDER.indexOf(a as ImportKind) - KIND_ORDER.indexOf(b as ImportKind)) : KIND_ORDER).map((k) => (
+                <option key={k} value={k}>{KIND_LABEL[k] ?? targets.find((t) => t.kind === k)?.title ?? k}</option>
+              ))}
+            </select>
+          </label>
+          <label className="w-[170px] space-y-1">
+            <span className="text-[11px] font-medium text-slate-600">Aktarım modu</span>
+            <select className={inputCls} value={mode} onChange={(e) => setMode(e.target.value as ImportMode)}>
+              {(Object.keys(MODE_LABEL) as ImportMode[]).map((m) => (
+                <option key={m} value={m}>{MODE_LABEL[m]}</option>
+              ))}
+            </select>
+          </label>
+          <div className="relative pb-0.5">
+            <button
+              type="button"
+              title="Aktarım bilgisi"
+              onClick={() => { setHelpOpen((v) => !v); setConnOpen(false); }}
+              className={`inline-flex h-8 w-8 items-center justify-center rounded-md border ${helpOpen ? 'border-blue-400 bg-blue-50 text-blue-700' : 'border-slate-300 text-slate-500 hover:bg-slate-50'}`}
+            >
+              <HelpCircle className="w-4 h-4" />
+            </button>
+            {helpOpen && (
+              <div className="absolute left-0 top-9 z-20 w-80 rounded-md border border-slate-200 bg-white p-2.5 shadow-lg dark:border-slate-600 dark:bg-slate-900">
+                <ul className="space-y-1 text-[11px] text-slate-600 dark:text-slate-300 list-disc pl-4">
+                  {helpNotes.map((n) => <li key={n}>{n}</li>)}
+                </ul>
+              </div>
             )}
+          </div>
+          <div className="relative pb-0.5">
+            <button
+              type="button"
+              title={connOk ? 'Bağlantı hazır' : connFail ? 'Bağlantı hatası' : 'Bağlantı bilgileri'}
+              onClick={() => { setConnOpen((v) => !v); setHelpOpen(false); }}
+              className={`inline-flex h-8 w-8 items-center justify-center rounded-md border ${
+                connOk
+                  ? 'border-emerald-400 bg-emerald-50 text-emerald-600'
+                  : connFail
+                    ? 'border-red-300 bg-red-50 text-red-600'
+                    : 'border-slate-300 text-slate-500 hover:bg-slate-50'
+              }`}
+            >
+              <Settings className="w-4 h-4" />
+            </button>
+          </div>
+          <label className="w-[100px] space-y-1">
+            <span className="text-[11px] font-medium text-slate-600">Süreç (dk)</span>
+            <input
+              className={inputCls}
+              type="number"
+              min={5}
+              value={intervalMin}
+              placeholder="elle"
+              title="Boş = yalnız elle çalışır. Doluysa sürece bağlanır."
+              onChange={(e) => setIntervalMin(e.target.value)}
+            />
+          </label>
+          <label className="inline-flex items-center gap-1.5 h-8 text-[12px] text-slate-700 dark:text-slate-200">
+            <input type="checkbox" className="accent-blue-600" checked={keepLog} onChange={(e) => setKeepLog(e.target.checked)} />
+            Log
+          </label>
+          {profileId > 0 && (
             <button
               type="button"
               disabled={busy}
-              onClick={() => void saveProfile()}
-              className="px-3 h-8 text-[12px] font-semibold text-white bg-blue-600 hover:bg-blue-500 rounded-md disabled:opacity-50"
+              title="Bu kartı kopyala — Kaydet ile yeni kayıt oluşur"
+              onClick={() => {
+                const t = (profileTitle || '').trim() || 'Aktarım';
+                setProfileId(0);
+                setProfileTitle(/\(\s*kopya\s*\)$/i.test(t) ? t : `${t} (kopya)`);
+                setInfo('Kopya modu: Kaydet ile yeni aktarım kartı yazılır.');
+              }}
+              className="inline-flex items-center gap-1 px-2.5 h-8 text-[12px] font-semibold rounded-md border border-slate-300 text-slate-700 hover:bg-slate-50 disabled:opacity-50"
             >
-              Kaydet
+              <Copy className="w-3.5 h-3.5" />
+              Kopyala
             </button>
-          </div>
+          )}
+          <button
+            type="button"
+            disabled={busy}
+            title="Aktarım profilini JSON dosyasına yaz"
+            onClick={exportFormAsJson}
+            className="inline-flex items-center gap-1 px-2.5 h-8 text-[12px] font-semibold rounded-md border border-slate-300 text-slate-700 hover:bg-slate-50 disabled:opacity-50"
+          >
+            <FileJson className="w-3.5 h-3.5" />
+            Dışarı aktar
+          </button>
+          <button
+            type="button"
+            disabled={busy}
+            title={intervalMin.trim() && channel !== 'excel' ? 'Kaydet ve sürece bağla' : 'Kaydet'}
+            onClick={() => void saveProfile()}
+            className="inline-flex items-center gap-1 px-3 h-8 text-[12px] font-semibold text-white bg-blue-600 hover:bg-blue-500 rounded-md disabled:opacity-50"
+          >
+            {intervalMin.trim() && channel !== 'excel' ? 'Sürece bağla ve kaydet' : 'Kaydet'}
+          </button>
         </div>
 
-      <section className="rounded-md border border-slate-200 dark:border-slate-700 bg-slate-50/60 dark:bg-slate-800/30 p-3 space-y-3">
-        <label className="block max-w-xs space-y-1">
-          <span className="text-[11px] font-medium text-slate-600">Aktarım</span>
-          <select
-            className={inputCls}
-            value={kind}
-            onChange={(e) => {
-              setKind(e.target.value as ImportKind);
-              setCatalog([]);
-              setExtraKeys([]);
-              setRemovedKeys([]);
-              setAlias({});
-              setFixedKeys([]);
-              touchedRef.current = [];
-              setSheet(null);
-              setProfileId(0);
-            }}
-          >
-            {(targets.length ? [...targets.map((t) => t.kind)].sort((a, b) => KIND_ORDER.indexOf(a as ImportKind) - KIND_ORDER.indexOf(b as ImportKind)) : KIND_ORDER).map((k) => (
-              <option key={k} value={k}>{KIND_LABEL[k] ?? targets.find((t) => t.kind === k)?.title ?? k}</option>
-            ))}
-          </select>
-        </label>
-
-        {target && (
-          <ul className="text-[11px] text-slate-600 dark:text-slate-300 list-disc pl-5 space-y-0.5">
-            <li>
-              Hedef tablo: <span className="font-mono">{target.tableName}</span>
-            </li>
-            {target.notes.map((n) => (
-              <li key={n}>{n}</li>
-            ))}
-            {channel === 'excel' && source?.note && <li>{source.note}</li>}
-          </ul>
+        {connOpen && (
+          <div className="space-y-2 rounded border border-sky-200 bg-white/80 p-2.5 dark:border-slate-600 dark:bg-slate-900/50">
+            <div className="flex flex-wrap items-end gap-2">
+              <label className="w-[180px] space-y-1">
+                <span className="text-[11px] font-medium text-slate-600">Kaynak</span>
+                <select
+                  className={inputCls}
+                  value={channel}
+                  onChange={(e) => {
+                    const next = e.target.value as Channel;
+                    setChannel(next);
+                    setSheet(null);
+                    setLinkTest(next === '0' || next === 'excel' ? { ok: true, message: next === '0' ? 'Bu veritabanı' : 'Excel / CSV' } : null);
+                  }}
+                >
+                  {CHANNELS.map((c) => <option key={c.value} value={c.value}>{c.label}</option>)}
+                </select>
+              </label>
+              {channel === 'excel' && (
+                <label className="w-[140px] space-y-1">
+                  <span className="text-[11px] font-medium text-slate-600">Excel şablonu</span>
+                  <select className={inputCls} value={source?.id ?? 'bartu'} onChange={(e) => { setSourceId(e.target.value); setAlias({}); setFixedKeys([]); touchedRef.current = []; }}>
+                    {(sources.length ? sources : [{ id: 'bartu', title: 'Kavi Soft', note: '', headers: {} }]).map((s) => (
+                      <option key={s.id} value={s.id}>{s.title}</option>
+                    ))}
+                  </select>
+                </label>
+              )}
+              {kind === 'product' && (
+                <label className="w-[160px] space-y-1" title="Kaynakta Kart Tipi / CARDTYPE bağlıysa satırdaki değer kullanılır">
+                  <span className="text-[11px] font-medium text-slate-600">Varsayılan tip</span>
+                  <select className={inputCls} value={productType} onChange={(e) => setProductType(Number(e.target.value))}>
+                    <option value={1}>1 — Malzeme</option>
+                    <option value={2}>2 — Verilen Hizmet</option>
+                    <option value={3}>3 — Alınan Hizmet</option>
+                  </select>
+                </label>
+              )}
+              {voucherKind(kind) && (
+                <label className="inline-flex items-center gap-2 h-8 text-[12px] text-slate-700">
+                  <input type="checkbox" className="accent-blue-600" checked={createMissingCards} onChange={(e) => setCreateMissingCards(e.target.checked)} />
+                  Kartı yoksa oluştur
+                </label>
+              )}
+              {kind === 'account' && (
+                <label className="inline-flex items-center gap-2 h-8 text-[12px] text-slate-700">
+                  <input type="checkbox" className="accent-blue-600" checked={accountPrefixParent} onChange={(e) => setAccountPrefixParent(e.target.checked)} />
+                  Önekten üst hesap
+                </label>
+              )}
+              {channel !== 'excel' && channel !== '0' && (
+                <button type="button" disabled={busy} onClick={() => void testLink()} className="rounded border border-emerald-300 bg-emerald-50 px-2 h-8 text-[12px] font-semibold text-emerald-800 disabled:opacity-50">
+                  Bağlantıyı kontrol et
+                </button>
+              )}
+              {linkTest && (
+                <span className={`text-[11px] self-center ${linkTest.ok ? 'text-emerald-700' : 'text-red-600'}`}>{linkTest.message}</span>
+              )}
+            </div>
+            {(channel === '1' || channel === '2') && (
+              <div className="grid grid-cols-2 md:grid-cols-4 gap-2">
+                <label className="block text-[11px] col-span-2">Sunucu
+                  <input className={inputCls} value={link.server ?? ''} onChange={(e) => { setLink({ ...link, server: e.target.value }); setLinkTest(null); }} placeholder={channel === '2' ? 'mysql.site' : 'sunucu\\SQLEXPRESS'} />
+                </label>
+                <label className="block text-[11px]">Port
+                  <input className={inputCls} value={link.port ?? ''} onChange={(e) => { setLink({ ...link, port: e.target.value }); setLinkTest(null); }} placeholder={channel === '2' ? '3306' : ''} />
+                </label>
+                <label className="block text-[11px]">Veritabanı
+                  <input className={inputCls} value={link.database ?? ''} onChange={(e) => { setLink({ ...link, database: e.target.value }); setLinkTest(null); }} />
+                </label>
+                {channel === '1' && (
+                  <label className="col-span-2 flex items-center gap-2 text-[11px]">
+                    <input type="checkbox" checked={link.windowsAuth === true} onChange={(e) => { setLink({ ...link, windowsAuth: e.target.checked }); setLinkTest(null); }} />
+                    Windows kimliği
+                  </label>
+                )}
+                {!(channel === '1' && link.windowsAuth) && (
+                  <>
+                    <label className="block text-[11px]">Kullanıcı
+                      <input className={inputCls} value={link.user ?? ''} autoComplete="off" onChange={(e) => { setLink({ ...link, user: e.target.value }); setLinkTest(null); }} />
+                    </label>
+                    <label className="block text-[11px]">Şifre
+                      <input type="password" className={inputCls} value={link.password ?? ''} autoComplete="new-password" placeholder={profileId ? 'kayıtlı şifre burada durur' : ''} onChange={(e) => { setLink({ ...link, password: e.target.value }); setLinkTest(null); }} />
+                    </label>
+                  </>
+                )}
+              </div>
+            )}
+            {channel === '3' && (
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
+                <label className="block text-[11px]">Yöntem
+                  <select className={inputCls} value={link.apiMethod || 'GET'} onChange={(e) => setLink({ ...link, apiMethod: e.target.value })}>
+                    <option value="GET">GET</option>
+                    <option value="POST">POST</option>
+                  </select>
+                </label>
+                <label className="block text-[11px]">Kayıt listesi yolu
+                  <input className={inputCls} value={link.jsonPath ?? ''} placeholder="data.items" onChange={(e) => setLink({ ...link, jsonPath: e.target.value })} />
+                </label>
+                <label className="block text-[11px] md:col-span-2">Adres
+                  <input className={inputCls} value={link.apiUrl ?? ''} placeholder="https://site.com/api/kayitlar" onChange={(e) => setLink({ ...link, apiUrl: e.target.value })} />
+                </label>
+                <label className="block text-[11px] md:col-span-2">Başlıklar
+                  <textarea className={`${inputCls} h-16 font-mono py-1`} value={link.apiHeaders ?? ''} placeholder={'Authorization: Bearer …'} onChange={(e) => setLink({ ...link, apiHeaders: e.target.value })} />
+                </label>
+              </div>
+            )}
+            {channel === 'excel' && (
+              <div className="flex flex-wrap gap-2">
+                <a
+                  href={importTemplateUrl(kind, source?.id ?? 'bartu', templateFields.map((f) => f.key))}
+                  className="inline-flex items-center gap-1.5 px-3 h-8 text-[12px] font-semibold text-emerald-700 bg-emerald-50 hover:bg-emerald-100 rounded-md"
+                >
+                  <Download className="w-3.5 h-3.5" />
+                  {source && source.id !== 'bartu' ? `${source.title} Şablonu` : 'Şablon İndir'}
+                </a>
+                <button
+                  type="button"
+                  disabled={busy}
+                  onClick={() => fileRef.current?.click()}
+                  className="inline-flex items-center gap-1.5 px-3 h-8 text-[12px] font-semibold text-blue-700 bg-blue-50 hover:bg-blue-100 rounded-md disabled:opacity-50"
+                >
+                  <Upload className="w-3.5 h-3.5" />
+                  {kind === 'account-voucher' ? 'Dosya / Yevmiye' : 'Dosya Seç'}
+                </button>
+                <input
+                  ref={fileRef}
+                  type="file"
+                  accept={kind === 'account-voucher' ? '.xlsx,.csv,.txt,.xml,.zip' : '.xlsx,.csv,.txt'}
+                  className="hidden"
+                  onChange={(e) => void onFile(e.target.files?.[0])}
+                />
+              </div>
+            )}
+          </div>
         )}
+
+        {channel !== 'excel' && (
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
+            {channel === '3' ? (
+              <label className="block text-[11px] md:col-span-2">API gövde / not
+                <textarea className={`${inputCls} h-24 font-mono py-1`} spellCheck={false} value={link.body ?? ''} placeholder="İsteğe bağlı POST gövdesi" onChange={(e) => setLink({ ...link, body: e.target.value })} />
+              </label>
+            ) : (
+              <label className="block text-[11px]">Sorgu (SELECT)
+                <textarea className={`${inputCls} h-24 font-mono py-1`} spellCheck={false} value={link.sql ?? ''} placeholder="SELECT kod, unvan FROM ..." onChange={(e) => setLink({ ...link, sql: e.target.value })} />
+              </label>
+            )}
+            {channel !== '3' && (
+              <label className="block text-[11px]">Aktarımdan sonra
+                <textarea
+                  className={`${inputCls} h-24 font-mono py-1`}
+                  spellCheck={false}
+                  value={afterSql}
+                  placeholder={'UPDATE dbo.Kaynak SET Aktarildi = 1 WHERE EvrakNo = @BelgeNo'}
+                  onChange={(e) => setAfterSql(e.target.value)}
+                />
+              </label>
+            )}
+            <div className="md:col-span-2 flex flex-wrap items-center gap-2">
+              <button type="button" disabled={busy} onClick={() => void pullColumns()} className="rounded border border-sky-300 bg-white px-2 h-8 text-[12px] text-sky-800 disabled:opacity-50">Başlıkları al</button>
+              <button type="button" disabled={busy} onClick={() => void pullRows()} className="rounded border border-sky-300 bg-white px-2 h-8 text-[12px] text-sky-800 disabled:opacity-50">Veriyi çek</button>
+              {channel !== '3' && (
+                <button
+                  type="button"
+                  className="rounded border border-slate-300 bg-white px-2 h-8 text-[12px] text-slate-700 disabled:opacity-50"
+                  onClick={() => {
+                    if ((link.sql ?? '').trim()) {
+                      setInfo('SELECT dolu. Kolonları şablon sırasına göre yazın ya da başlıkları aldıktan sonra listeden bağlayın.');
+                      return;
+                    }
+                    const lines = templateFields.map((f) => `  '' AS [${sourceName(f)}]`);
+                    setLink({ ...link, sql: `SELECT\n${lines.join(',\n')}\nFROM ` });
+                  }}
+                >
+                  Şablon sırasını SQL’e yaz
+                </button>
+              )}
+              {sheet && sheet.headers.length > 0 && (
+                <ul className="flex flex-wrap gap-1">
+                  {sheet.headers.map((h) => (
+                    <li key={h} className="rounded border border-slate-200 bg-slate-50 px-1.5 py-0.5 font-mono text-[11px] text-slate-700">{h}</li>
+                  ))}
+                </ul>
+              )}
+            </div>
+          </div>
+        )}
+
         {target && templateFields.length > 0 && (
           <div className="space-y-1">
             <div className="flex flex-wrap items-center gap-2">
@@ -943,10 +1599,6 @@ export const DataImportPage: React.FC<DataImportPageProps> = () => {
                 ))}
               </select>
             </div>
-            <p className="text-[11px] text-slate-500">
-              Kaynak kolon, listedeki bir başlıksa o kolondan okunur. Listede yoksa yazdığınız metin her satıra sabit değer olarak yazılır.
-              {kind === 'account-voucher' ? ' e-Defter yevmiye XML veya ZIP yalnız bu aktarımda okunur.' : ''}
-            </p>
             <div className="max-h-56 overflow-auto rounded border border-slate-200 bg-white dark:bg-slate-900">
               <table className="w-full border-collapse text-left text-[11px]">
                 <thead className="sticky top-0 bg-slate-100 text-slate-600">
@@ -1004,212 +1656,6 @@ export const DataImportPage: React.FC<DataImportPageProps> = () => {
           </div>
         )}
 
-        <div className="grid grid-cols-1 md:grid-cols-12 gap-3 items-end">
-          <label className="md:col-span-4 space-y-1">
-            <span className="text-[11px] font-medium text-slate-600">Kaynak</span>
-            <select className={inputCls} value={channel} onChange={(e) => { setChannel(e.target.value as Channel); setSheet(null); setLinkTest(null); }}>
-              {CHANNELS.map((c) => <option key={c.value} value={c.value}>{c.label}</option>)}
-            </select>
-          </label>
-          {channel === 'excel' && (
-          <label className="md:col-span-3 space-y-1">
-            <span className="text-[11px] font-medium text-slate-600">Excel şablonu</span>
-            <select className={inputCls} value={source?.id ?? 'bartu'} onChange={(e) => { setSourceId(e.target.value); setAlias({}); setFixedKeys([]); touchedRef.current = []; }}>
-              {(sources.length ? sources : [{ id: 'bartu', title: 'Kavi Soft', note: '', headers: {} }]).map((s) => (
-                <option key={s.id} value={s.id}>{s.title}</option>
-              ))}
-            </select>
-          </label>
-          )}
-          {kind === 'product' && (
-            <label className="md:col-span-3 space-y-1" title="Kaynakta Kart Tipi / CARDTYPE bağlıysa satırdaki değer kullanılır">
-              <span className="text-[11px] font-medium text-slate-600">Varsayılan tip (kolon yoksa)</span>
-              <select className={inputCls} value={productType} onChange={(e) => setProductType(Number(e.target.value))}>
-                <option value={1}>1 — Malzeme</option>
-                <option value={2}>2 — Verilen Hizmet</option>
-                <option value={3}>3 — Alınan Hizmet</option>
-              </select>
-            </label>
-          )}
-          {voucherKind(kind) && (
-            <label className="md:col-span-5 inline-flex items-center gap-2 h-8 text-[12px] text-slate-700 dark:text-slate-200">
-              <input
-                type="checkbox"
-                className="accent-blue-600"
-                checked={createMissingCards}
-                onChange={(e) => setCreateMissingCards(e.target.checked)}
-              />
-              Kartı yoksa oluştur (cari, malzeme/hizmet, hesap, banka hesabı)
-            </label>
-          )}
-          {kind === 'account' && (
-            <label className="md:col-span-5 inline-flex items-center gap-2 h-8 text-[12px] text-slate-700 dark:text-slate-200">
-              <input
-                type="checkbox"
-                className="accent-blue-600"
-                checked={accountPrefixParent}
-                onChange={(e) => setAccountPrefixParent(e.target.checked)}
-              />
-              Noktasız kodlarda üst hesabı önekten bul (1 ← 10 ← 100)
-            </label>
-          )}
-          <label className="md:col-span-3 space-y-1">
-            <span className="text-[11px] font-medium text-slate-600">Aktarım Modu</span>
-            <select className={inputCls} value={mode} onChange={(e) => setMode(e.target.value as ImportMode)}>
-              {(Object.keys(MODE_LABEL) as ImportMode[]).map((m) => (
-                <option key={m} value={m}>
-                  {MODE_LABEL[m]}
-                </option>
-              ))}
-            </select>
-          </label>
-          {channel === 'excel' && (
-          <div className="md:col-span-4 flex flex-wrap gap-2">
-            <a
-              href={importTemplateUrl(kind, source?.id ?? 'bartu', templateFields.map((f) => f.key))}
-              className="inline-flex items-center gap-1.5 px-3 h-8 text-[12px] font-semibold text-emerald-700 bg-emerald-50 hover:bg-emerald-100 rounded-md"
-            >
-              <Download className="w-3.5 h-3.5" />
-              {source && source.id !== 'bartu' ? `${source.title} Şablonu` : 'Şablon İndir'}
-            </a>
-            <button
-              type="button"
-              disabled={busy}
-              onClick={() => fileRef.current?.click()}
-              className="inline-flex items-center gap-1.5 px-3 h-8 text-[12px] font-semibold text-blue-700 bg-blue-50 hover:bg-blue-100 rounded-md disabled:opacity-50"
-            >
-              <Upload className="w-3.5 h-3.5" />
-              {kind === 'account-voucher' ? 'Dosya / Yevmiye' : 'Dosya Seç'}
-            </button>
-            <input
-              ref={fileRef}
-              type="file"
-              accept={kind === 'account-voucher' ? '.xlsx,.csv,.txt,.xml,.zip' : '.xlsx,.csv,.txt'}
-              className="hidden"
-              onChange={(e) => void onFile(e.target.files?.[0])}
-            />
-          </div>
-          )}
-        </div>
-        {channel !== 'excel' && (
-          <div className="space-y-2 rounded border border-sky-200 bg-white/70 p-2">
-            <p className="text-[11px] text-slate-600">
-              Kendi SELECT sorgunuzu yazın. Kolon sırası şablondaki 1, 2, 3 sırasıdır. Başlığı şablondaki adla verirseniz (AS) kendiliğinden bağlanır.
-            </p>
-            {(channel === '1' || channel === '2') && (
-              <div className="grid grid-cols-2 md:grid-cols-4 gap-2">
-                <label className="block text-[11px] col-span-2">Sunucu
-                  <input className={inputCls} value={link.server ?? ''} onChange={(e) => setLink({ ...link, server: e.target.value })} placeholder={channel === '2' ? 'mysql.site' : 'sunucu\\SQLEXPRESS'} />
-                </label>
-                <label className="block text-[11px]">Port
-                  <input className={inputCls} value={link.port ?? ''} onChange={(e) => setLink({ ...link, port: e.target.value })} placeholder={channel === '2' ? '3306' : ''} />
-                </label>
-                <label className="block text-[11px]">Veritabanı
-                  <input className={inputCls} value={link.database ?? ''} onChange={(e) => setLink({ ...link, database: e.target.value })} />
-                </label>
-                {channel === '1' && (
-                  <label className="col-span-2 flex items-center gap-2 text-[11px]">
-                    <input type="checkbox" checked={link.windowsAuth === true} onChange={(e) => setLink({ ...link, windowsAuth: e.target.checked })} />
-                    Windows kimliği
-                  </label>
-                )}
-                {!(channel === '1' && link.windowsAuth) && (
-                  <>
-                    <label className="block text-[11px]">Kullanıcı
-                      <input className={inputCls} value={link.user ?? ''} autoComplete="off" onChange={(e) => setLink({ ...link, user: e.target.value })} />
-                    </label>
-                    <label className="block text-[11px]">Şifre
-                      <input type="password" className={inputCls} value={link.password ?? ''} autoComplete="new-password" placeholder={profileId ? 'kayıtlı şifre burada durur' : ''} onChange={(e) => setLink({ ...link, password: e.target.value })} />
-                    </label>
-                  </>
-                )}
-              </div>
-            )}
-            {channel === '3' ? (
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
-                <label className="block text-[11px]">Yöntem
-                  <select className={inputCls} value={link.apiMethod || 'GET'} onChange={(e) => setLink({ ...link, apiMethod: e.target.value })}>
-                    <option value="GET">GET</option>
-                    <option value="POST">POST</option>
-                  </select>
-                </label>
-                <label className="block text-[11px]">Kayıt listesi yolu
-                  <input className={inputCls} value={link.jsonPath ?? ''} placeholder="data.items" onChange={(e) => setLink({ ...link, jsonPath: e.target.value })} />
-                </label>
-                <label className="block text-[11px] md:col-span-2">Adres
-                  <input className={inputCls} value={link.apiUrl ?? ''} placeholder="https://site.com/api/kayitlar" onChange={(e) => setLink({ ...link, apiUrl: e.target.value })} />
-                </label>
-                <label className="block text-[11px] md:col-span-2">Başlıklar
-                  <textarea className={`${inputCls} h-16 font-mono py-1`} value={link.apiHeaders ?? ''} placeholder={'Authorization: Bearer …'} onChange={(e) => setLink({ ...link, apiHeaders: e.target.value })} />
-                </label>
-              </div>
-            ) : (
-              <label className="block text-[11px]">SELECT
-                <textarea className={`${inputCls} h-20 font-mono py-1`} spellCheck={false} value={link.sql ?? ''} placeholder="SELECT kod, unvan FROM ..." onChange={(e) => setLink({ ...link, sql: e.target.value })} />
-              </label>
-            )}
-            {sheet && sheet.headers.length > 0 && (
-              <div className="space-y-1">
-                <span className="text-[11px] font-medium text-slate-600">Kolon başlıkları</span>
-                <ul className="flex flex-wrap gap-1">
-                  {sheet.headers.map((h) => (
-                    <li key={h} className="rounded border border-slate-200 bg-slate-50 px-1.5 py-0.5 font-mono text-[11px] text-slate-700">{h}</li>
-                  ))}
-                </ul>
-              </div>
-            )}
-            {channel !== '3' && (
-              <label className="block text-[11px]">Aktarımdan sonra
-                <textarea
-                  className={`${inputCls} h-20 font-mono py-1`}
-                  spellCheck={false}
-                  value={afterSql}
-                  placeholder={'UPDATE dbo.Kaynak SET Aktarildi = 1, HedefId = @KayitId WHERE EvrakNo = @BelgeNo'}
-                  onChange={(e) => setAfterSql(e.target.value)}
-                />
-                <span className="mt-0.5 block text-slate-500">
-                  Her başarılı kayıttan sonra kaynakta çalışır. @KayitId oluşan kayıt no, @BelgeNo belge no, @FisNo fiş no, @Kod kart veya fiş kodu. Kaynak kolon adı da yazılır: @StokKodu.
-                </span>
-              </label>
-            )}
-            <div className="flex flex-wrap items-center gap-2">
-              <button type="button" disabled={busy} onClick={() => void testLink()} className="rounded border border-emerald-300 bg-emerald-50 px-2 h-8 text-[12px] font-semibold text-emerald-800 disabled:opacity-50">Bağlantıyı kontrol et</button>
-              {linkTest && (
-                <span className={`text-[11px] ${linkTest.ok ? 'text-emerald-700' : 'text-red-600'}`}>{linkTest.message}</span>
-              )}
-              <button type="button" disabled={busy} onClick={() => void pullColumns()} className="rounded border border-sky-300 bg-white px-2 h-8 text-[12px] text-sky-800 disabled:opacity-50">Başlıkları al</button>
-              <button type="button" disabled={busy} onClick={() => void pullRows()} className="rounded border border-sky-300 bg-white px-2 h-8 text-[12px] text-sky-800 disabled:opacity-50">Veriyi çek</button>
-              {channel !== '3' && <button
-                type="button"
-                className="rounded border border-slate-300 bg-white px-2 h-8 text-[12px] text-slate-700 disabled:opacity-50"
-                onClick={() => {
-                  if ((link.sql ?? '').trim()) {
-                    setInfo('SELECT dolu. Kolonları şablon sırasına göre yazın ya da başlıkları aldıktan sonra listeden bağlayın.');
-                    return;
-                  }
-                  const lines = templateFields.map((f) => `  '' AS [${sourceName(f)}]`);
-                  setLink({ ...link, sql: `SELECT\n${lines.join(',\n')}\nFROM ` });
-                }}
-              >
-                Şablon sırasını SQL’e yaz
-              </button>}
-            </div>
-          </div>
-        )}
-        <div className="grid grid-cols-1 md:grid-cols-12 gap-2 items-end">
-          <label className="md:col-span-4 block text-[11px]">Aktarım adı
-            <input className={inputCls} value={profileTitle} placeholder="Cari kart aktarımı" onChange={(e) => setProfileTitle(e.target.value)} />
-          </label>
-          <label className="md:col-span-2 block text-[11px]">Aralık (dk)
-            <input className={inputCls} type="number" min={5} value={intervalMin} placeholder="elle" onChange={(e) => setIntervalMin(e.target.value)} />
-          </label>
-          <label className="md:col-span-2 inline-flex items-center gap-2 h-8 text-[12px] text-slate-700 dark:text-slate-200">
-            <input type="checkbox" className="accent-blue-600" checked={keepLog} onChange={(e) => setKeepLog(e.target.checked)} />
-            Log takibi
-          </label>
-          <button type="button" disabled={busy || channel === 'excel'} onClick={() => void saveProfile()} className="md:col-span-3 h-8 rounded bg-amber-600 text-white text-[12px] font-semibold disabled:opacity-50">Sürece bağla ve kaydet</button>
-        </div>
-
         {sheet && (
           <div className="flex items-center gap-2 text-[12px] text-slate-700 dark:text-slate-200">
             <FileSpreadsheet className="w-3.5 h-3.5 text-emerald-600" />
@@ -1228,6 +1674,7 @@ export const DataImportPage: React.FC<DataImportPageProps> = () => {
           </div>
         )}
         {error && <div className="text-[12px] text-red-600">{error}</div>}
+        {info && <div className="text-[12px] text-emerald-700">{info}</div>}
       </section>
 
       {sheet && target && sheet.headers.length > 0 && (

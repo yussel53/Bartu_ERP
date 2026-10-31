@@ -63,8 +63,10 @@ export interface FormSchemaDto {
   lineFields?: FormFieldDto[];
   /** Cari adres satır alanları (CustomerAdress) */
   addressFields?: FormFieldDto[];
-  /** Cari yetkili satır alanları (CustomerContact) — kart içinde sekme */
+  /** Cari iletişim satır alanları (CustomerContact) — kart içinde sekme, N kayıt */
   contactFields?: FormFieldDto[];
+  /** Cari IBAN / banka hesap satırları (CustomerIban) — kart içinde sekme, N kayıt */
+  ibanFields?: FormFieldDto[];
   /** Banka hesap satır alanları (BankAccountCard) — banka kartı içinde sekme */
   accountFields?: FormFieldDto[];
   /** Malzeme barkod satırları (ProductBarcode) — birim çevirimi altında */
@@ -106,8 +108,10 @@ export interface FormSchemaDto {
   enableCustomFieldsTab?: boolean;
   /** true ise Adresler sekmesi açılır (en az bir adres zorunlu) */
   enableAddressesTab?: boolean;
-  /** true ise Yetkililer sekmesi açılır (cari kart içinde) */
+  /** true ise İletişim sekmesi açılır (cari kart içinde, N kişi) */
   enableContactsTab?: boolean;
+  /** true ise IBAN sekmesi açılır (cari kart içinde, N hesap) */
+  enableIbansTab?: boolean;
   /** true ise Hesaplar sekmesi açılır (banka kartı içinde) */
   enableAccountsTab?: boolean;
   /** true ise Barkodlar sekmesi açılır (eski; birim çevirimi tercih edilir) */
@@ -168,11 +172,15 @@ export interface DynamicFormDataDto {
   recordId: number;
   standardFields: Record<string, unknown>;
   additionalFields: Record<string, unknown>;
+  /** AccountCard: hareket görmüşse kod değiştirilemez */
+  hasMovements?: boolean;
   lines?: Record<string, unknown>[];
   /** Cari kart adresleri → CustomerAdress */
   addresses?: Record<string, unknown>[];
-  /** Cari kart yetkilileri → CustomerContact */
+  /** Cari kart iletişim → CustomerContact */
   contacts?: Record<string, unknown>[];
+  /** Cari kart IBAN → CustomerIban */
+  ibans?: Record<string, unknown>[];
   /** Banka kartı hesapları → BankAccountCard */
   accounts?: Record<string, unknown>[];
   /** Malzeme barkodları → ProductBarcode */
@@ -228,6 +236,11 @@ export interface MenuScreen {
   documentTypeFilter?: string;
   /** Birden fazla belge tipi (örn. malzeme fişleri: Devir/Transfer/Sarf…) — istemci tarafı filtre */
   documentTypeFilters?: string[];
+  /**
+   * Satış / satınalma grubu (Invoice / ProductVoucher.TradeGroup)
+   * 1 Satış · 2 Satınalma · 0 Diğer — sunucu listesinde TradeGroup = değer
+   */
+  tradeGroupFilter?: 0 | 1 | 2;
   /** Özel Alanlar admin ekranı — hedef tablo adı */
   customFieldsTable?: string;
   /** Bu ekran özel alan yönetim UI'sı mı */
@@ -280,6 +293,9 @@ export interface MenuScreen {
   isUserPermissionsAdmin?: boolean;
   /** Adres tanımları (ülke/il/ilçe/mahalle) */
   isAddressAdmin?: boolean;
+  /** Banka / şube kataloğu (SYS_Bank) */
+  isBankCatalogAdmin?: boolean;
+  bankCatalogTab?: 'bank' | 'branch';
   addressLevel?: 'country' | 'province' | 'district' | 'neighborhood';
   /** Öndeğerler (ID=-1 şablon kartlar) */
   isCardDefaultsAdmin?: boolean;

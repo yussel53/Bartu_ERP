@@ -52,7 +52,12 @@ import { useOrgFieldCascade } from '../hooks/useOrgFieldCascade';
 import { defaultAuxilValueRow, AUXIL_VALUE_KIND } from '../data/auxilCodes';
 import { AuxilCodeAssignmentEditor } from './AuxilCodeAssignmentEditor';
 import { listRecords } from '../api/recordsApi';
-import { accountCodeHasParentDot, parentAccountCode } from '../data/accountParentLink';
+import {
+  accountCodeHasParentDot,
+  inferAccountType,
+  isMainAccountType,
+  parentAccountCode,
+} from '../data/accountParentLink';
 import { appToast } from '../utils/appToast';
 import { appConfirm } from '../utils/appConfirm';
 
@@ -100,6 +105,7 @@ export const DynamicFormEngine: React.FC<DynamicFormEngineProps> = ({
   const showCustomTab = schema.enableCustomFieldsTab !== false;
   const hasAddresses = Boolean(schema.enableAddressesTab && schema.addressFields?.length);
   const hasContacts = Boolean(schema.enableContactsTab && schema.contactFields?.length);
+  const hasIbans = Boolean(schema.enableIbansTab && schema.ibanFields?.length);
   const hasAccounts = Boolean(schema.enableAccountsTab && schema.accountFields?.length);
   const hasBarcodes = Boolean(schema.enableBarcodesTab && schema.barcodeFields?.length);
   const hasUnitConvs = Boolean(
@@ -160,6 +166,7 @@ export const DynamicFormEngine: React.FC<DynamicFormEngineProps> = ({
           ? [defaultCustomerAddressRow()]
           : [],
       contacts: initialData?.contacts?.length ? initialData.contacts : [],
+      ibans: initialData?.ibans?.length ? initialData.ibans : [],
       accounts: initialData?.accounts?.length ? initialData.accounts : [],
       barcodes: initialData?.barcodes?.length ? initialData.barcodes : [],
       unitConvs: hasUnitConvs
@@ -259,12 +266,19 @@ export const DynamicFormEngine: React.FC<DynamicFormEngineProps> = ({
     prevDefaultCurrency.current = watchedDefaultCurrency;
   }, [watchedDefaultCurrency, readOnly, setValue]);
 
-  /** Hesap kartı: kodda '.' → üst hesap = son noktadan önceki kod (zorunlu) */
+  /** Hesap kartı: kod → Bilanço/Ana/Alt/Detay + noktalı kodda üst hesap */
   const accountParentLocked =
     schema.tableName === 'AccountCard' && accountCodeHasParentDot(watchedAccountCode as string);
   React.useEffect(() => {
     if (readOnly || schema.tableName !== 'AccountCard') return;
-    const parentCode = parentAccountCode(watchedAccountCode as string);
+    const code = String(watchedAccountCode ?? '').trim();
+    if (!code) return;
+
+    const inferred = inferAccountType(code);
+    setValue('standardFields.Type_', inferred, { shouldDirty: true });
+    setValue('standardFields.MainAccount', isMainAccountType(inferred), { shouldDirty: true });
+
+    const parentCode = parentAccountCode(code);
     if (!parentCode) return;
 
     let cancelled = false;
@@ -289,17 +303,13 @@ export const DynamicFormEngine: React.FC<DynamicFormEngineProps> = ({
         const parentId = Number(row.AccountCardID ?? row.accountCardID ?? row.id);
         if (Number.isFinite(parentId) && parentId > 0) {
           // 120.01 → üst 120: ID kaydet, ekranda Code — Ad (ham referans değil)
-          const code = String(row.Code ?? row.code ?? parentCode).trim() || parentCode;
+          const pCode = String(row.Code ?? row.code ?? parentCode).trim() || parentCode;
           const title = String(row.Title ?? row.title ?? '').trim();
-          const label = [code, title].filter(Boolean).join(' — ') || code;
+          const label = [pCode, title].filter(Boolean).join(' — ') || pCode;
           const { injectLookupOption } = await import('../api/lookupApi');
           injectLookupOption('MainAccountID', { value: String(parentId), label });
           setValue('standardFields.MainAccountID', String(parentId), { shouldDirty: true });
           setValue('standardFields.MainAccount', false, { shouldDirty: true });
-          const curType = String(watch('standardFields.Type_') ?? '').trim();
-          if (!curType || curType === '1') {
-            setValue('standardFields.Type_', '2', { shouldDirty: true });
-          }
         } else {
           setValue('standardFields.MainAccountID', '', { shouldDirty: true });
         }
@@ -331,6 +341,15 @@ export const DynamicFormEngine: React.FC<DynamicFormEngineProps> = ({
   } = useFieldArray({
     control: control as Control<FieldValues>,
     name: 'contacts',
+  });
+
+  const {
+    fields: ibanRows,
+    append: appendIban,
+    remove: removeIban,
+  } = useFieldArray({
+    control: control as Control<FieldValues>,
+    name: 'ibans',
   });
 
   const {
@@ -681,7 +700,7 @@ export const DynamicFormEngine: React.FC<DynamicFormEngineProps> = ({
       setAddressError(null);
     }
 
-    // Hesap kartı: 120.01 için 120 yoksa kaydetme
+    // Hesap kartı: 120.01 için 120 yoksa kaydetme; hareketli hesapta kod kilidi
     if (schema.tableName === 'AccountCard') {
       const code = String((data.standardFields as Record<string, unknown>)?.Code ?? '').trim();
       const needParent = parentAccountCode(code);
@@ -690,6 +709,21 @@ export const DynamicFormEngine: React.FC<DynamicFormEngineProps> = ({
         appToast(`Üst hesap «${needParent}» yok — önce ana hesabı kaydedin.`, { kind: 'error', durationMs: 5000 });
         setTab('genel');
         return;
+      }
+      if (initialData?.hasMovements) {
+        const oldCode = String(initialData.standardFields?.Code ?? '').trim();
+        if (oldCode) {
+          // disabled input submit’e girmeyebilir — kodu koru
+          (data.standardFields as Record<string, unknown>).Code = oldCode;
+          if (code && oldCode.toLocaleLowerCase('tr') !== code.toLocaleLowerCase('tr')) {
+            appToast(`«${oldCode}» hareket görmüş — hesap kodu değiştirilemez.`, {
+              kind: 'error',
+              durationMs: 5000,
+            });
+            setTab('genel');
+            return;
+          }
+        }
       }
     }
 
@@ -702,6 +736,11 @@ export const DynamicFormEngine: React.FC<DynamicFormEngineProps> = ({
       additionalFields: (data.additionalFields as Record<string, unknown>) || {},
       addresses: hasAddresses ? ((data.addresses as Record<string, unknown>[]) || []) : undefined,
       contacts: hasContacts ? ((data.contacts as Record<string, unknown>[]) || []) : undefined,
+      ibans: hasIbans
+        ? ((data.ibans as Record<string, unknown>[]) || []).filter(
+            (row) => String(row.IbanNO || row.ibanNO || '').trim() !== '',
+          )
+        : undefined,
       accounts: hasAccounts ? ((data.accounts as Record<string, unknown>[]) || []) : undefined,
       barcodes: hasBarcodes && !hasUnitConvs
         ? ((data.barcodes as Record<string, unknown>[]) || [])
@@ -780,6 +819,7 @@ export const DynamicFormEngine: React.FC<DynamicFormEngineProps> = ({
         additionalFields: (data.additionalFields as Record<string, unknown>) || {},
         addresses: hasAddresses ? ((data.addresses as Record<string, unknown>[]) || []) : undefined,
         contacts: hasContacts ? ((data.contacts as Record<string, unknown>[]) || []) : undefined,
+        ibans: hasIbans ? ((data.ibans as Record<string, unknown>[]) || []) : undefined,
         accounts: hasAccounts ? ((data.accounts as Record<string, unknown>[]) || []) : undefined,
         barcodes: hasBarcodes && !hasUnitConvs
           ? ((data.barcodes as Record<string, unknown>[]) || [])
@@ -827,6 +867,7 @@ export const DynamicFormEngine: React.FC<DynamicFormEngineProps> = ({
     schema.fixedStandardFields,
     hasAddresses,
     hasContacts,
+    hasIbans,
     hasAccounts,
     hasBarcodes,
     hasUnitConvs,
@@ -869,14 +910,34 @@ export const DynamicFormEngine: React.FC<DynamicFormEngineProps> = ({
             : emptyProductUnits(0);
         patched = { ...patched, optionsJson: info.optionsJson };
       }
+      const accountCodeLocked =
+        schema.tableName === 'AccountCard' &&
+        Boolean(initialData?.hasMovements) &&
+        field.fieldName === 'Code';
+      if (accountCodeLocked) {
+        patched = {
+          ...patched,
+          helpText:
+            'Bu hesap hareket görmüş — kod değiştirilemez; altına alt hesap da açılamaz.',
+        };
+      }
+      const trackMode = String(watch('standardFields.TrackingMode') ?? '0');
+      const lotFlagsOff = trackMode === '0' || trackMode === '';
+      const lotFlagFields = new Set([
+        'AllowLotSplit',
+        'LotUnitsDistributable',
+        'LotUnitsCombinable',
+      ]);
       const fieldReadOnly =
         readOnly ||
         Boolean(field.isReadOnly) ||
+        accountCodeLocked ||
         (isCustom && !canField(schema.tableName, field.fieldName, 'edit')) ||
         (linkUnitToProduct &&
           field.fieldName === 'UnitID' &&
           !(Number(watchedProductCardId) > 0)) ||
-        (accountParentLocked && field.fieldName === 'MainAccountID');
+        (accountParentLocked && field.fieldName === 'MainAccountID') ||
+        (lotFlagsOff && lotFlagFields.has(field.fieldName));
       return (
         <FieldRenderer
           key={`${patched.fieldId}-${patched.fieldName}-${patched.optionsJson || ''}`}
@@ -962,7 +1023,10 @@ export const DynamicFormEngine: React.FC<DynamicFormEngineProps> = ({
       ? [{ id: 'adresler', label: 'Adresler', count: fields.length }]
       : []),
     ...(hasContacts
-      ? [{ id: 'yetkililer', label: 'Yetkililer', count: contactRows.length }]
+      ? [{ id: 'iletisim', label: 'İletişim', count: contactRows.length }]
+      : []),
+    ...(hasIbans
+      ? [{ id: 'ibanlar', label: 'IBAN', count: ibanRows.length }]
       : []),
     ...(hasAccounts
       ? [{ id: 'hesaplar', label: 'Hesaplar', count: accountRows.length }]
@@ -1381,26 +1445,34 @@ export const DynamicFormEngine: React.FC<DynamicFormEngineProps> = ({
           </div>
         )}
 
-        {tab === 'yetkililer' && hasContacts && schema.contactFields && (
+        {tab === 'iletisim' && hasContacts && schema.contactFields && (
           <div className="space-y-2">
             <div className="flex items-center justify-between gap-2">
               <div>
                 <h3 className="text-[12px] font-semibold text-slate-700 dark:text-slate-200 flex items-center gap-1.5">
                   <UserRound className="w-3.5 h-3.5 text-slate-500" />
-                  Yetkililer
+                  İletişim
                 </h3>
                 <p className="text-[11px] text-slate-500 mt-0.5">
-                  Cariye bağlı iletişim kişileri (opsiyonel)
+                  Telefon, e-posta ve yetkili — istediğiniz kadar satır ekleyin
                 </p>
               </div>
               {!readOnly && (
                 <button
                   type="button"
-                  onClick={() => appendContact({})}
+                  onClick={() =>
+                    appendContact({
+                      ContactType: '4',
+                      Name: '',
+                      Phone: '',
+                      Email: '',
+                      IsDefault: false,
+                    })
+                  }
                   className="inline-flex items-center gap-1 px-2 h-6 text-[11px] font-semibold text-slate-700 bg-white border border-slate-300 hover:bg-slate-50 rounded-sm transition-colors"
                 >
                   <Plus className="w-3.5 h-3.5" />
-                  Yetkili Ekle
+                  İletişim Ekle
                 </button>
               )}
             </div>
@@ -1412,8 +1484,55 @@ export const DynamicFormEngine: React.FC<DynamicFormEngineProps> = ({
               register={register as UseFormRegister<FieldValues>}
               errors={errors}
               readOnly={readOnly}
-              emptyText="Yetkili yok. «Yetkili Ekle» ile ekleyebilirsiniz."
+              emptyText="İletişim yok. «İletişim Ekle» ile ekleyebilirsiniz."
               onRemove={removeContact}
+            />
+          </div>
+        )}
+
+        {tab === 'ibanlar' && hasIbans && schema.ibanFields && (
+          <div className="space-y-2">
+            <div className="flex items-center justify-between gap-2">
+              <div>
+                <h3 className="text-[12px] font-semibold text-slate-700 dark:text-slate-200 flex items-center gap-1.5">
+                  <Landmark className="w-3.5 h-3.5 text-slate-500" />
+                  IBAN / Banka Hesapları
+                </h3>
+                <p className="text-[11px] text-slate-500 mt-0.5">
+                  Cariye ait banka hesapları — istediğiniz kadar IBAN ekleyin
+                </p>
+              </div>
+              {!readOnly && (
+                <button
+                  type="button"
+                  onClick={() =>
+                    appendIban({
+                      BankName: '',
+                      IbanNO: '',
+                      AccountNO: '',
+                      Currency: LOCAL_CURRENCY_ID,
+                      IsDefault: false,
+                      IsActive: true,
+                      Description: '',
+                    })
+                  }
+                  className="inline-flex items-center gap-1 px-2 h-6 text-[11px] font-semibold text-slate-700 bg-white border border-slate-300 hover:bg-slate-50 rounded-sm transition-colors"
+                >
+                  <Plus className="w-3.5 h-3.5" />
+                  IBAN Ekle
+                </button>
+              )}
+            </div>
+
+            <SubListGrid
+              rows={ibanRows}
+              fields={schema.ibanFields!}
+              prefix="ibans"
+              register={register as UseFormRegister<FieldValues>}
+              errors={errors}
+              readOnly={readOnly}
+              emptyText="IBAN yok. «IBAN Ekle» ile ekleyebilirsiniz."
+              onRemove={removeIban}
             />
           </div>
         )}

@@ -85,6 +85,21 @@ export function getCustomerSummaries(): Promise<CustomerListSummary[]> {
   return apiJson<CustomerListSummary[]>('/api/card-statement/customer-summaries');
 }
 
+/** Hesap kartı listesi — seçilen yıl bakiyesi */
+export interface AccountListSummary {
+  accountCardID: number;
+  debit: number;
+  credit: number;
+  /** Borç − Alacak (pozitif: borçlu) */
+  balance: number;
+  year: number;
+}
+
+export function getAccountSummaries(year: number): Promise<AccountListSummary[]> {
+  const y = Number.isFinite(year) ? Math.trunc(year) : new Date().getFullYear();
+  return apiJson<AccountListSummary[]>(`/api/card-statement/account-summaries?year=${y}`);
+}
+
 export async function getCardStatement(
   kind: CardStatementKind,
   id: number,

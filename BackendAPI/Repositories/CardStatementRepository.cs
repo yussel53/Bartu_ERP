@@ -62,6 +62,17 @@ public sealed class CardStatementResult
     public List<string> Warnings { get; set; } = new();
 }
 
+/// <summary>Hesap kartı listesi özet satırı (yıl bakiyesi)</summary>
+public sealed class AccountListSummary
+{
+    public int AccountCardID { get; set; }
+    public decimal Debit { get; set; }
+    public decimal Credit { get; set; }
+    /// <summary>Borç − Alacak (pozitif: borçlu / B · negatif: alacaklı / A)</summary>
+    public decimal Balance { get; set; }
+    public int Year { get; set; }
+}
+
 /// <summary>Cari listesi özet satırı (bakiye ve önemli bilgiler)</summary>
 public sealed class AgingMove
 {
@@ -859,6 +870,46 @@ GROUP BY CustomerID", cancellationToken: ct)))
                 Get((int)r.Id).OpenOrders = (int)r.Cnt;
 
         return map.Values.ToList();
+    }
+
+    /// <summary>
+    /// Hesap kartları listesi: seçilen yıldaki borç / alacak / bakiye (AccountTrans · fiş tarihi veya TransDate).
+    /// </summary>
+    public async Task<List<AccountListSummary>> AccountSummariesAsync(int year, CancellationToken ct = default)
+    {
+        if (_db.State != ConnectionState.Open) _db.Open();
+        if (!await HasAsync("AccountTrans", ct)) return new();
+        year = year is >= 1900 and <= 2100 ? year : DateTime.Now.Year;
+        var hv = await HasColAsync("AccountTrans", "AccountVoucherID", ct) && await HasAsync("AccountVoucher", ct);
+        var (debit, credit) = await AccountAmountExprAsync(ct);
+        var dateExpr = hv
+            ? "COALESCE(av.VoucherDate, at.TransDate)"
+            : "at.TransDate";
+        var sql = $@"
+SELECT at.AccountCardID AS Id,
+  SUM(CAST(({debit}) AS decimal(19,2))) AS Debit,
+  SUM(CAST(({credit}) AS decimal(19,2))) AS Credit
+FROM dbo.AccountTrans at
+{(hv ? "LEFT JOIN dbo.AccountVoucher av ON av.AccountVoucherID = at.AccountVoucherID" : "")}
+WHERE at.AccountCardID IS NOT NULL
+  AND {dateExpr} IS NOT NULL
+  AND YEAR({dateExpr}) = @year
+GROUP BY at.AccountCardID";
+        var list = new List<AccountListSummary>();
+        foreach (var r in await _db.QueryAsync(new CommandDefinition(sql, new { year }, cancellationToken: ct)))
+        {
+            var d = (decimal)(r.Debit ?? 0m);
+            var c = (decimal)(r.Credit ?? 0m);
+            list.Add(new AccountListSummary
+            {
+                AccountCardID = (int)r.Id,
+                Debit = d,
+                Credit = c,
+                Balance = d - c,
+                Year = year,
+            });
+        }
+        return list;
     }
 
     private async Task<CardSection?> CustomerDocumentsAsync(int id, CancellationToken ct)

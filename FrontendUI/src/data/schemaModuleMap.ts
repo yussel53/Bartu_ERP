@@ -13,7 +13,7 @@ export interface SchemaTableRef {
 
 export const SCHEMA_MODULE_MAP: SchemaTableRef[] = [
   // Malzeme
-  { table: 'ProductCard', module: 'malzeme', group: 'ana-kayitlar', title: 'Malzeme Kartları', notes: 'TaxCardID vergi kartı · CostMethod 0 hareketli ortalama / 1 dönemsel ortalama / 2 FIFO / 3 LIFO / 4 son alış / 5 standart (StandardCost) · TrackingMode 0 yok / 1 Lot / 2 Seri / 3 Seri grubu · AllowLotSplit · TrackLocation · IssuePolicy 0 serbest / 1 FEFO / 2 FIFO · öndeğer ProductCardID=-1' },
+  { table: 'ProductCard', module: 'malzeme', group: 'ana-kayitlar', title: 'Malzeme Kartları', notes: 'Özel kod → AuxilCodeTrans (Özel Kodlar sekmesi) ModuleNr=1 · TrackingMode 0/1/2/3 · AllowLotSplit · LotUnitsDistributable/Combinable · TrackLocation · IssuePolicy · CostMethod · öndeğer ProductCardID=-1' },
   { table: 'UnitCard', module: 'malzeme', group: 'ana-kayitlar', title: 'Birimler', notes: 'UnitID 1–8 mevcut katalog · GlobalCode e-belge (EA, KGM, LTR, MTR)' },
   { table: 'StockLocation', module: 'malzeme', group: 'ana-kayitlar', title: 'Stok Yeri Kodları', notes: 'Raf / göz · WhouseID boşsa genel · kod depo içinde tek' },
   { table: 'ProductSerialLot', module: 'malzeme', group: 'hareketler', title: 'Lot / Seri', notes: 'Bir satırda N lot/seri · ExpireDate · Description · StockLocationID · Kind 1 Lot · 2 Seri · 3 Seri grubu' },
@@ -94,6 +94,8 @@ export const SCHEMA_MODULE_MAP: SchemaTableRef[] = [
   { table: 'SYS_NumberTemplate', module: 'sistem', group: 'tanimlar', title: 'Fiş Numarası Şablonu', notes: 'Geçerlilik tarihi · Firma/İşyeri/Ambar/Kullanıcı · {CO}{WP}{WH}{USR}{YYYY}{MM}{WW}{Q}{SEQ}' },
   { table: 'SYS_UserOrgAuth', module: 'sistem', group: 'islemler', title: 'Kullanıcı Org Yetkisi', notes: 'Firma / İşyeri / Ambar' },
   { table: 'SYS_UserAuthCode', module: 'sistem', group: 'islemler', title: 'Kullanıcı Yetki Kodları', notes: 'Firma × Kayıt Türü × AuthCode (Logo)' },
+  { table: 'SYS_Bank', module: 'sistem', group: 'tanimlar', title: 'Banka Kataloğu', notes: 'EFT Code · ShortTitle · Swift · seed /api/banks/seed' },
+  { table: 'SYS_BankBranch', module: 'sistem', group: 'tanimlar', title: 'Banka Şubeleri', notes: 'SYS_BankID · Code · Title · City' },
   { table: 'SYS_City', module: 'sistem', group: 'tanimlar', title: 'Şehirler (eski)', notes: 'Yerine SYS_Province' },
   { table: 'SYS_Country', module: 'sistem', group: 'tanimlar', title: 'Ülke' },
   { table: 'SYS_Province', module: 'sistem', group: 'tanimlar', title: 'İl', notes: 'Türkiye 81 il' },

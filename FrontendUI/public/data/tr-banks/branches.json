@@ -1,0 +1,13 @@
+[
+  { "bankCode": "0010", "code": "90001", "title": "Ankara Merkez", "city": "Ankara" },
+  { "bankCode": "0010", "code": "90101", "title": "İstanbul Merkez", "city": "İstanbul" },
+  { "bankCode": "0012", "code": "1", "title": "Ankara Merkez", "city": "Ankara" },
+  { "bankCode": "0012", "code": "90", "title": "İstanbul Merkez", "city": "İstanbul" },
+  { "bankCode": "0015", "code": "1", "title": "Ankara Merkez", "city": "Ankara" },
+  { "bankCode": "0046", "code": "1", "title": "Sabıha Gökçen", "city": "İstanbul" },
+  { "bankCode": "0062", "code": "1", "title": "Levent", "city": "İstanbul" },
+  { "bankCode": "0064", "code": "1", "title": "Ulus", "city": "Ankara" },
+  { "bankCode": "0067", "code": "1", "title": "İstanbul Merkez", "city": "İstanbul" },
+  { "bankCode": "0111", "code": "1", "title": "İstanbul Merkez", "city": "İstanbul" },
+  { "bankCode": "0134", "code": "1", "title": "İstanbul Merkez", "city": "İstanbul" }
+]

@@ -1,6 +1,10 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { ArrowLeft, BookCheck, LayoutTemplate, Loader2, X } from 'lucide-react';
-import { apiJson } from '../config/api';
+import { ApiError, apiJson } from '../config/api';
+import { allocateDocumentNumber } from '../api/numberTemplateApi';
+import { CardQuickInfoButton } from '../components/CardQuickInfoButton';
+import { CardStatementModal } from '../components/CardStatementModal';
+import { getCardStatementDef } from '../data/cardStatementKinds';
 import { FormLayoutDesigner } from '../components/FormLayoutDesigner';
 import { FormLayoutRow, resolveFormLayouts } from '../api/formLayoutsApi';
 import {
@@ -265,6 +269,7 @@ export const EntityFormPage: React.FC<EntityFormPageProps> = ({
   const [designOpen, setDesignOpen] = useState(false);
   const [designDef, setDesignDef] = useState<FormLayoutDef | null>(null);
   const [designLayout, setDesignLayout] = useState<FormLayoutRow | null>(null);
+  const [cardStmtOpen, setCardStmtOpen] = useState(false);
 
   const loadLayouts = useCallback(
     async (prefer?: number | null) => {
@@ -421,8 +426,10 @@ export const EntityFormPage: React.FC<EntityFormPageProps> = ({
               recordId: rec.recordId,
               standardFields: standard,
               additionalFields: additional,
+              hasMovements: rec.hasMovements === true,
               addresses: rec.addresses,
               contacts: rec.contacts,
+              ibans: rec.ibans,
               accounts: rec.accounts,
               barcodes: rec.barcodes,
               unitConvs: rec.unitConvs,
@@ -600,15 +607,53 @@ export const EntityFormPage: React.FC<EntityFormPageProps> = ({
         ? merged.lines!.map((row) => ({ ...row, ...computeFormulaValues(lineTable, row) }))
         : merged.lines;
 
-      const result = await saveRecord(
-        schema.tableName,
-        { ...merged, lines, standardFields: standard, additionalFields: additional },
-        {
-          pk: schema.primaryKeyColumn,
+      const saveOpts = {
+        pk: schema.primaryKeyColumn,
+        formCode: schema.formCode,
+        postSave: schema.postSave,
+      };
+      let savePayload = { ...merged, lines, standardFields: standard, additionalFields: additional };
+      let result = await saveRecord(schema.tableName, savePayload, saveOpts).catch(async (e) => {
+        // Eşzamanlı kayıt: fiş no çakışması → yeni numara sor
+        const body =
+          e instanceof ApiError
+            ? (e.body as { code?: string; number?: string; field?: string; message?: string } | null)
+            : null;
+        if (!(e instanceof ApiError) || e.status !== 409 || body?.code !== 'DUPLICATE_DOC_NUMBER') throw e;
+        const oldNo = body.number || '';
+        const field =
+          body.field ||
+          (['DocumentNumber', 'OrderSlipNo', 'VoucherNo'] as const).find((f) =>
+            schema.fields.some((x) => x.fieldName === f),
+          ) ||
+          'DocumentNumber';
+        const ok = await appConfirm(
+          `«${oldNo}» fiş numarası zaten kullanılıyor (aynı anda başka kullanıcı kaydetmiş olabilir).\n\nYeni fiş numarası alınsın mı?`,
+          { title: 'Fiş numarası', okLabel: 'Yeni numara ile kaydet', cancelLabel: 'İptal' },
+        );
+        if (!ok) throw e;
+        const alloc = await allocateDocumentNumber({
           formCode: schema.formCode,
-          postSave: schema.postSave,
-        },
-      );
+          tableName: schema.tableName,
+          peek: false,
+          documentDate: String(
+            standard.InvoiceDate ||
+              standard.VoucherDate ||
+              standard.OrderDate ||
+              standard.TransDate ||
+              '',
+          ).trim() || undefined,
+          companyId: String(standard.CompanyID ?? '') || undefined,
+          workplaceId: String(standard.DepartmentID ?? standard.WorkplaceID ?? '') || undefined,
+          whouseId: String(standard.WhouseID ?? '') || undefined,
+        });
+        if (!alloc.success || !alloc.number) {
+          throw new Error(alloc.message || 'Yeni fiş numarası alınamadı');
+        }
+        standard[field] = alloc.number;
+        savePayload = { ...savePayload, standardFields: { ...standard } };
+        return saveRecord(schema.tableName, savePayload, saveOpts);
+      });
       clearLookupCache();
       if (schema.tableName === 'UnitCard') resetUnitCatalog();
 
@@ -722,6 +767,15 @@ export const EntityFormPage: React.FC<EntityFormPageProps> = ({
     !useAccountLinkEngine &&
     (schema.documentLayout === 'trade' || Boolean(schema.lineFields?.length));
   const modeLabel = mode === 'view' ? 'İncele' : mode === 'edit' ? 'Değiştir' : 'Yeni';
+  const cardStmtDef = getCardStatementDef(schema.tableName);
+  const cardRecId = Number(recordId) > 0 ? Number(recordId) : 0;
+  const cardLabel = [
+    initialData?.standardFields?.Code,
+    initialData?.standardFields?.Title,
+  ]
+    .map((v) => String(v ?? '').trim())
+    .filter(Boolean)
+    .join(' · ');
 
   return (
     <div className={`relative ${designOpen ? 'sm:pr-[420px]' : ''}`}>
@@ -875,11 +929,31 @@ export const EntityFormPage: React.FC<EntityFormPageProps> = ({
         </div>
       )}
       {!embedded && (
-        <p className="mb-2 text-[10px] font-semibold uppercase tracking-wide text-slate-400">
-          {modeLabel}
-          {recordId ? ` · #${recordId}` : ''}
-          {` · ${schema.tableName}`}
+        <p className="mb-2 text-[10px] font-semibold uppercase tracking-wide text-slate-400 inline-flex items-center gap-1.5">
+          <span>
+            {modeLabel}
+            {recordId ? ` · #${recordId}` : ''}
+            {` · ${schema.tableName}`}
+          </span>
+          {cardStmtDef && cardRecId > 0 && mode !== 'create' && (
+            <CardQuickInfoButton
+              kind={cardStmtDef.kind}
+              cardId={cardRecId}
+              label={cardLabel || undefined}
+              onOpenStatement={() => setCardStmtOpen(true)}
+            />
+          )}
         </p>
+      )}
+      {cardStmtOpen && cardStmtDef && cardRecId > 0 && (
+        <CardStatementModal
+          kind={cardStmtDef.kind}
+          cardId={cardRecId}
+          kindTitle={cardStmtDef.title}
+          onClose={() => setCardStmtOpen(false)}
+          reportTitle={cardStmtDef.items.find((i) => i.key === 'ekstre')?.label ?? `${cardStmtDef.title} Ekstresi`}
+          initialTab="ekstre"
+        />
       )}
       {loadError && (
         <div className="mb-2 rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-[12px] text-amber-800">
@@ -934,26 +1008,6 @@ export const EntityFormPage: React.FC<EntityFormPageProps> = ({
         />
       )}
       {!embedded && Number(recordId) > 0 && mode !== 'create' && (
-        <DocumentActionsPanel
-          tableName={schema.tableName}
-          recordId={Number(recordId)}
-          documentNumber={
-            String(
-              initialData?.standardFields?.DocumentNumber ??
-                initialData?.standardFields?.OrderSlipNo ??
-                initialData?.standardFields?.VoucherNo ??
-                '',
-            ) || null
-          }
-          customerCardID={
-            Number(initialData?.standardFields?.CustomerID) > 0
-              ? Number(initialData?.standardFields?.CustomerID)
-              : null
-          }
-          readOnly={readOnly}
-        />
-      )}
-      {!embedded && Number(recordId) > 0 && mode !== 'create' && (
         <DocumentFilesPanel
           tableName={schema.tableName}
           recordId={Number(recordId)}
@@ -987,6 +1041,28 @@ export const EntityFormPage: React.FC<EntityFormPageProps> = ({
           isLoading={isSubmitting}
           readOnly={readOnly}
           postedLock={accPosted && mode !== 'view'}
+          documentActionsSlot={
+            !embedded && Number(recordId) > 0 && mode !== 'create' ? (
+              <DocumentActionsPanel
+                tableName={schema.tableName}
+                recordId={Number(recordId)}
+                documentNumber={
+                  String(
+                    initialData?.standardFields?.DocumentNumber ??
+                      initialData?.standardFields?.OrderSlipNo ??
+                      initialData?.standardFields?.VoucherNo ??
+                      '',
+                  ) || null
+                }
+                customerCardID={
+                  Number(initialData?.standardFields?.CustomerID) > 0
+                    ? Number(initialData?.standardFields?.CustomerID)
+                    : null
+                }
+                readOnly={readOnly}
+              />
+            ) : undefined
+          }
         />
       ) : (
         <DynamicFormEngine

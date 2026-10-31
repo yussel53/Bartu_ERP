@@ -112,7 +112,7 @@ export const DocumentActionsPanel: React.FC<Props> = ({
   };
 
   return (
-    <div className="mb-2 rounded-md border border-violet-200 dark:border-violet-900 bg-violet-50/50 dark:bg-violet-950/20 px-2.5 py-2">
+    <div className="rounded-md border border-violet-200 dark:border-violet-900 bg-violet-50/50 dark:bg-violet-950/20 px-2.5 py-2">
       <div className="flex flex-wrap items-center justify-between gap-2 mb-1.5">
         <div className="flex items-center gap-1.5 text-[12px] font-semibold text-violet-900 dark:text-violet-200">
           <Zap className="w-3.5 h-3.5" />
