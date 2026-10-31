@@ -56,9 +56,17 @@ const emptyRule = (docType: number | null): EGovDesignRuleInput => ({
   isActive: true,
 });
 
-/** E-Devlet → Tanımlar → Tasarım Şablonları: XSLT tasarımları + hangi belgede hangi tasarımın kullanılacağı */
-export const EGovDesignTemplatesPage: React.FC<{ onBack: () => void }> = ({ onBack }) => {
-  const [tab, setTab] = useState<Tab>('rules');
+/**
+ * E-Devlet XSLT tasarımları ve şablonları.
+ * mode «rules»: Tanımlar → e-Belge Şablonları (hangi belgede hangi tasarımın kullanılacağı)
+ * mode «designs»: Tasarımlar → Tasarım Aracı (XSLT yükleme / önizleme). mode verilmezse iki sekme birlikte.
+ */
+export const EGovDesignTemplatesPage: React.FC<{ onBack: () => void; mode?: Tab }> = ({ onBack, mode }) => {
+  const [tab, setTab] = useState<Tab>(mode ?? 'rules');
+  // Şablonlar ↔ Tasarım Aracı arasında geçişte aynı bileşen yeniden kullanılır
+  useEffect(() => {
+    if (mode) setTab(mode);
+  }, [mode]);
   const [msg, setMsg] = useState<Msg>(null);
   const [busy, setBusy] = useState(false);
   const [ready, setReady] = useState(true);
@@ -262,15 +270,21 @@ export const EGovDesignTemplatesPage: React.FC<{ onBack: () => void }> = ({ onBa
       </button>
       <div className="flex flex-wrap items-end justify-between gap-2">
         <div>
-          <h2 className="text-base font-semibold text-slate-900 dark:text-white">Tasarım Şablonları</h2>
+          <h2 className="text-base font-semibold text-slate-900 dark:text-white">
+            {mode === 'designs' ? 'Tasarım Aracı' : mode === 'rules' ? 'e-Belge Şablonları' : 'Tasarım Şablonları'}
+          </h2>
           <p className="text-[11px] text-slate-500">
-            EGovDesignRule · EGovXsltDesign · belgeyle eşleşen şablonlardan önceliği en küçük olan → yoksa Öndeğer → yoksa e-Logo varsayılanı
+            {mode === 'designs'
+              ? 'EGovXsltDesign · XSLT tasarımlarını yükleyin, değiştirin ve örnek belgeyle önizleyin; hangi belgede kullanılacağı Tanımlar → e-Belge Şablonları\'ndan seçilir'
+              : 'EGovDesignRule · belgeyle eşleşen şablonlardan önceliği en küçük olan → yoksa Öndeğer → yoksa e-Logo varsayılanı; tasarımlar Tasarımlar → Tasarım Aracı\'ndan yüklenir'}
           </p>
         </div>
-        <div className="inline-flex rounded-sm border border-slate-300 bg-white overflow-hidden">
-          {tabBtn('rules', 'Şablonlar', rules.length)}
-          {tabBtn('designs', 'Tasarımlar', designs.length)}
-        </div>
+        {!mode && (
+          <div className="inline-flex rounded-sm border border-slate-300 bg-white overflow-hidden">
+            {tabBtn('rules', 'Şablonlar', rules.length)}
+            {tabBtn('designs', 'Tasarımlar', designs.length)}
+          </div>
+        )}
       </div>
 
       {msg && (
