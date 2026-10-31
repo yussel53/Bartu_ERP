@@ -47,12 +47,6 @@ public sealed class GibEFaturaUserListOptions
 
     /** Gece senkronunun başlayacağı saat (Türkiye saati, 0-23) */
     public int NightlySyncHour { get; set; } = 3;
-
-    /// <summary>
-    /// true ise GİB PK/GB zip tamamı EFaturaMukellef (+ Import) tablolarına yazılır (GB mertebesinde).
-    /// Kapalıyken mükellef sorgusu entegratör / zip içinde VKN taraması ile yapılır.
-    /// </summary>
-    public bool FullLocalSyncEnabled { get; set; } = false;
 }
 
 public sealed class GibSyncOutcome
@@ -122,15 +116,6 @@ public sealed class GibEFaturaUserListService
         int reuseCacheHours = 0)
     {
         var outcome = new GibSyncOutcome();
-        if (!_opt.FullLocalSyncEnabled)
-        {
-            outcome.Success = false;
-            outcome.Message =
-                "Tam GİB listesi yerel tabloya yazılmıyor (EFaturaMukellef / Import GB büyütüyor). " +
-                "Mükellef kontrolü için entegratör sorgusu kullanın. Açmak: GibEFatura:FullLocalSyncEnabled=true";
-            return outcome;
-        }
-
         await Gate.WaitAsync(ct);
         int? syncId = null;
         try
@@ -175,11 +160,6 @@ public sealed class GibEFaturaUserListService
                     transaction: tx, cancellationToken: ct, commandTimeout: 0));
                 tx.Commit();
             }
-
-            // Staging bırakılmaz — Import tablosu aksi halde GB mertebesinde kalır
-            await db.ExecuteAsync(new CommandDefinition(
-                "TRUNCATE TABLE dbo.EFaturaMukellef_Import",
-                cancellationToken: ct));
 
             outcome.TotalLocal = await db.ExecuteScalarAsync<int>(new CommandDefinition(
                 "SELECT COUNT(*) FROM dbo.EFaturaMukellef WHERE IsActive = 1",
