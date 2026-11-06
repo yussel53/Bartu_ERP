@@ -21,14 +21,19 @@ export interface MukellefCheckRow {
   senderLabel?: string | null;
   suggestedSenderLabel?: string | null;
   lastCheckAt?: string | null;
+  /** VKN yakın zamanda (gece listesi ya da e-Logo) kontrol edildi */
+  checked: boolean;
   hasChanges: boolean;
 }
 
 export interface MukellefCheckResult {
   localListCount: number;
   lastSyncAt?: string | null;
-  /** Yerel liste tam ve güncel — «mükellef değil» sonucu güvenilir */
+  /** Tüm carilerin VKN'si yakın zamanda kontrol edildi — «mükellef değil» sonuçları güvenilir */
   authoritative: boolean;
+  /** Bu kontrolde e-Logo'dan anlık sorgulanan VKN sayısı */
+  onlineChecked: number;
+  onlineError?: string | null;
   totalCustomers: number;
   mukellefCount: number;
   changeCount: number;
