@@ -15,6 +15,10 @@ import {
   updateEGovDesign,
   updateEGovDesignRule,
   uploadEGovDesign,
+  EGOV_DESIGN_GROUPS,
+  egovDesignGroupLabel,
+  egovDocTypeGroup,
+  guessEGovDesignGroup,
 } from '../api/egovDesignApi';
 import {
   EGovDesignDocTypes,
@@ -79,7 +83,8 @@ export const EGovDesignTemplatesPage: React.FC<{ onBack: () => void }> = ({ onBa
   const fileInput = useRef<HTMLInputElement>(null);
   const replaceInput = useRef<HTMLInputElement>(null);
   const [replaceId, setReplaceId] = useState<number | null>(null);
-  const [designEdit, setDesignEdit] = useState<{ id: number; title: string; isActive: boolean } | null>(null);
+  const [designEdit, setDesignEdit] = useState<{ id: number; title: string; isActive: boolean; docGroup: string } | null>(null);
+  const [uploadGroup, setUploadGroup] = useState('EFATURA');
 
   // Önizleme
   const [preview, setPreview] = useState<{ designId: number; title: string } | null>(null);
@@ -203,16 +208,28 @@ export const EGovDesignTemplatesPage: React.FC<{ onBack: () => void }> = ({ onBa
     setRuleError(null);
   }, [ruleForm]);
 
-  // Pencerede seçilebilecek tasarımlar: aktifler + düzenlenen kaydın mevcut tasarımı
+  // Pencerede seçilebilecek tasarımlar: şablonun belge türüne ait aktifler + düzenlenen kaydın mevcut tasarımı
+  const ruleGroup = ruleForm ? egovDocTypeGroup(ruleForm.docType) : null;
   const designOptions = useMemo(
-    () => designs.filter((d) => d.isActive || d.eGovXsltDesignID === ruleForm?.eGovXsltDesignID),
-    [designs, ruleForm?.eGovXsltDesignID],
+    () =>
+      designs.filter(
+        (d) =>
+          (!ruleGroup || !d.docGroup || d.docGroup === ruleGroup) &&
+          (d.isActive || d.eGovXsltDesignID === ruleForm?.eGovXsltDesignID),
+      ),
+    [designs, ruleGroup, ruleForm?.eGovXsltDesignID],
   );
+  // Belge türü değişince başka gruba ait seçili tasarım bırakılır
+  useEffect(() => {
+    if (!ruleForm?.eGovXsltDesignID) return;
+    if (!designOptions.some((d) => d.eGovXsltDesignID === ruleForm.eGovXsltDesignID))
+      setRuleForm((f) => (f ? { ...f, eGovXsltDesignID: 0 } : f));
+  }, [designOptions, ruleForm?.eGovXsltDesignID]);
 
   // ─── Tasarımlar ──────────────────────────────────────────────────────────
   const upload = async () => {
     if (!file) return;
-    const ok = await run(() => uploadEGovDesign(file, title));
+    const ok = await run(() => uploadEGovDesign(file, title, uploadGroup));
     if (ok) {
       setFile(null);
       setTitle('');
@@ -222,7 +239,9 @@ export const EGovDesignTemplatesPage: React.FC<{ onBack: () => void }> = ({ onBa
 
   const saveDesignEdit = async () => {
     if (!designEdit) return;
-    const ok = await run(() => updateEGovDesign(designEdit.id, { title: designEdit.title, isActive: designEdit.isActive }));
+    const ok = await run(() =>
+      updateEGovDesign(designEdit.id, { title: designEdit.title, isActive: designEdit.isActive, docGroup: designEdit.docGroup }),
+    );
     if (ok) setDesignEdit(null);
   };
 
@@ -390,10 +409,18 @@ export const EGovDesignTemplatesPage: React.FC<{ onBack: () => void }> = ({ onBa
                   const f = e.target.files?.[0] ?? null;
                   setFile(f);
                   if (f && !title.trim()) setTitle(f.name);
+                  if (f) setUploadGroup(guessEGovDesignGroup(f.name));
                 }}
                 className="text-[12px] file:mr-2 file:h-7 file:px-2 file:rounded-sm file:border file:border-slate-300 file:bg-white file:text-[12px]"
               />
               <input value={title} onChange={(e) => setTitle(e.target.value)} placeholder="Tasarım adı" className={`${inp} w-64`} />
+              <select value={uploadGroup} onChange={(e) => setUploadGroup(e.target.value)} className={inp} title="Tasarımın belge türü">
+                {EGOV_DESIGN_GROUPS.map((g) => (
+                  <option key={g.value} value={g.value}>
+                    {g.label}
+                  </option>
+                ))}
+              </select>
               <button type="button" disabled={busy || !ready || !file} onClick={() => void upload()} className={btnPrimary}>
                 <Upload className="w-3.5 h-3.5" /> Yükle
               </button>
@@ -411,6 +438,7 @@ export const EGovDesignTemplatesPage: React.FC<{ onBack: () => void }> = ({ onBa
                 <tr>
                   <th className={th}>İşlem</th>
                   <th className={th}>Tasarım</th>
+                  <th className={th}>Belge Türü</th>
                   <th className={th}>Dosya</th>
                   <th className={th}>Şablon</th>
                   <th className={th}>Durum</th>
@@ -420,7 +448,7 @@ export const EGovDesignTemplatesPage: React.FC<{ onBack: () => void }> = ({ onBa
               <tbody>
                 {designs.length === 0 ? (
                   <tr>
-                    <td colSpan={6} className="px-3 py-6 text-center text-slate-400">
+                    <td colSpan={7} className="px-3 py-6 text-center text-slate-400">
                       {loading ? 'Yükleniyor…' : 'Henüz tasarım yüklenmedi.'}
                     </td>
                   </tr>
@@ -445,7 +473,7 @@ export const EGovDesignTemplatesPage: React.FC<{ onBack: () => void }> = ({ onBa
                               <button type="button" title="Önizle" onClick={() => void renderPreview(id, d.title)} className={iconBtn}>
                                 <Eye className="w-3.5 h-3.5" />
                               </button>
-                              <button type="button" title="Düzenle" onClick={() => setDesignEdit({ id, title: d.title, isActive: d.isActive })} className={iconBtn}>
+                              <button type="button" title="Düzenle" onClick={() => setDesignEdit({ id, title: d.title, isActive: d.isActive, docGroup: d.docGroup ?? 'EFATURA' })} className={iconBtn}>
                                 <Pencil className="w-3.5 h-3.5" />
                               </button>
                               <button
@@ -480,6 +508,23 @@ export const EGovDesignTemplatesPage: React.FC<{ onBack: () => void }> = ({ onBa
                             <input value={designEdit.title} onChange={(e) => setDesignEdit({ ...designEdit, title: e.target.value })} className={`${inp} w-64`} />
                           ) : (
                             <span className="font-medium">{d.title}</span>
+                          )}
+                        </td>
+                        <td className={td}>
+                          {editing ? (
+                            <select
+                              value={designEdit.docGroup}
+                              onChange={(e) => setDesignEdit({ ...designEdit, docGroup: e.target.value })}
+                              className={inp}
+                            >
+                              {EGOV_DESIGN_GROUPS.map((g) => (
+                                <option key={g.value} value={g.value}>
+                                  {g.label}
+                                </option>
+                              ))}
+                            </select>
+                          ) : (
+                            egovDesignGroupLabel(d.docGroup)
                           )}
                         </td>
                         <td className={`${td} text-[11px] text-slate-500`} title={d.contentHash ? `SHA-256 ${d.contentHash}` : ''}>
@@ -624,7 +669,7 @@ export const EGovDesignTemplatesPage: React.FC<{ onBack: () => void }> = ({ onBa
                 onChange={(e) => setRuleForm({ ...ruleForm, eGovXsltDesignID: Number(e.target.value) })}
                 className={`${inp} w-full h-8`}
               >
-                <option value="">Seçiniz</option>
+                <option value="">{designOptions.length ? 'Seçiniz' : `${egovDesignGroupLabel(ruleGroup)} tasarımı yok — Tasarım Aracı'ndan yükleyin`}</option>
                 {designOptions.map((d) => (
                   <option key={d.eGovXsltDesignID} value={d.eGovXsltDesignID}>
                     {d.title}
