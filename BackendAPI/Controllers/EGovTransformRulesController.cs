@@ -32,12 +32,18 @@ public sealed class EGovTransformRulesController : ControllerBase
 
     /// <summary>Şablonlar + hazır kurallar + yer tutucular</summary>
     [HttpGet("catalog")]
-    public IActionResult Catalog() => Ok(new
+    public async Task<IActionResult> Catalog()
     {
-        templates = RuleTemplates.All.Select(t => t.Info),
-        presets = RulePresets.All,
-        placeholders = RuleContext.Placeholders.Select(p => new { key = p.Key, label = p.Label, line = p.Line }),
-    });
+        Open();
+        // sabit yer tutucular + tanımlı ek alanlar (U_)
+        var extra = await RuleContext.ExtraPlaceholdersAsync(_db);
+        return Ok(new
+        {
+            templates = RuleTemplates.All.Select(t => t.Info),
+            presets = RulePresets.All,
+            placeholders = RuleContext.Placeholders.Concat(extra).Select(p => new { key = p.Key, label = p.Label, line = p.Line }),
+        });
+    }
 
     [HttpGet]
     public async Task<IActionResult> List(CancellationToken ct)
