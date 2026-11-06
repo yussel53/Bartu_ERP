@@ -249,6 +249,8 @@ export interface MenuScreen {
   isCurrencyRates?: boolean;
   /** E-Devlet → Tasarım Şablonları (EGovXsltDesign + EGovDesignRule) */
   isEGovDesignTemplates?: boolean;
+  /** E-Devlet → Tasarımlar → Tasarım Aracı (XSLT tasarım yükleme / önizleme) */
+  isEGovDesignTool?: boolean;
   /** E-Devlet → Belge Kuralları (EGovTransformRule — gönderim öncesi UBL değişikliği) */
   isEGovRules?: boolean;
   /** Sistem → Kurallar (SYS_SaveRule — kaydetmede zorunlu alan) */
@@ -350,6 +352,7 @@ export interface MenuScreen {
 
 export type MenuGroupKey =
   | 'ana-kayitlar'
+  | 'tasarimlar'
   | 'hareketler'
   | 'islemler'
   | 'raporlar'
@@ -390,4 +393,6 @@ export interface AppModule {
   subtitle: string;
   icon: ModuleIcon;
   groups: MenuGroup[];
+  /** Modül sekmesine tıklanınca açılan ekran (grup sekmesi olarak görünmez; ör. E-Devlet → e-Belge Konsolu) */
+  landingScreen?: MenuScreen;
 }
