@@ -25,6 +25,8 @@ builder.Services.AddScoped<AccountingPostService>();
 builder.Services.AddScoped<SafeParamsService>();
 builder.Services.AddScoped<ModuleParamsService>();
 builder.Services.AddScoped<InvoiceParamsService>();
+builder.Services.AddScoped<SaveRuleService>();
+builder.Services.AddScoped<CustomerParamsService>();
 builder.Services.AddScoped<DocumentLinksService>();
 builder.Services.AddScoped<PaymentLinkService>();
 builder.Services.AddScoped<DocumentFileService>();

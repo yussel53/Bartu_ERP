@@ -298,6 +298,7 @@ export function buildOperationAuthTree(): OpTreeNode[] {
             !s.isELogoSync &&
             !s.isEGovDesignTemplates &&
             !s.isEGovRules &&
+            !s.isSaveRules &&
             !s.isStockCosting &&
             !s.isAccountingPost &&
             !s.isAccountingPool &&

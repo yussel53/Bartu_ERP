@@ -128,6 +128,8 @@ public sealed class DbConnectionStore
             var json = JsonSerializer.Serialize(_settings, JsonOpts);
             File.WriteAllText(_filePath, json);
         }
+        // Eski connection string havuzunu bırak — yeni DB'ye geçişte eski bağlantılar kullanılmasın
+        try { SqlConnection.ClearAllPools(); } catch { /* ignore */ }
     }
 
     public async Task<(bool Ok, string Message)> TestAsync(DbConnectionSettings? settings = null, CancellationToken ct = default)

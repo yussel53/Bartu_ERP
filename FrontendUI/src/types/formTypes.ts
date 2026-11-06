@@ -251,6 +251,8 @@ export interface MenuScreen {
   isEGovDesignTemplates?: boolean;
   /** E-Devlet → Belge Kuralları (EGovTransformRule — gönderim öncesi UBL değişikliği) */
   isEGovRules?: boolean;
+  /** Sistem → Kurallar (SYS_SaveRule — kaydetmede zorunlu alan) */
+  isSaveRules?: boolean;
   /** Malzeme → Maliyetlendirme (ağırlıklı ortalama maliyet, stok değeri, brüt kâr) */
   isStockCosting?: boolean;
   /** Genel Muhasebe → Muhasebeleştirme (fatura / kasa fişi → muhasebe fişi) */

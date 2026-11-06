@@ -1785,6 +1785,13 @@ export const APP_MODULES: AppModule[] = [
             subtitle: 'SYS_Role · SYS_UserRole · ekran / alan / SQL rapor yetkisi',
             isUserPermissionsAdmin: true,
           },
+          {
+            id: 'kayit-kurallari',
+            path: 'sistem/tanimlar/kurallar',
+            title: 'Kurallar',
+            subtitle: 'SYS_SaveRule · veri veya gidecek e-faturada koşul tutunca alan zorunlu · Kaydet engeller',
+            isSaveRules: true,
+          },
           screen({
             id: 'firmalar',
             path: 'sistem/tanimlar/firmalar',

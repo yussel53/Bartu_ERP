@@ -165,14 +165,34 @@ VALUES (@cardId, @type, @status, @DocumentNr, @date, @DueDate, @amount, @Currenc
                     await _db.ExecuteAsync("UPDATE dbo.BoundCard SET Status_ = @to WHERE BoundCardID = @id", new { to = move.To, id }, tx);
                 }
                 total += amount;
-                await _db.ExecuteAsync(
-                    @"INSERT INTO dbo.BoundTrans (BoundTransID, CheckID, Type_, Status_, CustomerID, BankAccountID, LineNr, TransDate, DocumentNumber, BoundRollID, Amount, PrevStatus)
+                int? lineAcc = null;
+                if (await HasColAsync("BoundTrans", "AccountCardID", tx))
+                {
+                    var custId = input.CustomerID;
+                    lineAcc = await ResolveCustomerAccountAsync(custId, tx);
+                }
+                if (lineAcc is int accId)
+                {
+                    await _db.ExecuteAsync(
+                        @"INSERT INTO dbo.BoundTrans (BoundTransID, CheckID, Type_, Status_, CustomerID, BankAccountID, LineNr, TransDate, DocumentNumber, BoundRollID, Amount, PrevStatus, AccountCardID)
+VALUES (@tid, @cardId, @type, 0, @CustomerID, @BankAccountCardID, @lineNo, @date, @DocumentNumber, @rollId, @amount, @prev, @accId)",
+                        new
+                        {
+                            tid = ++nextTrans, cardId, type = input.Type_, input.CustomerID, input.BankAccountCardID, lineNo, date = input.RollDate.Date,
+                            input.DocumentNumber, rollId, amount, prev, accId,
+                        }, tx);
+                }
+                else
+                {
+                    await _db.ExecuteAsync(
+                        @"INSERT INTO dbo.BoundTrans (BoundTransID, CheckID, Type_, Status_, CustomerID, BankAccountID, LineNr, TransDate, DocumentNumber, BoundRollID, Amount, PrevStatus)
 VALUES (@tid, @cardId, @type, 0, @CustomerID, @BankAccountCardID, @lineNo, @date, @DocumentNumber, @rollId, @amount, @prev)",
-                    new
-                    {
-                        tid = ++nextTrans, cardId, type = input.Type_, input.CustomerID, input.BankAccountCardID, lineNo, date = input.RollDate.Date,
-                        input.DocumentNumber, rollId, amount, prev,
-                    }, tx);
+                        new
+                        {
+                            tid = ++nextTrans, cardId, type = input.Type_, input.CustomerID, input.BankAccountCardID, lineNo, date = input.RollDate.Date,
+                            input.DocumentNumber, rollId, amount, prev,
+                        }, tx);
+                }
             }
             await _db.ExecuteAsync("UPDATE dbo.BoundRoll SET Amount = @total WHERE BoundRollID = @rollId", new { total, rollId }, tx);
             tx.Commit();
@@ -265,5 +285,30 @@ LEFT JOIN dbo.CustomerCard cc ON cc.CustomerCardID = r.CustomerID
 LEFT JOIN dbo.BankAccountCard ba ON ba.BankAccountCardID = r.BankAccountCardID
 LEFT JOIN dbo.SafeCard sc ON sc.SafeCardID = r.SafeCardID
 WHERE t.CheckID = @cardId ORDER BY t.BoundTransID", new { cardId });
+    }
+
+    private async Task<bool> HasColAsync(string table, string column, IDbTransaction tx)
+    {
+        try
+        {
+            return await _db.ExecuteScalarAsync<int>(
+                "SELECT CASE WHEN COL_LENGTH(@t, @c) IS NULL THEN 0 ELSE 1 END",
+                new { t = "dbo." + table, c = column }, tx) == 1;
+        }
+        catch
+        {
+            return false;
+        }
+    }
+
+    private async Task<int?> ResolveCustomerAccountAsync(int? customerId, IDbTransaction tx)
+    {
+        var raw = await _db.QueryAsync<int>(
+            @"SELECT AccountID FROM dbo.AccountLinkDetail
+WHERE Module = 2 AND Type = 1 AND SourceCardID IN (@src, -1)
+  AND AccountID IS NOT NULL AND AccountID <> 0
+ORDER BY CASE WHEN SourceCardID = @src THEN 0 ELSE 1 END",
+            new { src = customerId ?? -1 }, tx);
+        return raw.Cast<int?>().FirstOrDefault();
     }
 }

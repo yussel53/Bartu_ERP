@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { Database, Loader2, Plug, Save } from 'lucide-react';
-import { apiJson } from '../config/api';
+import { apiJson, restartAfterDbChange } from '../config/api';
 
 export interface DbSettingsForm {
   server: string;
@@ -78,12 +78,24 @@ export const DbSettingsFormPanel: React.FC<Props> = ({
     setBusy('save');
     setMsg(null);
     try {
-      const res = await apiJson<{ success: boolean; message: string }>('/api/db-settings', {
+      const res = await apiJson<{
+        success: boolean;
+        message: string;
+        restartRequired?: boolean;
+        databaseExists?: boolean;
+        settings?: { database?: string };
+      }>('/api/db-settings', {
         method: 'POST',
         body: JSON.stringify(body()),
       });
       setMsg({ type: 'ok', text: res.message || 'Kaydedildi' });
       onSaved?.();
+      // Yeni bağlantıya geç: oturumu kapatıp sayfayı yenile (eski JWT/claim eski DB'de kalmasın)
+      if (res.restartRequired !== false) {
+        setMsg({ type: 'ok', text: 'Yeni veritabanına geçiliyor…' });
+        await restartAfterDbChange(res.settings?.database || form.database);
+        return;
+      }
     } catch (e) {
       setMsg({ type: 'err', text: e instanceof Error ? e.message : 'Kayıt başarısız' });
     } finally {

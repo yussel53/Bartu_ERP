@@ -1050,6 +1050,316 @@ GROUP BY t.ItemsID, v.Type_",
     }
 
     /// <summary>
+    /// Fatura satırlarında malzeme varsa ProductVoucher irsaliyesi bağlar / yoksa oluşturur.
+    /// Satır tipi Hizmet (3) veya kart ProductType 2/3 → irsaliye yok; İndirim (2) atlanır.
+    /// </summary>
+    private async Task EnsureInvoiceStockDispatchAsync(
+        int invoiceId,
+        Dictionary<string, object?> header,
+        List<Dictionary<string, object?>> lines,
+        IDbTransaction? tx,
+        CancellationToken ct)
+    {
+        static object? PickRow(IDictionary<string, object?> row, params string[] keys)
+        {
+            foreach (var k in keys)
+            {
+                if (row.TryGetValue(k, out var v) && v != null && Convert.ToString(v)?.Trim() != "")
+                    return v;
+            }
+            foreach (var kv in row)
+            {
+                if (keys.Any(k => k.Equals(kv.Key, StringComparison.OrdinalIgnoreCase))
+                    && kv.Value != null
+                    && Convert.ToString(kv.Value)?.Trim() != "")
+                    return kv.Value;
+            }
+            return null;
+        }
+
+        // Güncellemede form başlığı eksik gelebilir — DB'den tamamla
+        if (invoiceId > 0 && await TableExistsAsync("Invoice", tx))
+        {
+            var invCols = await GetColumnsAsync("Invoice", tx);
+            var invColSet = new HashSet<string>(invCols, StringComparer.OrdinalIgnoreCase);
+            var want = new[]
+            {
+                "DocumentNumber", "InvoiceType", "InvoiceDate", "CustomerID", "CustomerAdressID",
+                "WhouseID", "CompanyID", "DepartmentID", "Status_", "Currency", "CurrencyRate",
+                "AuthCode", "WorkplaceID",
+            }.Where(c => invColSet.Contains(c)).ToList();
+            if (want.Count > 0)
+            {
+                var dbInv = await _db.QuerySingleOrDefaultAsync(new CommandDefinition(
+                    $"SELECT TOP 1 {string.Join(", ", want.Select(c => $"[{c}]"))} FROM dbo.Invoice WHERE InvoiceID = @id",
+                    new { id = invoiceId },
+                    tx,
+                    cancellationToken: ct));
+                if (dbInv != null)
+                {
+                    var dict = (IDictionary<string, object>)dbInv;
+                    foreach (var kv in dict)
+                    {
+                        if (kv.Value is null or DBNull) continue;
+                        var cur = PickRow(header, kv.Key);
+                        if (cur == null || Convert.ToString(cur)?.Trim() == "")
+                            header[kv.Key] = kv.Value;
+                    }
+                }
+            }
+        }
+
+        var productIds = lines
+            .Select(l => ToInt(PickRow(l, "ProductCardID", "ItemsID")) ?? 0)
+            .Where(id => id > 0)
+            .Distinct()
+            .ToList();
+        if (productIds.Count == 0) return;
+
+        var typeMap = new Dictionary<int, int>();
+        foreach (var r in await _db.QueryAsync<(int Id, int ProductType)>(new CommandDefinition(
+                     @"SELECT ProductCardID AS Id, CAST(ISNULL(ProductType, 1) AS int) AS ProductType
+                       FROM dbo.ProductCard WHERE ProductCardID IN @ids",
+                     new { ids = productIds },
+                     tx,
+                     cancellationToken: ct)))
+            typeMap[r.Id] = r.ProductType;
+
+        bool IsStockLine(Dictionary<string, object?> l)
+        {
+            var lt = ToInt(PickRow(l, "LineType")) ?? 1;
+            if (lt == 2) return false; // indirim
+            if (lt == 3) return false; // hizmet satır tipi
+            var pid = ToInt(PickRow(l, "ProductCardID", "ItemsID")) ?? 0;
+            if (pid <= 0) return false;
+            if (typeMap.TryGetValue(pid, out var pt) && pt is 2 or 3) return false; // hizmet kartı
+            // LineType Malzeme (1) veya kart malzeme / bilinmeyen → irsaliye
+            return true;
+        }
+
+        var stockLines = lines.Where(IsStockLine).ToList();
+        if (stockLines.Count == 0) return;
+
+        // Zaten bağlı irsaliye (satır veya DB)
+        var voucherId = stockLines
+            .Select(l => ToInt(PickRow(l, "ProductVoucherID")))
+            .FirstOrDefault(id => id is > 0);
+        if (voucherId is null or <= 0)
+        {
+            voucherId = await _db.ExecuteScalarAsync<int?>(new CommandDefinition(
+                @"SELECT TOP 1 ProductVoucherID
+                  FROM dbo.ProductTrans
+                  WHERE InvoiceID = @invoiceId
+                    AND ProductVoucherID IS NOT NULL AND ProductVoucherID > 0
+                  ORDER BY ProductVoucherID",
+                new { invoiceId },
+                tx,
+                cancellationToken: ct));
+        }
+
+        var invType = ToInt(PickRow(header, "InvoiceType")) ?? 1;
+        // InvoiceType → irsaliye VoucherType (2 Alış · 3 Satış · 4 Alış iade · 5 Satış iade)
+        var dispatchVt = invType switch
+        {
+            2 => 2,
+            3 => 5,
+            4 => 4,
+            5 => 2,
+            6 => 2,
+            7 => 3,
+            _ => 3,
+        };
+        var tradeGroup = dispatchVt is 3 or 5 ? (byte)1 : (byte)2;
+
+        var docNo = Convert.ToString(PickRow(header, "DocumentNumber"), CultureInfo.InvariantCulture)?.Trim();
+        if (string.IsNullOrWhiteSpace(docNo))
+            docNo = $"F{invoiceId}";
+        var irsNo = docNo.EndsWith("-İRS", StringComparison.OrdinalIgnoreCase)
+                    || docNo.EndsWith("-IRS", StringComparison.OrdinalIgnoreCase)
+            ? docNo
+            : $"{docNo}-İRS";
+
+        // Aynı no ile daha önce oluşmuş irsaliye varsa bağla
+        if (voucherId is null or <= 0)
+        {
+            voucherId = await _db.ExecuteScalarAsync<int?>(new CommandDefinition(
+                @"SELECT TOP 1 ProductVoucherID FROM dbo.ProductVoucher
+                  WHERE DocumentNumber = @no ORDER BY ProductVoucherID DESC",
+                new { no = irsNo },
+                tx,
+                cancellationToken: ct));
+        }
+
+        if (voucherId is null or <= 0)
+        {
+            voucherId = await NextIdAsync("ProductVoucher", "ProductVoucherID", tx, ct);
+            var cols = await GetColumnsAsync("ProductVoucher", tx);
+            var colSet = new HashSet<string>(cols, StringComparer.OrdinalIgnoreCase);
+            var write = new Dictionary<string, object?>(StringComparer.OrdinalIgnoreCase)
+            {
+                ["ProductVoucherID"] = voucherId.Value,
+                ["DocumentNumber"] = irsNo,
+                ["VoucherType"] = dispatchVt,
+                ["VoucherDate"] = PickRow(header, "InvoiceDate", "VoucherDate") ?? DateTime.Today,
+                ["Status_"] = PickRow(header, "Status_") ?? (byte)1,
+                ["CustomerID"] = PickRow(header, "CustomerID"),
+                ["CustomerAdressID"] = PickRow(header, "CustomerAdressID"),
+                ["WhouseID"] = PickRow(header, "WhouseID"),
+                ["CompanyID"] = PickRow(header, "CompanyID"),
+                ["DepartmentID"] = PickRow(header, "DepartmentID"),
+                ["Description"] = $"Fatura {docNo} stok kalemleri",
+            };
+            if (colSet.Contains("TradeGroup"))
+                write["TradeGroup"] = tradeGroup;
+            if (colSet.Contains("Currency") && PickRow(header, "Currency") != null)
+                write["Currency"] = PickRow(header, "Currency");
+            if (colSet.Contains("CurrencyRate") && PickRow(header, "CurrencyRate") != null)
+                write["CurrencyRate"] = PickRow(header, "CurrencyRate");
+            if (colSet.Contains("AuthCode") && PickRow(header, "AuthCode") != null)
+                write["AuthCode"] = PickRow(header, "AuthCode");
+            if (colSet.Contains("WorkplaceID") && PickRow(header, "WorkplaceID") != null)
+                write["WorkplaceID"] = PickRow(header, "WorkplaceID");
+
+            var insertCols = write.Keys.Where(k => colSet.Contains(k)).ToList();
+            if (!insertCols.Contains("ProductVoucherID", StringComparer.OrdinalIgnoreCase)
+                || !insertCols.Contains("DocumentNumber", StringComparer.OrdinalIgnoreCase))
+                throw new InvalidOperationException("ProductVoucher şeması irsaliye oluşturmaya uygun değil.");
+
+            var p = new DynamicParameters();
+            foreach (var c in insertCols)
+                p.Add(c, write[c]);
+            await _db.ExecuteAsync(new CommandDefinition(
+                $@"INSERT INTO dbo.ProductVoucher ({string.Join(", ", insertCols.Select(c => $"[{c}]"))})
+VALUES ({string.Join(", ", insertCols.Select(c => "@" + c))})",
+                p,
+                tx,
+                cancellationToken: ct));
+        }
+        else
+        {
+            await _db.ExecuteAsync(new CommandDefinition(
+                @"UPDATE dbo.ProductVoucher SET
+                    VoucherDate = COALESCE(@dt, VoucherDate),
+                    CustomerID = COALESCE(@cid, CustomerID),
+                    WhouseID = COALESCE(@wh, WhouseID),
+                    CompanyID = COALESCE(@co, CompanyID),
+                    DepartmentID = COALESCE(@dep, DepartmentID),
+                    VoucherType = COALESCE(@vt, VoucherType)
+                  WHERE ProductVoucherID = @vid",
+                new
+                {
+                    vid = voucherId.Value,
+                    dt = PickRow(header, "InvoiceDate", "VoucherDate"),
+                    cid = PickRow(header, "CustomerID"),
+                    wh = PickRow(header, "WhouseID"),
+                    co = PickRow(header, "CompanyID"),
+                    dep = PickRow(header, "DepartmentID"),
+                    vt = dispatchVt,
+                },
+                tx,
+                cancellationToken: ct));
+        }
+
+        foreach (var line in lines)
+        {
+            if (!IsStockLine(line)) continue;
+            line["ProductVoucherID"] = voucherId.Value;
+            line["VoucherType"] = dispatchVt;
+        }
+    }
+
+    /// <summary>
+    /// Kayıt sonrası: faturadaki stok ProductTrans satırlarını irsaliyeye bağlar (her Kaydet'te).
+    /// </summary>
+    private async Task LinkInvoiceStockLinesToDispatchAsync(
+        int invoiceId,
+        Dictionary<string, object?> header,
+        IDbTransaction? tx,
+        CancellationToken ct)
+    {
+        if (invoiceId <= 0 || !await TableExistsAsync("ProductTrans", tx)) return;
+
+        var hasLineType = await ColExistsAsync("ProductTrans", "LineType", tx, ct);
+        var lineTypeExpr = hasLineType ? "ISNULL(t.LineType, 1)" : "1";
+        var stockRows = (await _db.QueryAsync<(int TransId, int ProductId, int? VoucherId)>(new CommandDefinition(
+            $@"SELECT t.ProductTransID AS TransId, t.ProductCardID AS ProductId, t.ProductVoucherID AS VoucherId
+FROM dbo.ProductTrans t
+LEFT JOIN dbo.ProductCard p ON p.ProductCardID = t.ProductCardID
+WHERE t.InvoiceID = @invoiceId
+  AND ISNULL(t.ProductCardID, 0) > 0
+  AND {lineTypeExpr} NOT IN (2, 3)
+  AND ISNULL(p.ProductType, 1) NOT IN (2, 3)",
+            new { invoiceId },
+            tx,
+            cancellationToken: ct))).ToList();
+        if (stockRows.Count == 0) return;
+
+        // Mevcut bağlı irsaliye veya satır listesi üzerinden oluştur
+        var stubLines = stockRows
+            .Select(r => new Dictionary<string, object?>(StringComparer.OrdinalIgnoreCase)
+            {
+                ["ProductCardID"] = r.ProductId,
+                ["LineType"] = 1,
+                ["ProductVoucherID"] = r.VoucherId is > 0 ? r.VoucherId : null,
+            })
+            .ToList();
+        await EnsureInvoiceStockDispatchAsync(invoiceId, header, stubLines, tx, ct);
+
+        var voucherId = stubLines
+            .Select(l => ToInt(l.TryGetValue("ProductVoucherID", out var v) ? v : null))
+            .FirstOrDefault(id => id is > 0);
+        if (voucherId is null or <= 0)
+        {
+            voucherId = await _db.ExecuteScalarAsync<int?>(new CommandDefinition(
+                @"SELECT TOP 1 ProductVoucherID FROM dbo.ProductTrans
+                  WHERE InvoiceID = @invoiceId AND ProductVoucherID IS NOT NULL AND ProductVoucherID > 0",
+                new { invoiceId },
+                tx,
+                cancellationToken: ct));
+        }
+        if (voucherId is null or <= 0) return;
+
+        var invType = ToInt(header.TryGetValue("InvoiceType", out var it) ? it : null) ?? 1;
+        // header case-insensitive
+        foreach (var kv in header)
+        {
+            if (kv.Key.Equals("InvoiceType", StringComparison.OrdinalIgnoreCase))
+            {
+                invType = ToInt(kv.Value) ?? invType;
+                break;
+            }
+        }
+        var dispatchVt = invType switch
+        {
+            2 => 2,
+            3 => 5,
+            4 => 4,
+            5 => 2,
+            6 => 2,
+            7 => 3,
+            _ => 3,
+        };
+
+        var transIds = stockRows.Select(r => r.TransId).ToList();
+        await _db.ExecuteAsync(new CommandDefinition(
+            @"UPDATE dbo.ProductTrans
+SET ProductVoucherID = @vid,
+    VoucherType = @vt
+WHERE InvoiceID = @invoiceId
+  AND ProductTransID IN @ids
+  AND (ProductVoucherID IS NULL OR ProductVoucherID = 0 OR ProductVoucherID <> @vid)",
+            new { vid = voucherId.Value, vt = dispatchVt, invoiceId, ids = transIds },
+            tx,
+            cancellationToken: ct));
+    }
+
+    private async Task<bool> ColExistsAsync(string table, string column, IDbTransaction? tx, CancellationToken ct = default)
+    {
+        var cols = await GetColumnsAsync(table, tx);
+        return cols.Any(c => c.Equals(column, StringComparison.OrdinalIgnoreCase));
+    }
+
+    /// <summary>
     /// ProductVoucher başlık alanlarını ProductTrans satırlarına işler (VoucherType, depo, tarih, ana birim miktarı).
     /// </summary>
     private static void StampProductTransLinesFromHeader(
@@ -1100,6 +1410,13 @@ GROUP BY t.ItemsID, v.Type_",
             SetIfEmpty("DepartmentID", dept);
             SetIfEmpty("TransDate", voucherDate);
             SetIfEmpty("TransLineNo", lineNo);
+            // Satır tipi: boş olamaz — öndeğer Malzeme (1); 2 İndirim · 3 Hizmet
+            if (!line.TryGetValue("LineType", out var lt)
+                || lt == null
+                || Convert.ToString(lt)?.Trim() is not ("1" or "2" or "3"))
+            {
+                line["LineType"] = 1;
+            }
 
             // Ana birim miktarı yoksa Quantity ile doldur (stok hesabı için)
             if ((!line.TryGetValue("MainUnitQuantity", out var muq) || muq == null || Convert.ToString(muq)?.Trim() == "")
@@ -1460,9 +1777,13 @@ GROUP BY t.ItemsID, v.Type_",
 
         // Fiş öndeğeri (ID < 0): yalnız başlık — satır / ödeme planı / dağıtım / özel kod yazılmaz (stok ve cari etkilenmez)
         var headerOnlyTemplate = data.RecordId < 0 && TemplateHeaderOnlyTables.Contains(tableName);
+        // Fatura: her kayıtta irsaliye bağını kontrol etmek için transaction şart
+        var forceInvoiceTx = !headerOnlyTemplate
+            && tableName.Equals("Invoice", StringComparison.OrdinalIgnoreCase)
+            && data.RecordId >= 0;
         var hasNested = !headerOnlyTemplate && NestedByParent.ContainsKey(tableName) && HasAnyNestedPayload(data);
         IDbTransaction? tx = null;
-        if (hasNested && _db is SqlConnection)
+        if ((hasNested || forceInvoiceTx) && _db is SqlConnection)
             tx = _db.BeginTransaction();
 
         try
@@ -1552,6 +1873,14 @@ SELECT CAST(SCOPE_IDENTITY() AS INT);";
                     StampProductTransLinesFromHeader(data.Lines, incoming);
                 }
 
+                // Fatura: satır payload'ında stok varsa irsaliye ID'sini satıra yaz (ReplaceChildren ile gelsin)
+                if (tableName.Equals("Invoice", StringComparison.OrdinalIgnoreCase)
+                    && data.Lines is { Count: > 0 }
+                    && savedId > 0)
+                {
+                    await EnsureInvoiceStockDispatchAsync(savedId, incoming, data.Lines, tx, ct);
+                }
+
                 foreach (var spec in specs)
                 {
                     var rows = GetNestedPayload(data, spec.PayloadKey);
@@ -1583,6 +1912,15 @@ SELECT CAST(SCOPE_IDENTITY() AS INT);";
                 {
                     await ApplySerialLotsForInvoiceAsync(savedId, tx, ct);
                 }
+            }
+
+            // Her fatura kaydında (başlık veya satır): DB'deki stok satırlarını irsaliyeye bağla
+            if (!headerOnlyTemplate
+                && !accPosted
+                && tableName.Equals("Invoice", StringComparison.OrdinalIgnoreCase)
+                && savedId > 0)
+            {
+                await LinkInvoiceStockLinesToDispatchAsync(savedId, incoming, tx, ct);
             }
 
             tx?.Commit();
@@ -1676,6 +2014,10 @@ SELECT CAST(SCOPE_IDENTITY() AS INT);";
         if (string.IsNullOrWhiteSpace(pk))
             return (false, "Primary key bulunamadı");
 
+        var blocked = await BlockDeleteIfHasMovementsAsync(tableName, recordId, ct);
+        if (blocked != null)
+            return (false, blocked);
+
         var refreshProducts = new List<int>();
         if (tableName.Equals("ProductVoucher", StringComparison.OrdinalIgnoreCase)
             || tableName.Equals("OrderVoucher", StringComparison.OrdinalIgnoreCase)
@@ -1721,12 +2063,93 @@ SELECT CAST(SCOPE_IDENTITY() AS INT);";
         catch (Exception ex)
         {
             try { tx?.Rollback(); } catch { /* ignore */ }
-            return (false, ex.Message);
+            return (false, FormatDeleteError(ex));
         }
         finally
         {
             tx?.Dispose();
         }
+    }
+
+    /// <summary>Kart / hesap hareket görmüşse silmeyi önceden engelle.</summary>
+    private async Task<string?> BlockDeleteIfHasMovementsAsync(string tableName, int recordId, CancellationToken ct)
+    {
+        if (recordId <= 0) return null;
+
+        if (tableName.Equals("AccountCard", StringComparison.OrdinalIgnoreCase)
+            && await AccountHasMovementsAsync(recordId, ct))
+            return "Hareket gören kayıtlar silinemez.";
+
+        // (çocuk tablo, FK kolonu) — nested çocuklar değil, fiş/satır hareketleri
+        (string Child, string Fk)[] refs = tableName.ToLowerInvariant() switch
+        {
+            "productcard" =>
+            [
+                ("ProductTrans", "ProductCardID"),
+                ("OrderTrans", "ItemsID"),
+                ("ProductPrice", "ProductCardID"),
+            ],
+            "customercard" =>
+            [
+                ("Invoice", "CustomerID"),
+                ("CustomerTrans", "CustomerID"),
+                ("OrderVoucher", "CustomerID"),
+                ("ProductVoucher", "CustomerID"),
+                ("BankTrans", "CustomerID"),
+                ("PaymentTrans", "CustomerID"),
+            ],
+            "bankaccountcard" =>
+            [
+                ("BankTrans", "BankAccountCardID"),
+                ("BankVoucher", "BankAccountCardID"),
+            ],
+            "safecard" =>
+            [
+                ("SafeVoucher", "SafeCardID"),
+                ("SafeTrans", "SafeCardID"),
+            ],
+            "boundcard" =>
+            [
+                ("BoundTrans", "CheckID"),
+            ],
+            _ => [],
+        };
+
+        foreach (var (child, fk) in refs)
+        {
+            if (!await TableExistsAsync(child)) continue;
+            if (!await ColumnExistsAsync(child, fk)) continue;
+            EnsureSafe(child);
+            EnsureSafe(fk);
+            var n = await _db.ExecuteScalarAsync<int>(new CommandDefinition(
+                $"SELECT CASE WHEN EXISTS (SELECT 1 FROM dbo.[{child}] WHERE [{fk}] = @id) THEN 1 ELSE 0 END",
+                new { id = recordId },
+                cancellationToken: ct));
+            if (n == 1) return "Hareket gören kayıtlar silinemez.";
+        }
+
+        return null;
+    }
+
+    private static string FormatDeleteError(Exception ex)
+    {
+        var msg = ex.Message ?? "";
+        // FK / referans kısıtı
+        if (msg.Contains("REFERENCE", StringComparison.OrdinalIgnoreCase)
+            || msg.Contains("FOREIGN KEY", StringComparison.OrdinalIgnoreCase)
+            || msg.Contains("FK_", StringComparison.OrdinalIgnoreCase)
+            || msg.Contains("conflicted with the REFERENCE", StringComparison.OrdinalIgnoreCase)
+            || msg.Contains("REFERENCE constraint", StringComparison.OrdinalIgnoreCase))
+            return "Hareket gören kayıtlar silinemez.";
+
+        // Transaction/ExecuteScalar gürültüsü (kök neden düzeltilmeli; kullanıcıya sade mesaj)
+        if (msg.Contains("Transaction", StringComparison.OrdinalIgnoreCase)
+            || msg.Contains("ExecuteScalar", StringComparison.OrdinalIgnoreCase)
+            || msg.Contains("işleme sahip", StringComparison.OrdinalIgnoreCase)
+            || msg.Contains("yerel işlem", StringComparison.OrdinalIgnoreCase))
+            return "Hareket gören kayıtlar silinemez.";
+
+        return msg;
     }
 
     private async Task AttachNestedChildrenAsync(RecordGetResult result, string tableName, int recordId, CancellationToken ct)

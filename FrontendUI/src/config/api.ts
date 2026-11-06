@@ -82,6 +82,26 @@ export function setSelectedDb(name: string): void {
   }
 }
 
+/**
+ * Bağlantı / wipe / sıfırdan kurulum sonrası: seçili DB'yi güncelle, oturumu kapat, sayfayı yenile.
+ * JWT içindeki eski bartu_db claim aksi halde hâlâ eski veritabanına bağlar.
+ */
+export async function restartAfterDbChange(database?: string | null): Promise<void> {
+  const name = (database || '').trim();
+  if (name) setSelectedDb(name);
+  try {
+    await fetch(`${API_BASE}/api/auth/logout`, { method: 'POST', credentials: 'include' });
+  } catch {
+    /* oturum yoksa sorun değil */
+  }
+  try {
+    window.location.hash = '#/';
+  } catch {
+    /* ignore */
+  }
+  window.location.reload();
+}
+
 let refreshing: Promise<boolean> | null = null;
 
 /**

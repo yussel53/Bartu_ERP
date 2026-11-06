@@ -31,6 +31,8 @@ public sealed class RecordsController : ControllerBase
     private readonly AccountingPostService _accounting;
     private readonly SafeParamsService _safeParams;
     private readonly InvoiceParamsService _invoiceParams;
+    private readonly SaveRuleService _saveRules;
+    private readonly CustomerParamsService _customerParams;
     private readonly RiskService _risk;
     private readonly AuditService _audit;
     private readonly BudgetService _budget;
@@ -47,6 +49,8 @@ public sealed class RecordsController : ControllerBase
         AccountingPostService accounting,
         SafeParamsService safeParams,
         InvoiceParamsService invoiceParams,
+        SaveRuleService saveRules,
+        CustomerParamsService customerParams,
         RiskService risk,
         AuditService audit,
         BudgetService budget)
@@ -57,6 +61,8 @@ public sealed class RecordsController : ControllerBase
         _accounting = accounting;
         _safeParams = safeParams;
         _invoiceParams = invoiceParams;
+        _saveRules = saveRules;
+        _customerParams = customerParams;
         _risk = risk;
         _scope = scope;
         _numbers = numbers;
@@ -201,6 +207,13 @@ public sealed class RecordsController : ControllerBase
             // cari dönüşümü, muhasebe ve süreç tetikleri çalışmaz
             var isTemplate = body.RecordId < 0;
 
+            if (!isTemplate && body.StandardFields != null)
+            {
+                var ruleErr = await _saveRules.CheckAsync(tableName, body.StandardFields, body.Lines, ct);
+                if (ruleErr != null)
+                    return BadRequest(new { success = false, message = ruleErr });
+            }
+
             // Y-06: eksi stok kontrolü (Setting STK_NEG_CTRL: 0 izin · 1 uyar · 2 engelle) — malzeme fişi / irsaliye çıkışları
             string? stockWarning = null;
             if (!isTemplate && tableName.Equals("ProductVoucher", StringComparison.OrdinalIgnoreCase) && body.Lines is { Count: > 0 } && body.StandardFields != null)
@@ -257,6 +270,13 @@ public sealed class RecordsController : ControllerBase
                     body.StandardFields, body.Lines, body.PaymentPlans, ct);
                 if (body.Lines is { Count: > 0 })
                     await _invoiceParams.FillEmptyAccountCodesAsync(body.StandardFields, body.Lines, ct);
+            }
+
+            // Cari fiş: boş satır muhasebe kodlarını doldur (CAR_FILL_ACC)
+            if (!isTemplate && tableName.Equals("CustomerVoucher", StringComparison.OrdinalIgnoreCase)
+                && body.StandardFields != null && body.Lines is { Count: > 0 })
+            {
+                await _customerParams.FillEmptyAccountCodesAsync(body.StandardFields, body.Lines, ct);
             }
 
             // Y-17: bütçe — aylık bütçeyi aşan faturada OverAction 1 uyar · 2 engelle

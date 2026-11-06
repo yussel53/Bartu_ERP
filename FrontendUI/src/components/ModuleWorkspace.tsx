@@ -5,6 +5,7 @@ import { ModuleListPage } from '../pages/ModuleListPage';
 import { CurrencyRatesPage } from '../pages/CurrencyRatesPage';
 import { EGovDesignTemplatesPage } from '../pages/EGovDesignTemplatesPage';
 import { EGovRulesPage } from '../pages/EGovRulesPage';
+import { SaveRulesPage } from '../pages/SaveRulesPage';
 import { StockCostingPage } from '../pages/StockCostingPage';
 import { AccountingPostPage } from '../pages/AccountingPostPage';
 import { AccountingPoolPage } from '../pages/AccountingPoolPage';
@@ -187,6 +188,9 @@ export const ModuleWorkspace: React.FC<ModuleWorkspaceProps> = ({
     }
     if (activeScreen.isEGovRules) {
       return <EGovRulesPage onBack={() => onNavigate(module.path)} />;
+    }
+    if (activeScreen.isSaveRules) {
+      return <SaveRulesPage onBack={() => onNavigate(module.path)} />;
     }
     if (activeScreen.isApprovalGroups) {
       return <ApprovalGroupsPage onBack={() => onNavigate(module.path)} />;

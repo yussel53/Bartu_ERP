@@ -30,6 +30,8 @@ import { appConfirm } from '../utils/appConfirm';
 import { SystemNoticeBanner } from './SystemNoticeBanner';
 import { ThemePicker } from './ThemePicker';
 import { getLoadedSystemInfo } from '../api/systemApi';
+import { AppLockOverlay } from './AppLockOverlay';
+import { HotkeyHelpModal } from './HotkeyHelpModal';
 
 /** Çalışan sürüm: numara · commit · derleme zamanı */
 const VersionLine: React.FC = () => {
@@ -112,10 +114,36 @@ interface AppShellProps {
 export const AppShell: React.FC<AppShellProps> = ({ currentPath, onNavigate, children }) => {
   const { modules: APP_MODULES } = useAppModules();
   const [mobileOpen, setMobileOpen] = React.useState(false);
+  const [appLocked, setAppLocked] = React.useState(false);
+  const [hotkeyHelpOpen, setHotkeyHelpOpen] = React.useState(false);
   const rootModule = currentPath.split('/')[0] || '';
 
   const [openModules, setOpenModules] = React.useState<Record<string, boolean>>({});
   const [openGroups, setOpenGroups] = React.useState<Record<string, boolean>>({});
+
+  React.useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (appLocked) return;
+      if (e.key === 'F1' && !e.ctrlKey && !e.altKey && !e.metaKey) {
+        // Belge formu kendi F1'ini açıyorsa çift modal olmasın — dialog yoksa aç
+        if (document.querySelector('[role="dialog"][aria-labelledby="hotkey-help-title"]')) return;
+        e.preventDefault();
+        setHotkeyHelpOpen(true);
+        return;
+      }
+      if ((e.ctrlKey || e.metaKey) && !e.altKey && (e.key === 'l' || e.key === 'L')) {
+        e.preventDefault();
+        setAppLocked(true);
+        return;
+      }
+      if (e.altKey && e.key === 'F4') {
+        e.preventDefault();
+        void exitApp();
+      }
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [appLocked]);
 
   // Yalnız sayfa değişince bulunulan modül / grup açılır; menü listesi yenilenince (rapor menüleri)
   // kullanıcının kapattığı menü yeniden açılmaz
@@ -397,6 +425,8 @@ export const AppShell: React.FC<AppShellProps> = ({ currentPath, onNavigate, chi
           {children}
         </main>
       </div>
+      <AppLockOverlay locked={appLocked} onUnlock={() => setAppLocked(false)} />
+      <HotkeyHelpModal open={hotkeyHelpOpen} onClose={() => setHotkeyHelpOpen(false)} />
     </div>
   );
 };

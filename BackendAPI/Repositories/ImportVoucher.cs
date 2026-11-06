@@ -14,7 +14,8 @@ public sealed partial class ImportRepository
         Notes =
         {
             "Aynı fatura no + fatura türü satırları tek faturada birleşir.",
-            "Ambar (WhouseCode) ve işyeri (WorkplaceCode) zorunludur — Bartu SYS_Whouse / SYS_Workplace kodlarıyla eşleşmeli.",
+            "Firma (CompanyCode), işyeri (WorkplaceCode) ve ambar (WhouseCode) zorunludur — eşleşmezse fiş aktarılmaz.",
+            "Fatura türü yalnız Satış/Alış/İade/Hizmet/Fiyat Farkı olabilir; Devir fatura tipi değildir.",
             "Cari / malzeme ünvanı (CustomerTitle, ProductTitle) kart ve satır açıklamasına yazılır.",
             "Birim fiyat boşsa tutar ÷ miktar kullanılır. KDV tutarı veya net tutar gelirse onlar esas alınır.",
             "«Kartı yoksa oluştur» her aktarımda kartı yazar. Kod çakışırsa «kart var» der ve fişe devam eder.",
@@ -28,6 +29,7 @@ public sealed partial class ImportRepository
             Text("Description", "Açıklama", false),
             CodeField("CustomerCode", "Cari Kodu", true, "320.01.001"),
             Text("CustomerTitle", "Cari Ünvan", false, "ABC Ticaret A.Ş."),
+            CodeField("CompanyCode", "Firma Kodu", true, "1"),
             CodeField("WhouseCode", "Ambar Kodu", true, "0"),
             CodeField("WorkplaceCode", "İşyeri Kodu", true, "0"),
             CodeField("ProductCode", "Malzeme / Hizmet Kodu", true, "HZM-001"),
@@ -153,9 +155,11 @@ public sealed partial class ImportRepository
         var products = def.Kind == "invoice" ? await LoadCodeMapAsync("ProductCard", "ProductCardID", "Code", ct) : new();
         var accounts = def.Kind == "account-voucher" ? await LoadCodeMapAsync("AccountCard", "AccountCardID", "Code", ct) : new();
         var banks = def.Kind == "bank-voucher" ? await LoadCodeMapAsync("BankAccountCard", "BankAccountCardID", "Code", ct) : new();
+        var companies = def.Kind == "invoice" ? await LoadCodeMapAsync("SYS_Companies", "CompanyId", "CompanyCode", ct) : new();
         var whouses = def.Kind == "invoice" ? await LoadCodeMapAsync("SYS_Whouse", "WhouseId", "WhouseCode", ct) : new();
         var workplaces = def.Kind == "invoice" ? await LoadCodeMapAsync("SYS_Workplace", "WorkplaceID", "Code", ct) : new();
         var existing = await LoadVoucherKeysAsync(def, ct);
+        var invoiceTypeCodes = new HashSet<string>(InvoiceTypes().Values, StringComparer.Ordinal);
 
         var groups = new Dictionary<string, List<ParsedRow>>(StringComparer.OrdinalIgnoreCase);
         foreach (var row in parsed)
@@ -204,8 +208,33 @@ public sealed partial class ImportRepository
             var saveLines = new List<Dictionary<string, object?>>();
             int? headerCustomer = null;
             int? headerBank = null;
+            int? headerCompany = null;
             int? headerWhouse = null;
             int? headerWorkplace = null;
+
+            if (def.Kind == "invoice")
+            {
+                var invType = TypeOf(def, first);
+                if (string.IsNullOrWhiteSpace(invType) || !invoiceTypeCodes.Contains(invType))
+                {
+                    Fail(result, first.RowNo, no,
+                        string.IsNullOrWhiteSpace(invType)
+                            ? "Fatura türü zorunlu"
+                            : $"Fatura türü geçersiz («{Str(first, "InvoiceType")}») — Devir fatura tipi değildir");
+                    continue;
+                }
+                try
+                {
+                    var co = Str(first, "CompanyCode");
+                    if (co.Length == 0) throw new InvalidOperationException("Firma kodu (CompanyCode) zorunlu");
+                    headerCompany = Need(companies, co, "Firma kodu");
+                }
+                catch (InvalidOperationException ex)
+                {
+                    Fail(result, first.RowNo, no, ex.Message + " — aktarım bekleniyor");
+                    continue;
+                }
+            }
 
             var opened = new List<string>();
             var cards = new CardMaker
@@ -242,7 +271,7 @@ public sealed partial class ImportRepository
 
             if (errors.Count > 0)
             {
-                Fail(result, first.RowNo, no, string.Join("; ", errors.Distinct()));
+                Fail(result, first.RowNo, no, string.Join("; ", errors.Distinct()) + (def.Kind == "invoice" ? " — aktarım bekleniyor" : ""));
                 continue;
             }
             if (saveLines.Count == 0)
@@ -252,20 +281,25 @@ public sealed partial class ImportRepository
             }
             if (def.Kind == "invoice")
             {
+                if (headerCompany is null or <= 0)
+                {
+                    Fail(result, first.RowNo, no, "Firma kodu zorunlu — CompanyCode eşleşmeli; aktarım bekleniyor");
+                    continue;
+                }
                 if (headerWhouse is null or <= 0)
                 {
-                    Fail(result, first.RowNo, no, "Ambar kodu zorunlu — WhouseCode eşleşmeli");
+                    Fail(result, first.RowNo, no, "Ambar kodu zorunlu — WhouseCode eşleşmeli; aktarım bekleniyor");
                     continue;
                 }
                 if (headerWorkplace is null or <= 0)
                 {
-                    Fail(result, first.RowNo, no, "İşyeri kodu zorunlu — WorkplaceCode eşleşmeli");
+                    Fail(result, first.RowNo, no, "İşyeri kodu zorunlu — WorkplaceCode eşleşmeli; aktarım bekleniyor");
                     continue;
                 }
             }
 
             var cardNote = CardNote(req.DryRun, opened, cards.Existing);
-            var header = HeaderOf(def, first, headerCustomer, headerBank, headerWhouse, headerWorkplace, saveLines);
+            var header = HeaderOf(def, first, headerCustomer, headerBank, headerCompany, headerWhouse, headerWorkplace, saveLines);
             var res = new ImportRowResult
             {
                 RowNo = first.RowNo,
@@ -300,7 +334,7 @@ public sealed partial class ImportRepository
     }
 
     private static Dictionary<string, object?> HeaderOf(
-        ImportTargetDef def, ParsedRow row, int? customer, int? bank, int? whouse, int? workplace, List<Dictionary<string, object?>> lines)
+        ImportTargetDef def, ParsedRow row, int? customer, int? bank, int? company, int? whouse, int? workplace, List<Dictionary<string, object?>> lines)
     {
         var desc = Str(row, "Description");
         if (desc.Length == 0) desc = Str(row, "CustomerTitle");
@@ -317,6 +351,7 @@ public sealed partial class ImportRepository
                 header["InvoiceDate"] = Str(row, "InvoiceDate");
                 header["InvoiceType"] = invType;
                 header["CustomerID"] = customer;
+                header["CompanyID"] = company;
                 header["WhouseID"] = whouse;
                 header["DepartmentID"] = workplace;
                 header["Status_"] = 1;

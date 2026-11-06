@@ -47,12 +47,12 @@ export const SCHEMA_MODULE_MAP: SchemaTableRef[] = [
   { table: 'PaidPlanLine', module: 'finans', group: 'ana-kayitlar', title: 'Ödeme Plan Satırları' },
   { table: 'BankCredit', module: 'finans', group: 'ana-kayitlar', title: 'Banka Kredileri' },
   { table: 'BankCreditInstallment', module: 'finans', group: 'hareketler', title: 'Kredi Taksitleri' },
-  { table: 'CustomerVoucher', module: 'finans', group: 'hareketler', title: 'Cari Fişler', notes: 'Type fiş tipi · satırlar CustomerTrans (1→N) · veri aktarımı customer-voucher' },
-  { table: 'CustomerTrans', module: 'finans', group: 'hareketler', title: 'Cari Fiş Satırları', notes: 'CustomerVoucherID + CustomerID + Amount' },
+  { table: 'CustomerVoucher', module: 'finans', group: 'hareketler', title: 'Cari Fişler', notes: 'Type fiş tipi · satırlar CustomerTrans (1→N) · AccountCardID satırda · veri aktarımı customer-voucher' },
+  { table: 'CustomerTrans', module: 'finans', group: 'hareketler', title: 'Cari Fiş Satırları', notes: 'CustomerVoucherID + CustomerID + Amount + AccountCardID' },
   { table: 'PaymentTrans', module: 'finans', group: 'hareketler', title: 'Ödeme Hareketi', notes: 'Cari fiş satırı / kapama · Type_: 1 Tahsilat, 2 Ödeme' },
   { table: 'BankVoucher', module: 'finans', group: 'hareketler', title: 'Banka Fişleri', notes: 'Type_ fiş tipi · satırlar BankTrans (1→N)' },
   { table: 'BankTrans', module: 'finans', group: 'hareketler', title: 'Banka Fiş Satırları', notes: 'BankVoucherID + CustomerID + Amount' },
-  { table: 'BoundTrans', module: 'finans', group: 'hareketler', title: 'Çek / Senet Fişleri', notes: 'Type_: giriş/çıkış/bordro (14 tip) · CheckID → BoundCard' },
+  { table: 'BoundTrans', module: 'finans', group: 'hareketler', title: 'Çek / Senet Fişleri', notes: 'Type_: giriş/çıkış/bordro · CheckID → BoundCard · AccountCardID bordro satırında' },
   { table: 'PaymentClosedTrans', module: 'finans', group: 'islemler', title: 'Ödeme Kapama' },
 
   // Satış / Satınalma
@@ -65,7 +65,7 @@ export const SCHEMA_MODULE_MAP: SchemaTableRef[] = [
   { table: 'SYS_ProcessInstance', module: 'surec', group: 'hareketler', title: 'Süreç Örnekleri', notes: 'DataJson: belge, cari, adres, satir — her başlangıçta aynı nesne' },
   { table: 'SYS_ProcessTask', module: 'surec', group: 'hareketler', title: 'Onay Kuyruğu', notes: 'Kullanıcı onay görevleri' },
   { table: 'SYS_ProcessDocLink', module: 'surec', group: 'islemler', title: 'Belge Bağları', notes: 'TalepToOrder · EGovToOrder' },
-  { table: 'Invoice', module: 'satis|satinalma', group: 'hareketler', title: 'Fatura', notes: 'InvoiceType ile satış/alış/iade/alınan hizmet · veri aktarımı invoice' },
+  { table: 'Invoice', module: 'satis|satinalma', group: 'hareketler', title: 'Fatura', notes: 'InvoiceType · CustomerAccountCardID · satır AccountCardID/TaxAccountCardID · ProductTransCalcDetail ek vergi · veri aktarımı invoice' },
 
   // Muhasebe
   {
@@ -102,6 +102,7 @@ export const SCHEMA_MODULE_MAP: SchemaTableRef[] = [
   { table: 'SYS_District', module: 'sistem', group: 'tanimlar', title: 'İlçe', notes: '973 ilçe' },
   { table: 'SYS_Neighborhood', module: 'sistem', group: 'tanimlar', title: 'Mahalle', notes: '32.254 mahalle · TurkiyeAPI 2025' },
   { table: 'Setting', module: 'sistem', group: 'tanimlar', title: 'Ayarlar' },
+  { table: 'SYS_SaveRule', module: 'sistem', group: 'tanimlar', title: 'Kayıt Kuralları', notes: 'Koşul tutunca zorunlu alan · data veya gidecek e-fatura · Kaydet engeller' },
   { table: 'VoucherType', module: 'sistem', group: 'tanimlar', title: 'Fiş Tipleri (eski)', notes: 'Create_DB; yeni: SYS_TypeDef' },
   { table: 'SYS_TypeDef', module: 'sistem', group: 'tanimlar', title: 'Tür Tanımları', notes: 'Kind 1 Fiş / 2 Malzeme / 3 Cari · ModuleKey + TargetTable' },
   { table: 'AuxilCodes', module: 'sistem', group: 'tanimlar', title: 'Özel Kodlar (AUXIL)', notes: 'Tanım + AuxilCodeValue listeleri; kart/fişte AuxilCodeTrans (AuxilTrans) 1…N' },

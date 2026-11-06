@@ -73,6 +73,16 @@ public sealed partial class TenantDbRegistry
         lock (_lock) return _valid.OrderBy(x => x).ToList();
     }
 
+    /// <summary>Bağlantı ayarı / wipe sonrası önbelleği düşür</summary>
+    public void Invalidate()
+    {
+        lock (_lock)
+        {
+            _valid = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            _loadedAt = DateTime.MinValue;
+        }
+    }
+
     private void Refresh()
     {
         if (!_store.IsConfigured()) return;
@@ -115,7 +125,10 @@ SELECT CASE WHEN OBJECT_ID(N'{q}.dbo.SystemUser', N'U') IS NOT NULL
         var claim = http.User.FindFirst(CurrentDatabase.Claim)?.Value;
         if (!string.IsNullOrWhiteSpace(claim))
         {
-            current.Name = claim; // token imzalı — başlık yok sayılır, kullanıcı başka veritabanına geçemez
+            var n = claim.Trim();
+            // Token imzalı — başlık yok sayılır. Eski DB silinmişse varsayılan ayara düş.
+            if (IsValid(n) || string.Equals(n, current.Name, StringComparison.OrdinalIgnoreCase))
+                current.Name = n;
             return current;
         }
         var header = http.Request.Headers[CurrentDatabase.Header].FirstOrDefault()?.Trim();

@@ -43,7 +43,7 @@ public static class ImportSources
                 ["invoice"] = Map(
                     ("DocumentNumber", "Fatura Numarası"), ("InvoiceDate", "Tarih"), ("InvoiceType", "Fatura Tipi"),
                     ("CustomerCode", "Cari Hesap Kodu"), ("CustomerTitle", "Cari Hesap Unvanı"),
-                    ("WhouseCode", "Ambar"), ("WorkplaceCode", "İşyeri"),
+                    ("CompanyCode", "Firma"), ("WhouseCode", "Ambar"), ("WorkplaceCode", "İşyeri"),
                     ("ProductCode", "Malzeme Kodu"), ("ProductTitle", "Malzeme Açıklaması"),
                     ("Discount", "İndirim"), ("TaxRate", "KDV"), ("TaxAmount", "KDV Tutarı"),
                     ("NetTotal", "Net Tutar"), ("LineDescription", "Satır Açıklaması")),
@@ -79,7 +79,7 @@ public static class ImportSources
                 ["invoice"] = Map(
                     ("DocumentNumber", "Evrak No"), ("InvoiceDate", "Tarih"), ("InvoiceType", "Evrak Tipi"),
                     ("Description", "Evrak Açıklaması"), ("CustomerTitle", "Cari Ünvanı"),
-                    ("WhouseCode", "Depo"), ("WorkplaceCode", "İşyeri"),
+                    ("CompanyCode", "Firma"), ("WhouseCode", "Depo"), ("WorkplaceCode", "İşyeri"),
                     ("ProductCode", "Stok Kodu"), ("ProductTitle", "Stok İsmi"),
                     ("TaxRate", "Vergi Yüzdesi"), ("TaxAmount", "Vergi Tutarı"),
                     ("NetTotal", "Net Tutar"), ("LineDescription", "Satır Açıklaması")),
@@ -112,7 +112,7 @@ public static class ImportSources
                     ("Title", "Hesap Adı"), ("MainAccountCode", "Üst Hesap"), ("Type_", "Hesap Tipi")),
                 ["invoice"] = Map(
                     ("InvoiceDate", "Tarih"), ("InvoiceType", "Fatura Tipi"),
-                    ("WhouseCode", "Depo Kodu"), ("WorkplaceCode", "İşyeri"),
+                    ("CompanyCode", "Firma"), ("WhouseCode", "Depo Kodu"), ("WorkplaceCode", "İşyeri"),
                     ("CustomerTitle", "Cari İsim"), ("ProductTitle", "Stok Adı"),
                     ("ProductCode", "Stok Kodu"), ("Price", "Fiyat"), ("TaxRate", "KDV Oranı"),
                     ("NetTotal", "Net Tutar")),
@@ -143,7 +143,7 @@ public static class ImportSources
                     ("Title", "Hesap Adı"), ("Type_", "Hesap Tipi"), ("MainAccountCode", "Üst Hesap Kodu")),
                 ["invoice"] = Map(
                     ("InvoiceDate", "Tarih"), ("InvoiceType", "Fatura Tipi"),
-                    ("WhouseCode", "Depo"), ("WorkplaceCode", "İşyeri"),
+                    ("CompanyCode", "Firma"), ("WhouseCode", "Depo"), ("WorkplaceCode", "İşyeri"),
                     ("CustomerTitle", "Cari Adı"), ("ProductTitle", "Stok Adı"),
                     ("ProductCode", "Stok Kodu"), ("Price", "Fiyat"), ("TaxRate", "KDV Oranı"),
                     ("NetTotal", "Net Tutar")),

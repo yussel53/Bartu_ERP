@@ -36,6 +36,8 @@ export function buildTradeLineFields(opts: {
   descriptionField?: 'Description' | 'Description1';
   includeSerialLot?: boolean;
   includeCostDims?: boolean;
+  /** Fatura: satır malzeme + KDV muhasebe hesabı (ProductTrans) */
+  includeAccountCodes?: boolean;
 }): FormFieldDto[] {
   const {
     baseId,
@@ -43,6 +45,7 @@ export function buildTradeLineFields(opts: {
     descriptionField = productField === 'ItemsID' ? 'Description' : 'Description1',
     includeSerialLot = false,
     includeCostDims = false,
+    includeAccountCodes = false,
   } = opts;
 
   const fields: FormFieldDto[] = [
@@ -51,12 +54,13 @@ export function buildTradeLineFields(opts: {
       fieldName: 'LineType',
       label: 'Tür',
       fieldType: 'select',
-      isRequired: false,
+      isRequired: true,
       colSpan: 1,
       orderIndex: 1,
       defaultValue: '1',
       optionsJson: select([
         { label: 'Malzeme', value: '1' },
+        { label: 'Hizmet', value: '3' },
         { label: 'İndirim', value: '2' },
       ]),
     },
@@ -241,6 +245,31 @@ export function buildTradeLineFields(opts: {
     colSpan: 1,
     orderIndex: 14,
   });
+
+  if (includeAccountCodes) {
+    fields.push(
+      {
+        fieldId: baseId + 19,
+        fieldName: 'AccountCardID',
+        label: 'Muhasebe Hesabı',
+        fieldType: 'lookup',
+        isRequired: false,
+        colSpan: 2,
+        orderIndex: 15,
+        useLookup: true,
+      },
+      {
+        fieldId: baseId + 20,
+        fieldName: 'TaxAccountCardID',
+        label: 'KDV Hesabı',
+        fieldType: 'lookup',
+        isRequired: false,
+        colSpan: 2,
+        orderIndex: 16,
+        useLookup: true,
+      },
+    );
+  }
 
   return fields;
 }

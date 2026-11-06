@@ -101,6 +101,14 @@ public sealed class AccountingController : ControllerBase
         return Ok(new { posted, failed = errors.Count, errors = errors.Take(50) });
     }
 
+    /// <summary>Belgede tutulan / çözülen muhasebe kodları — source: invoice | customerVoucher | boundTrans | boundRoll</summary>
+    [HttpGet("document-codes/{source}/{id:int}")]
+    public async Task<IActionResult> DocumentCodes(string source, int id)
+    {
+        var data = await _post.GetDocumentAccountCodesAsync(source, id);
+        return data == null ? NotFound(new { message = "Belge bulunamadı" }) : Ok(data);
+    }
+
     [HttpGet("config")]
     public async Task<IActionResult> GetConfig() => Ok(await _post.GetConfigAsync());
 

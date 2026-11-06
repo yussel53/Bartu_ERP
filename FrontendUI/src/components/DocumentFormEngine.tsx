@@ -14,7 +14,7 @@ import { FieldRenderer } from './FieldRenderer';
 import { FormTabs } from './FormTabs';
 import { canField } from '../data/permissions';
 import { getCurrency, getCurrencyRate, LOCAL_CURRENCY_ID, CURRENCIES } from '../data/currencies';
-import { Plus, Minus, RefreshCw, ClipboardPaste, Pencil, Printer, Loader2, Columns3 } from 'lucide-react';
+import { Plus, Minus, RefreshCw, ClipboardPaste, Pencil, Printer, Loader2, Columns3, MoreHorizontal } from 'lucide-react';
 import { getFormSchema } from '../data/formSchemas';
 import { printDocumentForm } from '../utils/printDocumentForm';
 import { appToast } from '../utils/appToast';
@@ -53,6 +53,9 @@ import {
 } from '../data/tradeLineFields';
 import { TRADE_DOCUMENT_CONTEXT_MENU } from '../data/tradeDocumentContextMenu';
 import { TradeColumnSettingsModal } from './TradeColumnSettingsModal';
+import { DocumentAccountCodesModal } from './DocumentAccountCodesModal';
+import { HotkeyHelpModal } from './HotkeyHelpModal';
+import { useDocumentHotkeys } from '../hooks/useDocumentHotkeys';
 import {
   emptyProductUnits,
   fetchProductUnitOptions,
@@ -140,8 +143,14 @@ interface DocumentFormEngineProps {
   postedLock?: boolean;
   /** Açık fiş tray — form değiştikçe taslak güncelle */
   onLiveChange?: (data: DynamicFormDataDto) => void;
-  /** CRM belge aksiyonları — Detaylar / Detaylar II altına */
+  /** CRM belge aksiyonları — alt sekme */
   documentActionsSlot?: React.ReactNode;
+  /** Belge ekleri (dosyalar) — alt sekme */
+  documentFilesSlot?: React.ReactNode;
+  /** F3 vazgeç */
+  onCancel?: () => void;
+  /** Ctrl+F2 taslak (Tamamlanmamış kayıtlar) */
+  onDraftCheckpoint?: () => void;
 }
 
 const DOC_NUMBER_FIELDS = ['DocumentNumber', 'OrderSlipNo', 'VoucherNo'] as const;
@@ -159,7 +168,7 @@ const HEADER_DOC_DATE = new Set([
   'VoucherTime',
 ]);
 const HEADER_AUTH = new Set(['AuthCode']);
-const HEADER_PARTY = new Set(['CustomerID', 'CustomerAdressID']);
+const HEADER_PARTY = new Set(['CustomerID', 'CustomerAdressID', 'CustomerAccountCardID']);
 /** Cari yoksa / ek bilgi — fiş tipi, yevmiye, banka hesabı */
 const HEADER_DOC_META = new Set([
   'Type',
@@ -407,6 +416,9 @@ export const DocumentFormEngine: React.FC<DocumentFormEngineProps> = ({
   postedLock = false,
   onLiveChange,
   documentActionsSlot,
+  documentFilesSlot,
+  onCancel,
+  onDraftCheckpoint,
 }) => {
   const bodyRo = readOnly || postedLock;
   const payRo = readOnly; // inceleme; postedLock ödeme serbest
@@ -447,6 +459,12 @@ export const DocumentFormEngine: React.FC<DocumentFormEngineProps> = ({
   const eLedgerFields = schema.eLedgerFields || [];
   const hasELedger = tradeLayout && eLedgerFields.length > 0;
 
+  const withDefaultLineType = (row: Record<string, unknown>) => {
+    const lt = String(row.LineType ?? '').trim();
+    if (lt === '1' || lt === '2' || lt === '3') return row;
+    return { ...row, LineType: '1' };
+  };
+
   const { register, control, handleSubmit, watch, setValue, getValues, formState: { errors } } = useForm<FieldValues>({
     defaultValues: {
       standardFields: {
@@ -456,11 +474,12 @@ export const DocumentFormEngine: React.FC<DocumentFormEngineProps> = ({
       },
       additionalFields: initialData?.additionalFields || {},
       lines: initialData?.lines?.length
-        ? hasDistribution
-          ? attachLineDistributions(initialData.lines, initialData.distributions)
-          : initialData.lines
+        ? (hasDistribution
+            ? attachLineDistributions(initialData.lines, initialData.distributions)
+            : initialData.lines
+          ).map((r) => withDefaultLineType({ ...(r as Record<string, unknown>) }))
         : hasLines
-          ? [{}]
+          ? [{ LineType: '1' }]
           : [],
       paymentPlans: initialData?.paymentPlans?.length ? initialData.paymentPlans : [],
       auxilCodes: initialData?.auxilCodes?.length ? initialData.auxilCodes : [],
@@ -671,7 +690,7 @@ export const DocumentFormEngine: React.FC<DocumentFormEngineProps> = ({
       let idx = lines.findIndex((l) => !String((l || {})[scanProductField] ?? '').trim());
       if (idx === -1) {
         idx = lines.length;
-        append({});
+        append({ LineType: '1' });
         await new Promise((res) => window.setTimeout(res, 0));
       }
       setValue(`lines.${idx}.${scanProductField}`, String(r.productCardID), { shouldDirty: true });
@@ -718,7 +737,7 @@ export const DocumentFormEngine: React.FC<DocumentFormEngineProps> = ({
       const startCol = header ? 0 : start ? start.col : 0;
 
       const need = startRow + grid.length - lines.length;
-      if (need > 0) append(Array.from({ length: need }, () => ({})));
+      if (need > 0) append(Array.from({ length: need }, () => ({ LineType: '1' })));
       await new Promise((r) => window.setTimeout(r, 0));
 
       const resolve = createLookupResolver();
@@ -836,6 +855,12 @@ export const DocumentFormEngine: React.FC<DocumentFormEngineProps> = ({
   }, [schema.lineFields, visibleLineKeys]);
 
   const [colSettingsOpen, setColSettingsOpen] = React.useState(false);
+  const [opsMenu, setOpsMenu] = React.useState<{ x: number; y: number } | null>(null);
+  const [hotkeyHelpOpen, setHotkeyHelpOpen] = React.useState(false);
+  const [linesExpanded, setLinesExpanded] = React.useState(false);
+  const formRootRef = React.useRef<HTMLFormElement | null>(null);
+  const lastLineFocusRef = React.useRef<HTMLElement | null>(null);
+  const f5OnCustomerRef = React.useRef(false);
   const [ctxMenu, setCtxMenu] = React.useState<{ x: number; y: number; rowIndex: number } | null>(
     null,
   );
@@ -845,6 +870,7 @@ export const DocumentFormEngine: React.FC<DocumentFormEngineProps> = ({
   const [findOpen, setFindOpen] = React.useState(false);
   const [findText, setFindText] = React.useState('');
   const [infoModal, setInfoModal] = React.useState<string | null>(null);
+  const [accountCodesOpen, setAccountCodesOpen] = React.useState(false);
 
   const totalFields = React.useMemo(() => {
     if (!schema.lineFields?.length) return [];
@@ -1310,9 +1336,11 @@ export const DocumentFormEngine: React.FC<DocumentFormEngineProps> = ({
     const rawLines = hasLines ? ((data.lines as Record<string, unknown>[]) || []) : undefined;
     let lines = rawLines
       ?.map((row, i): Record<string, unknown> => {
+        const lt = String(row.LineType ?? '').trim();
         const next: Record<string, unknown> = {
           ...row,
           LineNo: hasDistribution ? i + 1 : Number(row.LineNo) || i + 1,
+          LineType: lt === '1' || lt === '2' || lt === '3' ? lt : '1',
         };
         const lotSum = serialLotIssuedQty(next.SerialLotNo);
         if (lotSum != null) {
@@ -1330,11 +1358,12 @@ export const DocumentFormEngine: React.FC<DocumentFormEngineProps> = ({
         return next;
       })
       .filter((row) => {
-        // Boş satırları kaydetme
+        // Boş satırları kaydetme (yalnız Tür=Malzeme sayılmaz)
         const keys = Object.keys(row).filter(
           (k) =>
             ![
               'LineNo',
+              'LineType',
               'id',
               'PaidPlanLineID',
               'ProductTransID',
@@ -1715,7 +1744,22 @@ export const DocumentFormEngine: React.FC<DocumentFormEngineProps> = ({
         return;
       }
       if (action === 'accountCodes') {
-        appToast('Muhasebe kodları kart / fiş muhasebe sekmesinden yönetilir');
+        const id = Number(initialData?.recordId ?? 0);
+        if (!(id > 0)) {
+          appToast('Önce belgeyi kaydedin', { kind: 'error' });
+          return;
+        }
+        const t = (schema.tableName || '').toLowerCase();
+        if (
+          t === 'invoice' ||
+          t === 'customervoucher' ||
+          t === 'boundtrans' ||
+          t === 'boundroll'
+        ) {
+          setAccountCodesOpen(true);
+          return;
+        }
+        appToast('Bu belge tipi için muhasebe kodu önizlemesi yok');
         return;
       }
       if (action === 'withholding') {
@@ -1724,7 +1768,7 @@ export const DocumentFormEngine: React.FC<DocumentFormEngineProps> = ({
       }
       void rowIndex;
     },
-    [allLineFieldKeys, fields.length, lineMoney, schema.formCode],
+    [allLineFieldKeys, fields.length, initialData?.recordId, lineMoney, schema.formCode, schema.tableName],
   );
 
   const renderLinesTable = (opts?: { fill?: boolean }) =>
@@ -1774,7 +1818,7 @@ export const DocumentFormEngine: React.FC<DocumentFormEngineProps> = ({
               </button>
               <button
                 type="button"
-                onClick={() => append({})}
+                onClick={() => append({ LineType: '1' })}
                 className="inline-flex items-center gap-1 px-2 h-6 text-[11px] font-semibold text-slate-700 bg-white border border-slate-300 hover:bg-slate-50 rounded-sm transition-colors"
               >
                 <Plus className="w-3.5 h-3.5" />
@@ -2224,11 +2268,16 @@ export const DocumentFormEngine: React.FC<DocumentFormEngineProps> = ({
     });
   }, [currencyChoices, sumLineTotal, watchedCurrency, watchedCurrencyRate]);
 
+  const hasDocsActionsTab = Boolean(documentActionsSlot || documentFilesSlot);
+
   const effectiveDetailTabs = tradeLayout
     ? [
         { id: 'detaylar', label: 'Detaylar' },
         { id: 'detaylar-toplam', label: 'Detaylar Toplam' },
         ...(showCustomTab ? [{ id: 'detaylar2', label: 'Detaylar II', count: custom.length }] : []),
+        ...(hasDocsActionsTab
+          ? [{ id: 'dokuman-aksiyon', label: 'Dokümanlar / Aksiyonlar' }]
+          : []),
         ...(hasDistribution
           ? [
               {
@@ -2271,44 +2320,6 @@ export const DocumentFormEngine: React.FC<DocumentFormEngineProps> = ({
     const now = new Date();
     return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
   };
-
-  const renderDetailFooterPanels = () => (
-    <>
-      {documentActionsSlot}
-      <div className="rounded-md border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800/40 p-2.5 space-y-2">
-        <h3 className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">
-          Belge işlemleri
-        </h3>
-        <div className="flex flex-wrap gap-1.5">
-          {schema.lineFields && (
-            <button
-              type="button"
-              onClick={() => setColSettingsOpen(true)}
-              className="inline-flex items-center gap-1 px-2 h-7 text-[11px] font-semibold text-slate-800 bg-white border border-slate-400 hover:bg-slate-100 rounded-sm"
-            >
-              <Columns3 className="w-3.5 h-3.5" />
-              Kolonlar
-            </button>
-          )}
-          {TRADE_DOCUMENT_CONTEXT_MENU.map((m) => (
-            <button
-              key={m.key}
-              type="button"
-              onClick={() => runTradeCtx(m.action, 0)}
-              className={`inline-flex items-center px-2 h-7 text-[11px] rounded-sm border transition-colors ${
-                m.action === 'stub'
-                  ? 'text-slate-400 border-slate-200 bg-white/60 hover:bg-slate-50'
-                  : 'text-slate-700 font-medium border-slate-300 bg-white hover:bg-slate-100'
-              }`}
-              title={m.action === 'stub' ? 'Bu sürümde henüz yok' : m.label}
-            >
-              {m.label}
-            </button>
-          ))}
-        </div>
-      </div>
-    </>
-  );
 
   const applySinglePayment = () => {
     const amount = roundMoney(footerNet > 0 ? footerNet : sumLineTotal);
@@ -2399,14 +2410,113 @@ export const DocumentFormEngine: React.FC<DocumentFormEngineProps> = ({
     </div>
   );
 
+  useDocumentHotkeys({
+    enabled: tradeLayout || hasLines,
+    onHelp: () => setHotkeyHelpOpen(true),
+    onSave: () => {
+      if (bodyRo && !postedLock) return;
+      formRootRef.current?.requestSubmit();
+    },
+    onDraft: () => {
+      onDraftCheckpoint?.();
+      appToast('Taslak saklandı — Tamamlanmamış kayıtlar trayinden açabilirsiniz');
+    },
+    onCancel: () => {
+      if (onCancel) onCancel();
+      else appToast('Vazgeç: üstteki İptal ile çıkın');
+    },
+    onToggleCustomerLine: () => {
+      const active = document.activeElement as HTMLElement | null;
+      const inLines = Boolean(active?.closest?.('[data-line-index]'));
+      if (inLines && active) {
+        lastLineFocusRef.current = active;
+        f5OnCustomerRef.current = true;
+        const lookupInput = formRootRef.current?.querySelector<HTMLElement>(
+          'input[readonly][placeholder*="Cari"], input[readonly][title*="Cari"]',
+        );
+        lookupInput?.focus();
+        return;
+      }
+      if (f5OnCustomerRef.current && lastLineFocusRef.current) {
+        f5OnCustomerRef.current = false;
+        lastLineFocusRef.current.focus();
+        return;
+      }
+      formRootRef.current
+        ?.querySelector<HTMLElement>(
+          '[data-line-index="0"] input, [data-line-index="0"] select',
+        )
+        ?.focus();
+    },
+    onQuickEntry: () => {
+      if (bodyRo) return;
+      setPasteText('');
+      setPasteOpen(true);
+    },
+    onPreview: () => {
+      void handlePrintWithoutSave();
+    },
+    onOpsMenu: (anchor) => setOpsMenu(anchor),
+    onColumnSettings: () => {
+      if (schema.lineFields?.length) setColSettingsOpen(true);
+    },
+    onExcel: () => {
+      if (bodyRo) return;
+      setPasteText('');
+      setPasteOpen(true);
+      appToast('Excel’den yapıştır — F12 / F6 hızlı giriş');
+    },
+    onExtraDiscount: () => {
+      if (bodyRo) return;
+      setDiscountRow(selectedLine);
+      setDiscountOpen(true);
+    },
+    onToggleGridExpand: () => setLinesExpanded((v) => !v),
+    onPrevDetailTab: () => {
+      if (!effectiveDetailTabs.length) return;
+      const i = effectiveDetailTabs.findIndex((t) => t.id === detailTab);
+      const prev = effectiveDetailTabs[(i <= 0 ? effectiveDetailTabs.length : i) - 1];
+      if (prev) setDetailTab(prev.id);
+    },
+    onNextDetailTab: () => {
+      if (!effectiveDetailTabs.length) return;
+      const i = effectiveDetailTabs.findIndex((t) => t.id === detailTab);
+      const next = effectiveDetailTabs[(i + 1) % effectiveDetailTabs.length];
+      if (next) setDetailTab(next.id);
+    },
+    onAddLine: () => {
+      if (bodyRo || !hasLines) return;
+      append({ LineType: '1' });
+    },
+    onDeleteLine: () => {
+      if (bodyRo || !hasLines || fields.length === 0) return;
+      const idx = Math.min(selectedLine, fields.length - 1);
+      remove(idx);
+      setSelectedLine(Math.max(0, idx - 1));
+    },
+    onNextLine: () => {
+      if (bodyRo || !hasLines) return;
+      const next = selectedLine + 1;
+      if (next >= fields.length) append({ LineType: '1' });
+      setSelectedLine(next);
+      window.setTimeout(() => {
+        formRootRef.current
+          ?.querySelector<HTMLElement>(
+            `[data-line-index="${next}"] input, [data-line-index="${next}"] select`,
+          )
+          ?.focus();
+      }, 0);
+    },
+  });
+
   return (
     <FormFieldContext.Provider value={{ setValue, watch }}>
       <div
         className={`w-full max-w-none mx-auto p-2.5 bg-white dark:bg-slate-900 rounded-lg border border-slate-200 dark:border-slate-700 shadow-sm ${
           tradeLayout ? 'min-h-[calc(100vh-5rem)] flex flex-col' : ''
-        }`}
+        } ${linesExpanded ? 'fixed inset-2 z-[9000] overflow-auto shadow-2xl' : ''}`}
       >
-        <div className="mb-2 pb-1.5 border-b border-slate-100 dark:border-slate-800 flex items-baseline justify-between gap-2 shrink-0">
+        <div className="mb-2 pb-1.5 border-b border-slate-100 dark:border-slate-800 flex items-center justify-between gap-2 shrink-0">
           <div>
             <h2 className="text-[14px] font-semibold text-slate-800 dark:text-slate-100 leading-tight">
               {schema.title}
@@ -2422,9 +2532,24 @@ export const DocumentFormEngine: React.FC<DocumentFormEngineProps> = ({
                 ))}
             </p>
           </div>
+          {tradeLayout && (
+            <button
+              type="button"
+              title="Belge işlemleri (F9)"
+              aria-label="Belge işlemleri (F9)"
+              onClick={(e) => {
+                const r = (e.currentTarget as HTMLButtonElement).getBoundingClientRect();
+                setOpsMenu({ x: r.right - 8, y: r.bottom + 4 });
+              }}
+              className="inline-flex items-center justify-center w-8 h-8 rounded-sm border border-slate-300 bg-white text-slate-600 hover:bg-slate-50 hover:text-slate-900 shrink-0"
+            >
+              <MoreHorizontal className="w-5 h-5" strokeWidth={2.25} />
+            </button>
+          )}
         </div>
 
         <form
+          ref={formRootRef}
           onSubmit={handleSubmit(handleFormSubmit)}
           className={tradeLayout ? 'flex-1 flex flex-col gap-3 min-h-0' : 'space-y-3'}
         >
@@ -2648,7 +2773,6 @@ export const DocumentFormEngine: React.FC<DocumentFormEngineProps> = ({
                           ) : null}
                         </div>
                       </div>
-                      {renderDetailFooterPanels()}
                     </>
                   )}
                   {detailTab === 'detaylar-toplam' && (
@@ -2745,11 +2869,12 @@ export const DocumentFormEngine: React.FC<DocumentFormEngineProps> = ({
                       </aside>
                     </div>
                   )}
-                  {detailTab === 'detaylar2' && showCustomTab && (
-                    <>
-                      {renderGrid(custom, true)}
-                      {renderDetailFooterPanels()}
-                    </>
+                  {detailTab === 'detaylar2' && showCustomTab && renderGrid(custom, true)}
+                  {detailTab === 'dokuman-aksiyon' && hasDocsActionsTab && (
+                    <div className="space-y-3">
+                      {documentFilesSlot}
+                      {documentActionsSlot}
+                    </div>
                   )}
                   {detailTab === 'masraf-dagitim' && hasDistribution && renderDistributionPanel(true)}
                   {detailTab === 'e-defter' && hasELedger && renderELedgerTab()}
@@ -3048,7 +3173,6 @@ export const DocumentFormEngine: React.FC<DocumentFormEngineProps> = ({
                       </div>
                     </section>
                   )}
-                  {documentActionsSlot}
                 </>
               )}
               {saveBar}
@@ -3114,6 +3238,40 @@ export const DocumentFormEngine: React.FC<DocumentFormEngineProps> = ({
               onClick: () => runTradeCtx(m.action, ctxMenu.rowIndex),
             }))}
             onClose={() => setCtxMenu(null)}
+          />
+        )}
+
+        <HotkeyHelpModal open={hotkeyHelpOpen} onClose={() => setHotkeyHelpOpen(false)} />
+
+        {opsMenu && (
+          <RowContextMenu
+            x={opsMenu.x}
+            y={opsMenu.y}
+            title="Belge işlemleri"
+            items={[
+              ...(schema.lineFields
+                ? [
+                    {
+                      key: 'cols',
+                      label: 'Kolonlar…',
+                      onClick: () => {
+                        setOpsMenu(null);
+                        setColSettingsOpen(true);
+                      },
+                    },
+                  ]
+                : []),
+              ...TRADE_DOCUMENT_CONTEXT_MENU.map((m, i) => ({
+                key: m.key,
+                label: m.label,
+                separatorBefore: m.separatorBefore || (i === 0 && !!schema.lineFields),
+                onClick: () => {
+                  setOpsMenu(null);
+                  runTradeCtx(m.action, 0);
+                },
+              })),
+            ]}
+            onClose={() => setOpsMenu(null)}
           />
         )}
 
@@ -3224,6 +3382,27 @@ export const DocumentFormEngine: React.FC<DocumentFormEngineProps> = ({
               </div>
             </div>
           </div>
+        )}
+
+        {accountCodesOpen && Number(initialData?.recordId ?? 0) > 0 && (
+          <DocumentAccountCodesModal
+            source={
+              (schema.tableName || '').toLowerCase() === 'customervoucher'
+                ? 'customerVoucher'
+                : (schema.tableName || '').toLowerCase() === 'boundroll'
+                  ? 'boundRoll'
+                  : (schema.tableName || '').toLowerCase() === 'boundtrans'
+                    ? 'boundTrans'
+                    : 'invoice'
+            }
+            id={Number(initialData?.recordId)}
+            title={String(
+              (watch('DocumentNumber') as string | undefined) ||
+                (watch('DocumentNr') as string | undefined) ||
+                '',
+            )}
+            onClose={() => setAccountCodesOpen(false)}
+          />
         )}
       </div>
     </FormFieldContext.Provider>

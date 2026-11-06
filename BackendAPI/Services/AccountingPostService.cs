@@ -140,7 +140,7 @@ public sealed class AccountingPostService
         }
     }
 
-    private async Task<int?> ResolveAsync(int module, int? type, int? sourceCardId, IDbTransaction tx)
+    private async Task<int?> ResolveAsync(int module, int? type, int? sourceCardId, IDbTransaction? tx)
     {
         var raw = await _db.QueryAsync<int>(
             @"SELECT AccountID FROM dbo.AccountLinkDetail
@@ -162,8 +162,11 @@ ORDER BY CASE WHEN AccountCardID = @acc THEN 0 ELSE 1 END",
 
     private static decimal R(double? v) => Math.Round((decimal)(v ?? 0), 2, MidpointRounding.AwayFromZero);
 
-    private static bool PoolTableExists(IDbConnection db) =>
-        db.ExecuteScalar<int?>("SELECT CASE WHEN OBJECT_ID(N'dbo.SYS_AccPool', N'U') IS NULL THEN 0 ELSE 1 END") == 1;
+    private static bool PoolTableExists(IDbConnection db, IDbTransaction? tx = null) =>
+        db.ExecuteScalar<int?>(
+            new CommandDefinition(
+                "SELECT CASE WHEN OBJECT_ID(N'dbo.SYS_AccPool', N'U') IS NULL THEN 0 ELSE 1 END",
+                transaction: tx)) == 1;
 
     /// <summary>Kayıt sonrası: parametreye göre havuza yaz; ACC_AUTO_POST=1 ise hemen muhasebeleştir.</summary>
     public async Task<AccountingPostResult?> ProcessAfterSaveAsync(string source, int id, CancellationToken ct = default)
@@ -329,7 +332,7 @@ FROM dbo.AccountVoucher WHERE SourceModule = @module AND SourceID = @id",
             tx.Rollback();
             return msg;
         }
-        if (PoolTableExists(_db))
+        if (PoolTableExists(_db, tx))
         {
             await _db.ExecuteAsync(
                 @"UPDATE dbo.SYS_AccPool SET Status_ = 3, PostedAt = NULL, AccountVoucherID = NULL
@@ -364,6 +367,7 @@ WHERE SourceModule = @module AND SourceID = @id AND Status_ IN (0, 1, 2)",
         public int? CompanyID { get; set; }
         public int? DepartmentID { get; set; }
         public int? CustomerID { get; set; }
+        public int? CustomerAccountCardID { get; set; }
         public string? Description { get; set; }
         public string? AuthCode { get; set; }
         public int? Currency { get; set; }
@@ -373,9 +377,22 @@ WHERE SourceModule = @module AND SourceID = @id AND Status_ IN (0, 1, 2)",
 
     private sealed class InvoiceLine
     {
+        public int ProductTransID { get; set; }
         public int? ProductCardID { get; set; }
         public double? TotalPrice { get; set; }
         public double? TotalTax { get; set; }
+        public int? AccountCardID { get; set; }
+        public int? TaxAccountCardID { get; set; }
+        public string? Description1 { get; set; }
+    }
+
+    private sealed class InvoiceCalcLine
+    {
+        public int ProductTransID { get; set; }
+        public int? AccountCardID { get; set; }
+        public double? Amount { get; set; }
+        public string? Description { get; set; }
+        public int? Type { get; set; }
     }
 
     private sealed class SafeHead
@@ -423,14 +440,21 @@ WHERE SourceModule = @module AND SourceID = @id AND Status_ IN (0, 1, 2)",
 
     private async Task<Draft?> BuildInvoiceDraftAsync(int invoiceId, IDbTransaction tx)
     {
+        var hasCustAcc = ColExists(tx, "Invoice", "CustomerAccountCardID");
+        var hasLineAcc = ColExists(tx, "ProductTrans", "AccountCardID");
+        var hasTaxAcc = ColExists(tx, "ProductTrans", "TaxAccountCardID");
         var h = await _db.QueryFirstOrDefaultAsync<InvoiceHead>(
-            @"SELECT i.InvoiceID, i.InvoiceType, i.InvoiceDate, i.DocumentNumber, i.CompanyID, i.DepartmentID, i.CustomerID,
+            $@"SELECT i.InvoiceID, i.InvoiceType, i.InvoiceDate, i.DocumentNumber, i.CompanyID, i.DepartmentID, i.CustomerID,
+  {(hasCustAcc ? "i.CustomerAccountCardID," : "CAST(NULL AS int) AS CustomerAccountCardID,")}
   i.Description, i.AuthCode, i.Currency, i.CurrencyRate, c.Title AS CustomerTitle
 FROM dbo.Invoice i LEFT JOIN dbo.CustomerCard c ON c.CustomerCardID = i.CustomerID
 WHERE i.InvoiceID = @invoiceId", new { invoiceId }, tx);
         if (h == null) return null;
         var lines = (await _db.QueryAsync<InvoiceLine>(
-            "SELECT ProductCardID, TotalPrice, TotalTax FROM dbo.ProductTrans WHERE InvoiceID = @invoiceId", new { invoiceId }, tx)).ToList();
+            $@"SELECT ProductTransID, ProductCardID, TotalPrice, TotalTax, Description1,
+  {(hasLineAcc ? "AccountCardID," : "CAST(NULL AS int) AS AccountCardID,")}
+  {(hasTaxAcc ? "TaxAccountCardID" : "CAST(NULL AS int) AS TaxAccountCardID")}
+FROM dbo.ProductTrans WHERE InvoiceID = @invoiceId", new { invoiceId }, tx)).ToList();
         if (lines.Count == 0) return null;
 
         var t = h.InvoiceType ?? 1;
@@ -449,16 +473,47 @@ WHERE i.InvoiceID = @invoiceId", new { invoiceId }, tx);
             var net = R(l.TotalPrice);
             var tax = R(l.TotalTax);
             total += net + tax;
-            var acc = await ResolveAsync(ModuleProduct, productLinkType, l.ProductCardID, tx)
-                      ?? await ResolveAsync(ModuleInvoice, t, null, tx);
+            // Önce satırda saklı malzeme hesabı, yoksa kart bağlantısı
+            var acc = l.AccountCardID is > 0 ? l.AccountCardID
+                : await ResolveAsync(ModuleProduct, productLinkType, l.ProductCardID, tx)
+                  ?? await ResolveAsync(ModuleInvoice, t, null, tx);
             b.Add(acc, $"{label} hesabı (malzeme / fatura bağlantısı)", desc, customerDebit ? 0 : net, customerDebit ? net : 0);
             if (tax != 0)
             {
-                var taxAcc = await ResolveAsync(ModuleTax, taxLinkType, null, tx);
+                var taxAcc = l.TaxAccountCardID is > 0 ? l.TaxAccountCardID
+                    : await ResolveAsync(ModuleTax, taxLinkType, null, tx);
                 b.Add(taxAcc, "KDV hesabı (KDV bağlantısı)", desc + " KDV", customerDebit ? 0 : tax, customerDebit ? tax : 0);
             }
         }
-        var custAcc = await ResolveAsync(ModuleCustomer, 1, h.CustomerID, tx);
+
+        // Ek vergi / indirim satırları (ProductTransCalcDetail)
+        if (ColExists(tx, "ProductTransCalcDetail", "AccountCardID"))
+        {
+            var extras = (await _db.QueryAsync<InvoiceCalcLine>(
+                @"SELECT d.ProductTransID, d.AccountCardID, d.Amount, d.Description, d.Type
+FROM dbo.ProductTransCalcDetail d
+INNER JOIN dbo.ProductTrans t ON t.ProductTransID = d.ProductTransID
+WHERE t.InvoiceID = @invoiceId AND d.AccountCardID IS NOT NULL AND d.AccountCardID <> 0",
+                new { invoiceId }, tx)).ToList();
+            foreach (var e in extras)
+            {
+                var amt = R(e.Amount);
+                if (amt == 0) continue;
+                // Type: vergi benzeri → aynı yön; indirim → ters
+                var asTax = e.Type is null or 1 or 2;
+                var debit = customerDebit
+                    ? (asTax ? 0 : amt)
+                    : (asTax ? amt : 0);
+                var credit = customerDebit
+                    ? (asTax ? amt : 0)
+                    : (asTax ? 0 : amt);
+                b.Add(e.AccountCardID, "Ek vergi / detay (satır hesabı)", e.Description ?? desc, debit, credit);
+                total += asTax ? amt : -amt;
+            }
+        }
+
+        var custAcc = h.CustomerAccountCardID is > 0 ? h.CustomerAccountCardID
+            : await ResolveAsync(ModuleCustomer, 1, h.CustomerID, tx);
         b.Add(custAcc, "Cari hesabı (cari kartı muhasebe kodu)", desc, customerDebit ? total : 0, customerDebit ? 0 : total);
 
         return new Draft
@@ -479,6 +534,22 @@ WHERE i.InvoiceID = @invoiceId", new { invoiceId }, tx);
             VoucherType = 1,
             Builder = b,
         };
+    }
+
+    private bool ColExists(IDbTransaction? tx, string table, string column)
+    {
+        try
+        {
+            return _db.ExecuteScalar<int>(
+                new CommandDefinition(
+                    @"SELECT CASE WHEN COL_LENGTH(@t, @c) IS NULL THEN 0 ELSE 1 END",
+                    new { t = "dbo." + table, c = column },
+                    transaction: tx)) == 1;
+        }
+        catch
+        {
+            return false;
+        }
     }
 
     private async Task<Draft?> BuildSafeDraftAsync(int id, IDbTransaction tx)
@@ -879,5 +950,225 @@ ORDER BY Date",
             tx.Rollback();
             return new AccountingPostResult { Message = ex.Message };
         }
+    }
+
+    /// <summary>Belgede saklı / karttan çözülen muhasebe kodları (sağ tık önizleme).</summary>
+    public async Task<object?> GetDocumentAccountCodesAsync(string source, int id)
+    {
+        Open();
+        var key = source.Trim().ToLowerInvariant();
+        return key switch
+        {
+            "invoice" => await InvoiceAccountCodesAsync(id),
+            "customervoucher" or "customer-voucher" => await CustomerVoucherAccountCodesAsync(id),
+            "boundtrans" or "boundroll" => await BoundAccountCodesAsync(id, key == "boundroll"),
+            _ => null,
+        };
+    }
+
+    private async Task<object?> AccInfoAsync(int? accountCardId)
+    {
+        if (accountCardId is null or <= 0) return new { accountCardID = (int?)null, code = (string?)null, title = (string?)null, missing = true };
+        var row = await _db.QueryFirstOrDefaultAsync<(string? Code, string? Title)>(
+            "SELECT Code, Title FROM dbo.AccountCard WHERE AccountCardID = @id", new { id = accountCardId });
+        if (row.Code == null && row.Title == null)
+            return new { accountCardID = accountCardId, code = (string?)null, title = (string?)null, missing = true };
+        return new { accountCardID = accountCardId, code = row.Code, title = row.Title, missing = false };
+    }
+
+    private async Task<object?> InvoiceAccountCodesAsync(int invoiceId)
+    {
+        var hasCust = ColExists(null, "Invoice", "CustomerAccountCardID");
+        var hasLine = ColExists(null, "ProductTrans", "AccountCardID");
+        var hasTax = ColExists(null, "ProductTrans", "TaxAccountCardID");
+        var h = await _db.QueryFirstOrDefaultAsync<(int InvoiceID, string? DocumentNumber, int? InvoiceType, int? CustomerID, int? CustomerAccountCardID, string? CustomerTitle)>(
+            $@"SELECT i.InvoiceID, i.DocumentNumber, i.InvoiceType, i.CustomerID,
+  {(hasCust ? "i.CustomerAccountCardID," : "CAST(NULL AS int) AS CustomerAccountCardID,")}
+  c.Title AS CustomerTitle
+FROM dbo.Invoice i LEFT JOIN dbo.CustomerCard c ON c.CustomerCardID = i.CustomerID
+WHERE i.InvoiceID = @invoiceId", new { invoiceId });
+        if (h.InvoiceID == 0) return null;
+
+        var custStored = h.CustomerAccountCardID;
+        var custResolved = custStored is > 0 ? custStored : await ResolveAsync(ModuleCustomer, 1, h.CustomerID, null);
+        var header = new List<object>
+        {
+            new
+            {
+                role = "Cari hesabı",
+                stored = custStored is > 0,
+                account = await AccInfoAsync(custResolved),
+            },
+        };
+
+        var linesRaw = (await _db.QueryAsync<(int ProductTransID, int? ProductCardID, string? ProductCode, string? Description1, int? AccountCardID, int? TaxAccountCardID, double? TotalTax)>(
+            $@"SELECT t.ProductTransID, t.ProductCardID, p.Code AS ProductCode, t.Description1,
+  {(hasLine ? "t.AccountCardID," : "CAST(NULL AS int) AS AccountCardID,")}
+  {(hasTax ? "t.TaxAccountCardID," : "CAST(NULL AS int) AS TaxAccountCardID,")}
+  t.TotalTax
+FROM dbo.ProductTrans t
+LEFT JOIN dbo.ProductCard p ON p.ProductCardID = t.ProductCardID
+WHERE t.InvoiceID = @invoiceId
+ORDER BY t.TransLineNo, t.ProductTransID", new { invoiceId })).ToList();
+
+        var invType = h.InvoiceType ?? 1;
+        var productLinkType = invType is 2 or 5 or 6 ? 2 : 3;
+        var taxLinkType = invType switch { 2 or 5 or 6 => 1, 3 => 5, 4 => 4, _ => 2 };
+
+        var lines = new List<object>();
+        var no = 0;
+        foreach (var l in linesRaw)
+        {
+            no++;
+            var prodAcc = l.AccountCardID is > 0 ? l.AccountCardID
+                : await ResolveAsync(ModuleProduct, productLinkType, l.ProductCardID, null)
+                  ?? await ResolveAsync(ModuleInvoice, invType, null, null);
+            int? taxAcc = null;
+            if (R(l.TotalTax) != 0)
+                taxAcc = l.TaxAccountCardID is > 0 ? l.TaxAccountCardID : await ResolveAsync(ModuleTax, taxLinkType, null, null);
+            lines.Add(new
+            {
+                lineNo = no,
+                productTransID = l.ProductTransID,
+                productCode = l.ProductCode,
+                description = l.Description1,
+                productAccount = await AccInfoAsync(prodAcc),
+                productStored = l.AccountCardID is > 0,
+                taxAccount = taxAcc != null ? await AccInfoAsync(taxAcc) : null,
+                taxStored = l.TaxAccountCardID is > 0,
+            });
+        }
+
+        var extras = new List<object>();
+        if (ColExists(null, "ProductTransCalcDetail", "AccountCardID"))
+        {
+            var rows = await _db.QueryAsync<(int ProductTransID, int? AccountCardID, double? Amount, string? Description, int? Type)>(
+                @"SELECT d.ProductTransID, d.AccountCardID, d.Amount, d.Description, d.Type
+FROM dbo.ProductTransCalcDetail d
+INNER JOIN dbo.ProductTrans t ON t.ProductTransID = d.ProductTransID
+WHERE t.InvoiceID = @invoiceId
+ORDER BY d.ProductTransID, d.TransLineNo, d.ProductTransCalcDetailID", new { invoiceId });
+            foreach (var e in rows)
+            {
+                extras.Add(new
+                {
+                    productTransID = e.ProductTransID,
+                    role = e.Type switch { 2 => "İndirim", 1 => "Ek vergi", _ => "Ek satır" },
+                    amount = e.Amount,
+                    description = e.Description,
+                    account = await AccInfoAsync(e.AccountCardID),
+                    stored = e.AccountCardID is > 0,
+                });
+            }
+        }
+
+        return new
+        {
+            source = "invoice",
+            id = invoiceId,
+            documentNumber = h.DocumentNumber,
+            customerTitle = h.CustomerTitle,
+            header,
+            lines,
+            extras,
+            notes = new[]
+            {
+                "Cari hesap kodu Invoice.CustomerAccountCardID alanında tutulur.",
+                "Malzeme ve KDV kodları ProductTrans.AccountCardID / TaxAccountCardID satırlarında tutulur.",
+                "Ek vergiler ProductTransCalcDetail.AccountCardID satırlarında tutulur.",
+            },
+        };
+    }
+
+    private async Task<object?> CustomerVoucherAccountCodesAsync(int voucherId)
+    {
+        var h = await _db.QueryFirstOrDefaultAsync<(int Id, string? DocumentNumber, byte? Type)>(
+            "SELECT CustomerVoucherID AS Id, DocumentNumber, Type FROM dbo.CustomerVoucher WHERE CustomerVoucherID = @id",
+            new { id = voucherId });
+        if (h.Id == 0) return null;
+
+        var hasAcc = ColExists(null, "CustomerTrans", "AccountCardID");
+        var lines = (await _db.QueryAsync<(int CustomerTransID, int? CustomerID, string? CustomerCode, string? Description, double? Amount, int? AccountCardID)>(
+            $@"SELECT t.CustomerTransID, t.CustomerID, c.Code AS CustomerCode, t.Description, t.Amount,
+  {(hasAcc ? "t.AccountCardID" : "CAST(NULL AS int) AS AccountCardID")}
+FROM dbo.CustomerTrans t
+LEFT JOIN dbo.CustomerCard c ON c.CustomerCardID = t.CustomerID
+WHERE t.CustomerVoucherID = @id
+ORDER BY t.LineNr, t.CustomerTransID", new { id = voucherId })).ToList();
+
+        var lineRows = new List<object>();
+        var n = 0;
+        foreach (var l in lines)
+        {
+            n++;
+            var acc = l.AccountCardID is > 0 ? l.AccountCardID : await ResolveAsync(ModuleCustomer, 1, l.CustomerID, null);
+            lineRows.Add(new
+            {
+                lineNo = n,
+                customerCode = l.CustomerCode,
+                description = l.Description,
+                amount = l.Amount,
+                account = await AccInfoAsync(acc),
+                stored = l.AccountCardID is > 0,
+            });
+        }
+
+        return new
+        {
+            source = "customerVoucher",
+            id = voucherId,
+            documentNumber = h.DocumentNumber,
+            header = Array.Empty<object>(),
+            lines = lineRows,
+            extras = Array.Empty<object>(),
+            notes = new[]
+            {
+                "Cari fiş muhasebe kodları CustomerTrans.AccountCardID satırında tutulur.",
+                "Çek / senet bordrosu için kod BoundTrans.AccountCardID alanındadır.",
+            },
+        };
+    }
+
+    private async Task<object?> BoundAccountCodesAsync(int id, bool byRoll)
+    {
+        var hasAcc = ColExists(null, "BoundTrans", "AccountCardID");
+        if (!hasAcc)
+            return new { source = "boundTrans", id, lines = Array.Empty<object>(), notes = new[] { "BoundTrans.AccountCardID kolonu yok — Veritabanı Güncelleme uygulayın." } };
+
+        var sql = byRoll
+            ? @"SELECT t.BoundTransID, t.LineNr, t.CheckID, t.CustomerID, t.Amount, t.AccountCardID, b.Code AS CheckCode
+FROM dbo.BoundTrans t LEFT JOIN dbo.BoundCard b ON b.BoundCardID = t.CheckID
+WHERE t.BoundRollID = @id ORDER BY t.LineNr, t.BoundTransID"
+            : @"SELECT t.BoundTransID, t.LineNr, t.CheckID, t.CustomerID, t.Amount, t.AccountCardID, b.Code AS CheckCode
+FROM dbo.BoundTrans t LEFT JOIN dbo.BoundCard b ON b.BoundCardID = t.CheckID
+WHERE t.BoundTransID = @id OR t.BoundRollID = @id ORDER BY t.LineNr, t.BoundTransID";
+
+        var rows = (await _db.QueryAsync<(int BoundTransID, int? LineNr, int? CheckID, int? CustomerID, double? Amount, int? AccountCardID, string? CheckCode)>(
+            sql, new { id })).ToList();
+        var lines = new List<object>();
+        var n = 0;
+        foreach (var r in rows)
+        {
+            n++;
+            var acc = r.AccountCardID is > 0 ? r.AccountCardID : await ResolveAsync(ModuleCustomer, 1, r.CustomerID, null);
+            lines.Add(new
+            {
+                lineNo = r.LineNr ?? n,
+                checkCode = r.CheckCode,
+                amount = r.Amount,
+                account = await AccInfoAsync(acc),
+                stored = r.AccountCardID is > 0,
+            });
+        }
+
+        return new
+        {
+            source = "boundTrans",
+            id,
+            header = Array.Empty<object>(),
+            lines,
+            extras = Array.Empty<object>(),
+            notes = new[] { "Çek / senet muhasebe kodu BoundTrans.AccountCardID (bordro satırı) alanında tutulur." },
+        };
     }
 }

@@ -1007,13 +1007,6 @@ export const EntityFormPage: React.FC<EntityFormPageProps> = ({
           }}
         />
       )}
-      {!embedded && Number(recordId) > 0 && mode !== 'create' && (
-        <DocumentFilesPanel
-          tableName={schema.tableName}
-          recordId={Number(recordId)}
-          readOnly={readOnly}
-        />
-      )}
       {!embedded && accPosted && mode !== 'view' && accountingSource(schema.tableName) && (
         <div className="mb-2 rounded-md border border-amber-200 bg-amber-50 px-3 py-1.5 text-[11px] text-amber-900">
           Muhasebeleşmiş — başlık ve satırlar kilitli; ödeme planı düzenlenebilir.
@@ -1063,16 +1056,67 @@ export const EntityFormPage: React.FC<EntityFormPageProps> = ({
               />
             ) : undefined
           }
+          documentFilesSlot={
+            !embedded && Number(recordId) > 0 && mode !== 'create' ? (
+              <DocumentFilesPanel
+                tableName={schema.tableName}
+                recordId={Number(recordId)}
+                readOnly={readOnly}
+              />
+            ) : undefined
+          }
+          onCancel={trackDraft ? () => void handleCancelDraft() : onBack}
+          onDraftCheckpoint={
+            trackDraft && draftId
+              ? () => {
+                  // Canlı taslak zaten tray’de; Ctrl+F2 işaret / etiket tazeleme
+                  const doc = openDocsRef.current?.getDocument(draftId);
+                  openDocsRef.current?.updateDraft(draftId, {
+                    data: doc?.data,
+                    label: draftLabel(titleForTray, mode, doc?.data, recordId),
+                  });
+                }
+              : undefined
+          }
         />
       ) : (
-        <DynamicFormEngine
-          schema={viewSchema ?? schema}
-          initialData={initialData}
-          onSubmit={handleSubmit}
-          onLiveChange={trackDraft ? handleLiveChange : undefined}
-          isLoading={isSubmitting}
-          readOnly={readOnly}
-        />
+        <>
+          {!embedded && Number(recordId) > 0 && mode !== 'create' && (
+            <>
+              <DocumentFilesPanel
+                tableName={schema.tableName}
+                recordId={Number(recordId)}
+                readOnly={readOnly}
+              />
+              <DocumentActionsPanel
+                tableName={schema.tableName}
+                recordId={Number(recordId)}
+                documentNumber={
+                  String(
+                    initialData?.standardFields?.DocumentNumber ??
+                      initialData?.standardFields?.OrderSlipNo ??
+                      initialData?.standardFields?.VoucherNo ??
+                      '',
+                  ) || null
+                }
+                customerCardID={
+                  Number(initialData?.standardFields?.CustomerID) > 0
+                    ? Number(initialData?.standardFields?.CustomerID)
+                    : null
+                }
+                readOnly={readOnly}
+              />
+            </>
+          )}
+          <DynamicFormEngine
+            schema={viewSchema ?? schema}
+            initialData={initialData}
+            onSubmit={handleSubmit}
+            onLiveChange={trackDraft ? handleLiveChange : undefined}
+            isLoading={isSubmitting}
+            readOnly={readOnly}
+          />
+        </>
       )}
     </div>
   );

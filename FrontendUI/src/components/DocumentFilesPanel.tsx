@@ -120,7 +120,7 @@ export const DocumentFilesPanel: React.FC<Props> = ({ tableName, recordId, readO
   };
 
   return (
-    <div className="mb-2 rounded-md border border-slate-200 dark:border-slate-700 bg-slate-50/80 dark:bg-slate-900/40">
+    <div className="rounded-md border border-slate-200 dark:border-slate-700 bg-slate-50/80 dark:bg-slate-900/40">
       <div className="flex flex-wrap items-center gap-2 px-2.5 py-1.5">
         <button
           type="button"

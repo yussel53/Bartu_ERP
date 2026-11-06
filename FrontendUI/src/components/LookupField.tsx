@@ -192,7 +192,7 @@ export const LookupField: React.FC<LookupFieldProps> = ({
           disabled={disabled}
           onClick={openPicker}
           onKeyDown={(e) => {
-            if (e.key === 'Enter' || e.key === 'F4' || e.key === ' ') {
+            if (e.key === 'Enter' || e.key === 'F4' || e.key === 'F10' || e.key === ' ') {
               e.preventDefault();
               openPicker();
             }

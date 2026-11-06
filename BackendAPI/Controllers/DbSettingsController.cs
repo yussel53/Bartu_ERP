@@ -33,10 +33,12 @@ public sealed class DbSettingsStatusDto
 public sealed class DbSettingsController : ControllerBase
 {
     private readonly DbConnectionStore _store;
+    private readonly TenantDbRegistry _tenants;
 
-    public DbSettingsController(DbConnectionStore store)
+    public DbSettingsController(DbConnectionStore store, TenantDbRegistry tenants)
     {
         _store = store;
+        _tenants = tenants;
     }
 
     [SkipSetupCheck]
@@ -92,14 +94,20 @@ public sealed class DbSettingsController : ControllerBase
             return BadRequest(new { message = $"Bağlantı başarısız: {msg}" });
         }
 
+        var previous = current.Database?.Trim() ?? "";
+        var next = settings.Database?.Trim() ?? "";
         _store.Save(settings);
+        _tenants.Invalidate();
+        // Oturum token'ındaki eski bartu_db claim yeni ayarı gölgelemesin — istemci çıkış + yenileme yapacak
         return Ok(new
         {
             success = true,
             message = dbExists
-                ? "Bağlantı kaydedildi"
+                ? "Bağlantı kaydedildi — oturum yenileniyor"
                 : "Bağlantı kaydedildi — veritabanı henüz yok, Sıfırdan Oluştur ile yaratın",
             databaseExists = dbExists,
+            restartRequired = true,
+            databaseChanged = !string.Equals(previous, next, StringComparison.OrdinalIgnoreCase),
             settings = ToDto(_store.GetSettings()),
         });
     }

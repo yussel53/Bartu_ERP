@@ -1822,6 +1822,17 @@ export const FORM_SCHEMAS: Record<string, FormSchemaDto> = {
       },
       { fieldId: 88, fieldName: 'Currency', label: 'Döviz', fieldType: 'select', isRequired: false, colSpan: 2, orderIndex: 8, optionsJson: currencyOptionsSelectJson, defaultValue: LOCAL_CURRENCY_ID },
       { fieldId: 881, fieldName: 'CurrencyRate', label: 'Kur', fieldType: 'number', isRequired: false, colSpan: 2, orderIndex: 8.5, defaultValue: '1' },
+      {
+        fieldId: 882,
+        fieldName: 'CustomerAccountCardID',
+        label: 'Cari Muhasebe Hesabı',
+        fieldType: 'lookup',
+        isRequired: false,
+        colSpan: 4,
+        orderIndex: 8.7,
+        useLookup: true,
+        helpText: 'Invoice.CustomerAccountCardID — boşsa kaydette AccountLink’ten doldurulur',
+      },
       { fieldId: 89, fieldName: 'Description', label: 'Açıklama', fieldType: 'textarea', isRequired: false, colSpan: 12, orderIndex: 9 },
     ],
     lineFields: buildTradeLineFields({
@@ -1830,6 +1841,7 @@ export const FORM_SCHEMAS: Record<string, FormSchemaDto> = {
       descriptionField: 'Description1',
       includeSerialLot: true,
       includeCostDims: true,
+      includeAccountCodes: true,
     }),
   },
 
@@ -3977,6 +3989,17 @@ Object.assign(FORM_SCHEMAS, {
         colSpan: 4,
         orderIndex: 7,
       },
+      {
+        fieldId: 886,
+        fieldName: 'AccountCardID',
+        label: 'Muhasebe Hesabı',
+        fieldType: 'lookup',
+        isRequired: false,
+        colSpan: 4,
+        orderIndex: 8,
+        useLookup: true,
+        helpText: 'BoundTrans.AccountCardID — çek/senet bordro satırı muhasebe kodu',
+      },
     ],
   },
   PaidPlanCardForm: {
@@ -4221,6 +4244,17 @@ Object.assign(FORM_SCHEMAS, {
         orderIndex: 5,
         optionsJson: currencyOptionsSelectJson,
         defaultValue: LOCAL_CURRENCY_ID,
+      },
+      {
+        fieldId: 765,
+        fieldName: 'AccountCardID',
+        label: 'Muhasebe Hesabı',
+        fieldType: 'lookup',
+        isRequired: false,
+        colSpan: 3,
+        orderIndex: 6,
+        useLookup: true,
+        helpText: 'CustomerTrans.AccountCardID — cari fiş satırı muhasebe kodu',
       },
     ],
   },
@@ -5028,13 +5062,14 @@ function ensureHeaderOrgAndAuthLayout(schema: FormSchemaDto) {
     statusField?.orderIndex ??
     schema.fields.reduce((m, f) => Math.max(m, f.orderIndex), 0);
 
+  const invoiceOrgRequired = schema.tableName === 'Invoice';
   if (!schema.fields.some((f) => f.fieldName === 'CompanyID')) {
     schema.fields.push({
       fieldId: schema.formId * 1000 + 91,
       fieldName: 'CompanyID',
       label: 'Firma',
       fieldType: 'select',
-      isRequired: false,
+      isRequired: invoiceOrgRequired,
       colSpan: 2,
       orderIndex: baseOrder - 0.4,
       optionsJson: companyOptionsJson,
@@ -5045,10 +5080,10 @@ function ensureHeaderOrgAndAuthLayout(schema: FormSchemaDto) {
     if (co) {
       co.useLookup = false;
       if (!co.label || co.label === 'Kurum') co.label = 'Firma';
+      if (invoiceOrgRequired) co.isRequired = true;
     }
   }
 
-  const invoiceOrgRequired = schema.tableName === 'Invoice';
   if (!schema.fields.some((f) => f.fieldName === 'DepartmentID')) {
     schema.fields.push({
       fieldId: schema.formId * 1000 + 92,

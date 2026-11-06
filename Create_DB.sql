@@ -1267,14 +1267,14 @@ CREATE TABLE [dbo].[Setting](
 ) ON [PRIMARY]
 GO
 
-/****** Object:  Table [dbo].[Sýralama]    Script Date: 22.09.2026 19:49:37 ******/
+/****** Object:  Table [dbo].[Siralama]    Script Date: 22.09.2026 19:49:37 ******/
 SET ANSI_NULLS ON
 GO
 
 SET QUOTED_IDENTIFIER ON
 GO
 
-CREATE TABLE [dbo].[Sýralama](
+CREATE TABLE [dbo].[Siralama](
 	[ID] [int] NULL,
 	[IsActive] [bit] NULL,
 	[CompanyID] [int] NULL,
@@ -1753,7 +1753,7 @@ GO
 EXEC sys.sp_addextendedproperty @name=N'MS_Description', @value=N'Kasa KARTI' , @level0type=N'SCHEMA',@level0name=N'dbo', @level1type=N'TABLE',@level1name=N'SafeCard'
 GO
 
-EXEC sys.sp_addextendedproperty @name=N'MS_Description', @value=N'Fiiþ Tipi Burada 08 Satýþ faturasýnýnda Alt fiþ türü olacak Ýçinde baþlka bir hesaplama yada baþka bir queryler var.. ' , @level0type=N'SCHEMA',@level0name=N'dbo', @level1type=N'TABLE',@level1name=N'Sýralama', @level2type=N'COLUMN',@level2name=N'VoucherType'
+EXEC sys.sp_addextendedproperty @name=N'MS_Description', @value=N'Fiiþ Tipi Burada 08 Satýþ faturasýnýnda Alt fiþ türü olacak Ýçinde baþlka bir hesaplama yada baþka bir queryler var.. ' , @level0type=N'SCHEMA',@level0name=N'dbo', @level1type=N'TABLE',@level1name=N'Siralama', @level2type=N'COLUMN',@level2name=N'VoucherType'
 GO
 
 EXEC sys.sp_addextendedproperty @name=N'MS_Description', @value=N'1-Ekleme/2-Deðiþiklik/3-Cýkarma/4-Ýnceleme' , @level0type=N'SCHEMA',@level0name=N'dbo', @level1type=N'TABLE',@level1name=N'SystemUserLOG', @level2type=N'COLUMN',@level2name=N'Type'

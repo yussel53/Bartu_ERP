@@ -1,3 +1,4 @@
+using System.Globalization;
 using System.Text;
 using System.Text.RegularExpressions;
 using Dapper;
@@ -60,6 +61,17 @@ public sealed class DbBootstrapRequest
     public bool ApplySqlUpdates { get; set; } = true;
     /** Mevcut DB'de tablo varsa yine de Create_DB çalıştır (dikkatli) */
     public bool ForceSchemaScripts { get; set; } = false;
+}
+
+/// <summary>Laboratuvar: tüm DB'yi düşürüp sıfırdan kurar — çoklu onay + WipeSecret.</summary>
+public sealed class DbWipeRequest
+{
+    public string ConfirmServer { get; set; } = "";
+    public string ConfirmDatabase { get; set; } = "";
+    public string ConfirmPhrase { get; set; } = "";
+    public string ConfirmDate { get; set; } = "";
+    public string WipeSecret { get; set; } = "";
+    public bool RecreateAfterDrop { get; set; } = true;
 }
 
 public sealed class DbBootstrapRepository
@@ -321,6 +333,144 @@ public sealed class DbBootstrapRepository
             result.Steps.Add(new DbBootstrapStepResult { Step = "error", Success = false, Message = ex.Message });
             return result;
         }
+    }
+
+    /// <summary>
+    /// Tüm veritabanını DROP edip isteğe bağlı Create_DB + SqlUpdates ile yeniden kurar.
+    /// Onay alanları birebir eşleşmeli; WipeSecret = appsettings DbBootstrap:WipeSecret.
+    /// </summary>
+    public async Task<DbBootstrapResult> WipeAndRebuildAsync(DbWipeRequest req, CancellationToken ct = default)
+    {
+        var result = new DbBootstrapResult();
+        var settings = _store.GetSettings();
+        if (!_store.IsConfigured() || string.IsNullOrWhiteSpace(settings.Server) || string.IsNullOrWhiteSpace(settings.Database))
+        {
+            result.Success = false;
+            result.Message = "Bağlantı ayarları tanımlı değil";
+            return result;
+        }
+
+        var expectedSecret = (_config["DbBootstrap:WipeSecret"] ?? "").Trim();
+        if (string.IsNullOrWhiteSpace(expectedSecret))
+        {
+            result.Success = false;
+            result.Message = "Sıfırlama kapalı — DbBootstrap:WipeSecret tanımlı değil";
+            return result;
+        }
+
+        var server = settings.Server.Trim();
+        var database = settings.Database.Trim();
+        var todayTr = DateTime.Now.ToString("dd.MM.yyyy", CultureInfo.InvariantCulture);
+        var phraseOk = string.Equals(
+            (req.ConfirmPhrase ?? "").Trim(),
+            "TUM VERIYI SIL",
+            StringComparison.Ordinal);
+        var secretOk = string.Equals(
+            (req.WipeSecret ?? "").Trim(),
+            expectedSecret,
+            StringComparison.Ordinal);
+
+        if (!string.Equals((req.ConfirmServer ?? "").Trim(), server, StringComparison.OrdinalIgnoreCase))
+        {
+            result.Success = false;
+            result.Message = "Sunucu adı eşleşmiyor";
+            return result;
+        }
+        if (!string.Equals((req.ConfirmDatabase ?? "").Trim(), database, StringComparison.OrdinalIgnoreCase))
+        {
+            result.Success = false;
+            result.Message = "Veritabanı adı eşleşmiyor";
+            return result;
+        }
+        if (!phraseOk)
+        {
+            result.Success = false;
+            result.Message = "Onay cümlesi hatalı (TUM VERIYI SIL)";
+            return result;
+        }
+        if (!string.Equals((req.ConfirmDate ?? "").Trim(), todayTr, StringComparison.Ordinal))
+        {
+            result.Success = false;
+            result.Message = $"Tarih onayı hatalı — bugün {todayTr} yazın";
+            return result;
+        }
+        if (!secretOk)
+        {
+            result.Success = false;
+            result.Message = "Sıfırlama anahtarı hatalı";
+            return result;
+        }
+        if (!Regex.IsMatch(database, @"^[A-Za-z_][A-Za-z0-9_]*$"))
+        {
+            result.Success = false;
+            result.Message = "Veritabanı adı güvenlik kontrolünden geçmedi";
+            return result;
+        }
+
+        try
+        {
+            await DropDatabaseAsync(settings, ct);
+            result.Steps.Add(new DbBootstrapStepResult
+            {
+                Step = "drop-database",
+                Success = true,
+                Message = $"Veritabanı silindi: {database}",
+            });
+        }
+        catch (Exception ex)
+        {
+            result.Success = false;
+            result.Message = ex.Message;
+            result.Steps.Add(new DbBootstrapStepResult
+            {
+                Step = "drop-database",
+                Success = false,
+                Message = ex.Message,
+            });
+            return result;
+        }
+
+        if (!req.RecreateAfterDrop)
+        {
+            result.Success = true;
+            result.Message = "Veritabanı silindi (yeniden oluşturma kapalı)";
+            return result;
+        }
+
+        var rebuild = await BootstrapAsync(new DbBootstrapRequest
+        {
+            CreateDatabaseIfMissing = true,
+            RunCreateDb = true,
+            RunSysTables = true,
+            ApplySqlUpdates = true,
+            ForceSchemaScripts = true,
+        }, ct);
+        result.Steps.AddRange(rebuild.Steps);
+        result.SqlUpdates = rebuild.SqlUpdates;
+        result.Success = rebuild.Success;
+        result.Message = rebuild.Success
+            ? "Veritabanı sıfırlandı ve yeniden kuruldu"
+            : $"Silindi ama kurulum yarım kaldı: {rebuild.Message}";
+        return result;
+    }
+
+    private async Task DropDatabaseAsync(DbConnectionSettings settings, CancellationToken ct)
+    {
+        var db = settings.Database.Trim();
+        if (!Regex.IsMatch(db, @"^[A-Za-z_][A-Za-z0-9_]*$"))
+            throw new ArgumentException("Veritabanı adı yalnızca harf, rakam ve _ içerebilir");
+
+        await using var master = _store.CreateMasterConnection(settings);
+        await master.OpenAsync(ct);
+        await using var cmd = master.CreateCommand();
+        cmd.CommandTimeout = 180;
+        cmd.CommandText = $@"
+IF DB_ID(N'{db}') IS NOT NULL
+BEGIN
+  ALTER DATABASE [{db}] SET SINGLE_USER WITH ROLLBACK IMMEDIATE;
+  DROP DATABASE [{db}];
+END";
+        await cmd.ExecuteNonQueryAsync(ct);
     }
 
     private async Task CreateDatabaseAsync(DbConnectionSettings settings, CancellationToken ct)

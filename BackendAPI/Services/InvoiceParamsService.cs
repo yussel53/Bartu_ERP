@@ -178,18 +178,58 @@ public sealed class InvoiceParamsService
         Open();
         var invType = I(F(header, "InvoiceType")) ?? 1;
         var productLinkType = invType is 2 or 5 or 6 ? 2 : 3;
+        var taxLinkType = invType switch
+        {
+            2 or 5 or 6 => 1,
+            3 => 5,
+            4 => 4,
+            _ => 2,
+        };
+
+        // Başlık: cari muhasebe kodu (Invoice.CustomerAccountCardID)
+        if (I(F(header, "CustomerAccountCardID")) is not int)
+        {
+            var customerId = I(F(header, "CustomerID"));
+            var custAcc = await ResolveLinkAsync(2, 1, customerId, ct);
+            if (custAcc is int ca)
+            {
+                var key = header.Keys.FirstOrDefault(k => k.Equals("CustomerAccountCardID", StringComparison.OrdinalIgnoreCase))
+                          ?? "CustomerAccountCardID";
+                header[key] = ca;
+            }
+        }
 
         foreach (var line in lines)
         {
-            if (I(F(line, "AccountCardID")) is int existing && existing > 0) continue;
             var productId = I(F(line, "ProductCardID")) ?? I(F(line, "ItemsID"));
-            var acc = await ResolveLinkAsync(1, productLinkType, productId, ct)
-                      ?? await ResolveLinkAsync(7, invType, null, ct);
-            if (acc is int a)
+
+            // Satır: malzeme / gelir-gider hesabı
+            if (I(F(line, "AccountCardID")) is not int)
             {
-                var key = line.Keys.FirstOrDefault(k => k.Equals("AccountCardID", StringComparison.OrdinalIgnoreCase))
-                          ?? "AccountCardID";
-                line[key] = a;
+                var acc = await ResolveLinkAsync(1, productLinkType, productId, ct)
+                          ?? await ResolveLinkAsync(7, invType, null, ct);
+                if (acc is int a)
+                {
+                    var key = line.Keys.FirstOrDefault(k => k.Equals("AccountCardID", StringComparison.OrdinalIgnoreCase))
+                              ?? "AccountCardID";
+                    line[key] = a;
+                }
+            }
+
+            // Satır: KDV hesabı
+            if (I(F(line, "TaxAccountCardID")) is not int)
+            {
+                var taxAmt = D(F(line, "TotalTax"));
+                if (taxAmt != 0)
+                {
+                    var taxAcc = await ResolveLinkAsync(6, taxLinkType, null, ct);
+                    if (taxAcc is int ta)
+                    {
+                        var key = line.Keys.FirstOrDefault(k => k.Equals("TaxAccountCardID", StringComparison.OrdinalIgnoreCase))
+                                  ?? "TaxAccountCardID";
+                        line[key] = ta;
+                    }
+                }
             }
         }
     }

@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   Plus,
   History,
@@ -15,6 +15,7 @@ import {
   ChevronRight,
   UserCheck,
   BookCheck,
+  BookOpen,
 } from 'lucide-react';
 import { AppModule, MenuScreen } from '../types/formTypes';
 import { RowActions, RowActionExtraItem } from '../components/RowActions';
@@ -27,6 +28,7 @@ import {
 } from '../components/GridSortFilter';
 import { RowContextMenu, RowContextMenuItem } from '../components/RowContextMenu';
 import { AuditHistoryModal } from '../components/AuditHistoryModal';
+import { DocumentAccountCodesModal } from '../components/DocumentAccountCodesModal';
 import { CardStatementModal } from '../components/CardStatementModal';
 import { CardQuickInfoButton } from '../components/CardQuickInfoButton';
 import { getCardStatementDef } from '../data/cardStatementKinds';
@@ -36,7 +38,15 @@ import { filterRowsByAuthCode } from '../data/authCodes';
 import { filterRowsByOrgAuth, orgAuthSummary } from '../data/orgUnits';
 import { FORM_SCHEMAS } from '../data/formSchemas';
 import { ACCOUNT_TYPE_LABELS } from '../data/accountParentLink';
-import { DispatchTypeLabels } from '../data/documentTypes';
+import {
+  BankVoucherTypeLabels,
+  BoundTransTypeLabels,
+  CustomerVoucherTypeLabels,
+  DispatchTypeLabels,
+  InvoiceTypeLabels,
+  OrderTypeLabels,
+  SafeVoucherTypeLabels,
+} from '../data/documentTypes';
 import { listRecords, deleteRecord } from '../api/recordsApi';
 import { resolveLookupOption } from '../api/lookupApi';
 import {
@@ -436,13 +446,29 @@ export const ModuleListPage: React.FC<ModuleListPageProps> = ({
   const [serverTotal, setServerTotal] = useState(0);
   const [serverSearch, setServerSearch] = useState('');
   const [searchInput, setSearchInput] = useState('');
+  const searchInputRef = useRef<HTMLInputElement | null>(null);
   const [loadingMore, setLoadingMore] = useState(false);
   const [audit, setAudit] = useState<{ id: number; label: string } | null>(null);
+  const [accountCodes, setAccountCodes] = useState<{ source: string; id: number; label: string } | null>(
+    null,
+  );
   /** Hesap kartları: bakiye yılı (öndeğer muhasebe parametrelerinden) */
   const [accountYear, setAccountYear] = useState<number>(() => new Date().getFullYear());
   const [accountYearReady, setAccountYearReady] = useState(tableName !== 'AccountCard');
   const closeCtxMenu = useCallback(() => setCtxMenu(null), []);
   const stmtDef = getCardStatementDef(tableName);
+
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if ((e.ctrlKey || e.metaKey) && !e.altKey && (e.key === 'f' || e.key === 'F')) {
+        e.preventDefault();
+        searchInputRef.current?.focus();
+        searchInputRef.current?.select();
+      }
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, []);
 
   useEffect(() => {
     if (tableName !== 'AccountCard') {
@@ -575,13 +601,32 @@ export const ModuleListPage: React.FC<ModuleListPageProps> = ({
   /** Hücrede gösterilen değer (tip etiketi çevrilmiş) — sıralama / filtre de bunu kullanır */
   const cellRaw = (row: Record<string, unknown>, col: { key: string }): unknown => {
     let raw = pickCell(row, col.key);
-    if ((col.key === 'type' || col.key === 'VoucherType') && raw != null && raw !== '') {
+    const isTypeCol =
+      col.key === 'type' ||
+      col.key === 'Type' ||
+      col.key === 'Type_' ||
+      col.key === 'VoucherType' ||
+      col.key === 'InvoiceType';
+    if (isTypeCol && raw != null && raw !== '') {
+      const key = String(raw);
       const label =
         tableName === 'CustomerCard'
-          ? CUSTOMER_TYPE_LABELS[String(raw)]
+          ? CUSTOMER_TYPE_LABELS[key]
           : tableName === 'AccountCard'
-            ? ACCOUNT_TYPE_LABELS[String(raw)]
-            : DispatchTypeLabels[String(raw)];
+            ? ACCOUNT_TYPE_LABELS[key]
+            : tableName === 'Invoice'
+              ? InvoiceTypeLabels[key]
+              : tableName === 'OrderVoucher'
+                ? OrderTypeLabels[key]
+                : tableName === 'BankVoucher'
+                  ? BankVoucherTypeLabels[key]
+                  : tableName === 'SafeVoucher'
+                    ? SafeVoucherTypeLabels[key]
+                    : tableName === 'CustomerVoucher'
+                      ? CustomerVoucherTypeLabels[key]
+                      : tableName === 'BoundTrans' || tableName === 'BoundRoll'
+                        ? BoundTransTypeLabels[key]
+                        : DispatchTypeLabels[key];
       if (label) raw = label;
     }
     return raw;
@@ -653,6 +698,16 @@ export const ModuleListPage: React.FC<ModuleListPageProps> = ({
     return null;
   };
 
+  /** Sağ tık muhasebe kodları önizlemesi */
+  const documentCodesSourceForList = (): string | null => {
+    const t = (tableName || '').toLowerCase();
+    if (t === 'invoice') return 'invoice';
+    if (t === 'customervoucher') return 'customerVoucher';
+    if (t === 'boundroll') return 'boundRoll';
+    if (t === 'boundtrans') return 'boundTrans';
+    return null;
+  };
+
   const handlePostAccounting = async (rowId: string | number) => {
     const source = accountingSourceForList();
     const id = Number(rowId);
@@ -698,6 +753,28 @@ export const ModuleListPage: React.FC<ModuleListPageProps> = ({
         label: 'Muhasebeleştir',
         icon: <BookCheck className="w-3.5 h-3.5" />,
         onClick: () => void handlePostAccounting(rowId),
+      });
+    }
+    const codesSrc = documentCodesSourceForList();
+    if (codesSrc && source === 'db' && Number.isInteger(id) && id > 0) {
+      items.push({
+        key: 'acc-codes',
+        label: 'Muhasebe Kodları',
+        icon: <BookOpen className="w-3.5 h-3.5" />,
+        onClick: () => {
+          const row = dbRows.find(
+            (r) => String(r.id ?? r.Id ?? pickCell(r, pk || 'id')) === String(rowId),
+          );
+          const label = [
+            pickCell(row ?? {}, 'DocumentNumber'),
+            pickCell(row ?? {}, 'documentNumber'),
+            ctxMenu?.rowId === rowId ? ctxMenu.label : '',
+          ]
+            .map((v) => String(v ?? '').trim())
+            .filter(Boolean)
+            .join(' · ');
+          setAccountCodes({ source: codesSrc, id, label: label || String(rowId) });
+        },
       });
     }
     return items;
@@ -1139,9 +1216,11 @@ export const ModuleListPage: React.FC<ModuleListPageProps> = ({
               }}
             >
               <input
+                ref={searchInputRef}
                 value={searchInput}
                 onChange={(e) => setSearchInput(e.target.value)}
-                placeholder="Tüm kayıtlarda ara (sunucu)"
+                placeholder="Ara (Ctrl+F)"
+                title="Ctrl+F ile odaklan"
                 className="h-6 px-2 w-52 border border-slate-300 dark:border-slate-600 rounded-sm bg-white dark:bg-slate-900"
               />
               <button type="submit" className="h-6 px-2 rounded-sm bg-slate-800 text-white hover:bg-slate-700">
@@ -1166,6 +1245,14 @@ export const ModuleListPage: React.FC<ModuleListPageProps> = ({
 
       {audit && tableName && (
         <AuditHistoryModal tableName={tableName} recordId={audit.id} pk={pk} title={audit.label} onClose={() => setAudit(null)} />
+      )}
+      {accountCodes && (
+        <DocumentAccountCodesModal
+          source={accountCodes.source}
+          id={accountCodes.id}
+          title={accountCodes.label}
+          onClose={() => setAccountCodes(null)}
+        />
       )}
       {ctxMenu && (
         <RowContextMenu

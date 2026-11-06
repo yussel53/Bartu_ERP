@@ -4,18 +4,20 @@ import {
   CheckCircle2,
   Database,
   FileCode2,
+  FlaskConical,
   Loader2,
   Play,
   RefreshCw,
   Settings2,
   Sparkles,
+  Trash2,
 } from 'lucide-react';
-import { apiJson, ApiError } from '../config/api';
+import { apiJson, ApiError, restartAfterDbChange } from '../config/api';
 import { DbSettingsFormPanel, DbSettingsForm } from '../components/DbSettingsFormPanel';
 import { appConfirm } from '../utils/appConfirm';
 import { SystemMaintenancePanel } from '../components/SystemMaintenancePanel';
 
-export type DbAdminTab = 'connection' | 'create' | 'updates';
+export type DbAdminTab = 'connection' | 'create' | 'updates' | 'lab';
 
 interface Props {
   onBack: () => void;
@@ -82,14 +84,27 @@ interface DbUpdateApplyResult {
   appliedAt?: string | null;
 }
 
-const TABS: { id: DbAdminTab; label: string; icon: React.ReactNode }[] = [
+const PUBLIC_TABS: { id: Exclude<DbAdminTab, 'lab'>; label: string; icon: React.ReactNode }[] = [
   { id: 'connection', label: 'Bağlantı', icon: <Settings2 className="w-3.5 h-3.5" /> },
   { id: 'create', label: 'Sıfırdan Oluştur', icon: <Sparkles className="w-3.5 h-3.5" /> },
   { id: 'updates', label: 'Güncelleme', icon: <Database className="w-3.5 h-3.5" /> },
 ];
 
+const WIPE_PHRASE = 'TUM VERIYI SIL';
+
+function todayTr(): string {
+  const d = new Date();
+  const dd = String(d.getDate()).padStart(2, '0');
+  const mm = String(d.getMonth() + 1).padStart(2, '0');
+  const yyyy = d.getFullYear();
+  return `${dd}.${mm}.${yyyy}`;
+}
+
+type WipeStep = 0 | 1 | 2 | 3 | 4 | 5 | 6;
+
 export const DatabaseAdminPage: React.FC<Props> = ({ onBack, initialTab = 'connection' }) => {
-  const [tab, setTab] = useState<DbAdminTab>(initialTab);
+  const [tab, setTab] = useState<DbAdminTab>(initialTab === 'lab' ? 'connection' : initialTab);
+  const [labUnlocked, setLabUnlocked] = useState(false);
   const [connStatus, setConnStatus] = useState<StatusDto | null>(null);
   const [connInitial, setConnInitial] = useState<Partial<DbSettingsForm> | null>(null);
   const [connTick, setConnTick] = useState(0);
@@ -115,9 +130,39 @@ export const DatabaseAdminPage: React.FC<Props> = ({ onBack, initialTab = 'conne
   const [updError, setUpdError] = useState<string | null>(null);
   const [updResults, setUpdResults] = useState<DbUpdateApplyResult[]>([]);
 
+  const [wipeStep, setWipeStep] = useState<WipeStep>(0);
+  const [wipeServer, setWipeServer] = useState('');
+  const [wipeDatabase, setWipeDatabase] = useState('');
+  const [wipePhrase, setWipePhrase] = useState('');
+  const [wipeDate, setWipeDate] = useState('');
+  const [wipeSecret, setWipeSecret] = useState('');
+  const [wipeBusy, setWipeBusy] = useState(false);
+  const [wipeError, setWipeError] = useState<string | null>(null);
+  const [wipeResult, setWipeResult] = useState<BootstrapResult | null>(null);
+
   useEffect(() => {
-    setTab(initialTab);
+    if (initialTab !== 'lab') setTab(initialTab);
   }, [initialTab]);
+
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.shiftKey && e.altKey && (e.key === 'L' || e.key === 'l')) {
+        e.preventDefault();
+        setLabUnlocked(true);
+        setTab('lab');
+      }
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, []);
+
+  const unlockLab = (e: React.MouseEvent) => {
+    if (e.shiftKey && e.altKey) {
+      e.preventDefault();
+      setLabUnlocked(true);
+      setTab('lab');
+    }
+  };
 
   const loadConnection = useCallback(async () => {
     setConnLoading(true);
@@ -187,7 +232,7 @@ export const DatabaseAdminPage: React.FC<Props> = ({ onBack, initialTab = 'conne
   }, [loadConnection, connTick]);
 
   useEffect(() => {
-    if (tab === 'create') void loadBootstrap();
+    if (tab === 'create' || tab === 'lab') void loadBootstrap();
     if (tab === 'updates') void loadUpdates();
   }, [tab, loadBootstrap, loadUpdates]);
 
@@ -210,14 +255,17 @@ export const DatabaseAdminPage: React.FC<Props> = ({ onBack, initialTab = 'conne
         body: JSON.stringify(opts),
       });
       setBootResult(result);
-      if (!result.success) setBootError(result.message);
-      await loadBootstrap();
-      await loadConnection();
-      setConnTick((t) => t + 1);
+      if (!result.success) {
+        setBootError(result.message);
+        await loadBootstrap();
+        return;
+      }
+      // Yeni / hazırlanan DB ile oturumu temiz başlat
+      await restartAfterDbChange(boot?.database || connStatus?.database);
+      return;
     } catch (e) {
       const msg = e instanceof Error ? e.message : 'Oluşturma başarısız';
       setBootError(msg);
-      // BadRequest body may be JSON string in message — try reload status anyway
       await loadBootstrap();
     } finally {
       setBootBusy(false);
@@ -304,6 +352,99 @@ export const DatabaseAdminPage: React.FC<Props> = ({ onBack, initialTab = 'conne
     }
   };
 
+  const resetWipeWizard = () => {
+    setWipeStep(0);
+    setWipeServer('');
+    setWipeDatabase('');
+    setWipePhrase('');
+    setWipeDate('');
+    setWipeSecret('');
+    setWipeError(null);
+    setWipeResult(null);
+  };
+
+  const wipeStepValid = (): boolean => {
+    const srv = (boot?.server || connStatus?.server || '').trim();
+    const db = (boot?.database || connStatus?.database || '').trim();
+    switch (wipeStep) {
+      case 0:
+        return true;
+      case 1:
+        return wipeServer.trim().localeCompare(srv, undefined, { sensitivity: 'accent' }) === 0;
+      case 2:
+        return wipeDatabase.trim().localeCompare(db, undefined, { sensitivity: 'accent' }) === 0;
+      case 3:
+        return wipePhrase.trim() === WIPE_PHRASE;
+      case 4:
+        return wipeDate.trim() === todayTr();
+      case 5:
+        return wipeSecret.trim().length > 0;
+      case 6:
+        return true;
+      default:
+        return false;
+    }
+  };
+
+  const runWipe = async () => {
+    if (
+      !await appConfirm(
+        'SON UYARI: Bağlı veritabanı tamamen silinip yeniden kurulacak. Tüm veri kaybolur. Emin misiniz?',
+      )
+    ) {
+      return;
+    }
+    setWipeBusy(true);
+    setWipeError(null);
+    setWipeResult(null);
+    try {
+      const result = await apiJson<BootstrapResult>('/api/db-bootstrap/wipe', {
+        method: 'POST',
+        body: JSON.stringify({
+          confirmServer: wipeServer.trim(),
+          confirmDatabase: wipeDatabase.trim(),
+          confirmPhrase: wipePhrase.trim(),
+          confirmDate: wipeDate.trim(),
+          wipeSecret: wipeSecret.trim(),
+          recreateAfterDrop: true,
+        }),
+      });
+      setWipeResult(result);
+      if (!result.success) {
+        setWipeError(result.message);
+        return;
+      }
+      await restartAfterDbChange(wipeDatabase || boot?.database || connStatus?.database);
+      return;
+    } catch (e) {
+      if (e instanceof ApiError && e.body && typeof e.body === 'object' && !Array.isArray(e.body)) {
+        const body = e.body as BootstrapResult;
+        if (typeof body.message === 'string') {
+          setWipeResult(body);
+          setWipeError(body.message);
+          return;
+        }
+      }
+      setWipeError(e instanceof Error ? e.message : 'Sıfırlama başarısız');
+    } finally {
+      setWipeBusy(false);
+    }
+  };
+
+  const tabs = labUnlocked
+    ? [
+        ...PUBLIC_TABS,
+        {
+          id: 'lab' as const,
+          label: 'Laboratuvar',
+          icon: <FlaskConical className="w-3.5 h-3.5" />,
+        },
+      ]
+    : PUBLIC_TABS;
+
+  const targetServer = boot?.server || connStatus?.server || '—';
+  const targetDatabase = boot?.database || connStatus?.database || '—';
+
   return (
     <div className="max-w-4xl mx-auto space-y-4">
       <div className="flex items-start justify-between gap-3">
@@ -315,7 +456,11 @@ export const DatabaseAdminPage: React.FC<Props> = ({ onBack, initialTab = 'conne
           >
             <ArrowLeft className="w-3.5 h-3.5" /> Geri
           </button>
-          <h1 className="text-[16px] font-semibold text-slate-800 flex items-center gap-2">
+          <h1
+            className="text-[16px] font-semibold text-slate-800 flex items-center gap-2 select-none"
+            onClick={unlockLab}
+            title={labUnlocked ? undefined : undefined}
+          >
             <Database className="w-4 h-4 text-slate-500" />
             Veritabanı Yönetimi
           </h1>
@@ -326,7 +471,7 @@ export const DatabaseAdminPage: React.FC<Props> = ({ onBack, initialTab = 'conne
       </div>
 
       <div className="flex gap-1 rounded-lg border border-slate-200 bg-slate-50 p-1">
-        {TABS.map((t) => (
+        {tabs.map((t) => (
           <button
             key={t.id}
             type="button"
@@ -717,6 +862,206 @@ export const DatabaseAdminPage: React.FC<Props> = ({ onBack, initialTab = 'conne
                 })}
               </tbody>
             </table>
+          </div>
+        </div>
+      )}
+
+      {tab === 'lab' && labUnlocked && (
+        <div className="space-y-4">
+          <div className="rounded-lg border border-red-300 bg-red-50/60 p-4 space-y-4">
+            <div className="flex items-start justify-between gap-2">
+              <div>
+                <h2 className="text-[13px] font-semibold text-red-900 flex items-center gap-1.5">
+                  <FlaskConical className="w-4 h-4" />
+                  Laboratuvar — tüm veritabanını sıfırla
+                </h2>
+                <p className="text-[11px] text-red-800/80 mt-1">
+                  Hedef: <span className="font-semibold">{targetServer}</span>
+                  {' / '}
+                  <span className="font-semibold">{targetDatabase}</span>
+                  {boot?.databaseExists ? ` · ${boot.tableCount} tablo` : ''}
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={resetWipeWizard}
+                className="text-[11px] font-semibold text-red-800 underline"
+              >
+                Baştan
+              </button>
+            </div>
+
+            <div className="flex gap-1">
+              {[0, 1, 2, 3, 4, 5, 6].map((s) => (
+                <div
+                  key={s}
+                  className={`h-1.5 flex-1 rounded-full ${
+                    s <= wipeStep ? 'bg-red-600' : 'bg-red-200'
+                  }`}
+                />
+              ))}
+            </div>
+
+            {wipeStep === 0 && (
+              <div className="space-y-3 text-[12px] text-red-950">
+                <p className="font-semibold">Bu işlem geri alınamaz.</p>
+                <ul className="list-disc pl-4 space-y-1 text-red-900/90">
+                  <li>Bağlı SQL veritabanı DROP edilir</li>
+                  <li>Create_DB + SYS + SqlUpdates ile yeniden kurulur</li>
+                  <li>Tüm kartlar, fişler ve kullanıcı verisi silinir</li>
+                </ul>
+                <p className="text-[11px] text-red-800/70">
+                  Yalnızca geliştirme / laboratuvar ortamında kullanın.
+                </p>
+              </div>
+            )}
+
+            {wipeStep === 1 && (
+              <div className="space-y-2">
+                <label className="block text-[12px] font-semibold text-red-950">
+                  1. Sunucu adını birebir yazın
+                </label>
+                <p className="text-[11px] text-red-800/70">Beklenen: {targetServer}</p>
+                <input
+                  className="w-full h-9 px-3 text-[13px] border border-red-300 rounded-md bg-white"
+                  value={wipeServer}
+                  onChange={(e) => setWipeServer(e.target.value)}
+                  autoComplete="off"
+                  spellCheck={false}
+                />
+              </div>
+            )}
+
+            {wipeStep === 2 && (
+              <div className="space-y-2">
+                <label className="block text-[12px] font-semibold text-red-950">
+                  2. Veritabanı adını birebir yazın
+                </label>
+                <p className="text-[11px] text-red-800/70">Beklenen: {targetDatabase}</p>
+                <input
+                  className="w-full h-9 px-3 text-[13px] border border-red-300 rounded-md bg-white"
+                  value={wipeDatabase}
+                  onChange={(e) => setWipeDatabase(e.target.value)}
+                  autoComplete="off"
+                  spellCheck={false}
+                />
+              </div>
+            )}
+
+            {wipeStep === 3 && (
+              <div className="space-y-2">
+                <label className="block text-[12px] font-semibold text-red-950">
+                  3. Onay cümlesini yazın
+                </label>
+                <p className="text-[11px] text-red-800/70">
+                  Büyük harfle: <code className="bg-white/80 px-1 rounded">{WIPE_PHRASE}</code>
+                </p>
+                <input
+                  className="w-full h-9 px-3 text-[13px] border border-red-300 rounded-md bg-white font-mono"
+                  value={wipePhrase}
+                  onChange={(e) => setWipePhrase(e.target.value)}
+                  autoComplete="off"
+                  spellCheck={false}
+                />
+              </div>
+            )}
+
+            {wipeStep === 4 && (
+              <div className="space-y-2">
+                <label className="block text-[12px] font-semibold text-red-950">
+                  4. Bugünün tarihini yazın (gg.aa.yyyy)
+                </label>
+                <input
+                  className="w-full h-9 px-3 text-[13px] border border-red-300 rounded-md bg-white font-mono"
+                  value={wipeDate}
+                  onChange={(e) => setWipeDate(e.target.value)}
+                  placeholder="örn. 01.11.2026"
+                  autoComplete="off"
+                  spellCheck={false}
+                />
+              </div>
+            )}
+
+            {wipeStep === 5 && (
+              <div className="space-y-2">
+                <label className="block text-[12px] font-semibold text-red-950">
+                  5. Sıfırlama anahtarını girin
+                </label>
+                <p className="text-[11px] text-red-800/70">
+                  appsettings Development: <code className="bg-white/80 px-1 rounded">DbBootstrap:WipeSecret</code>
+                </p>
+                <input
+                  type="password"
+                  className="w-full h-9 px-3 text-[13px] border border-red-300 rounded-md bg-white"
+                  value={wipeSecret}
+                  onChange={(e) => setWipeSecret(e.target.value)}
+                  autoComplete="off"
+                />
+              </div>
+            )}
+
+            {wipeStep === 6 && (
+              <div className="space-y-2 text-[12px] text-red-950">
+                <p className="font-semibold">Son adım — özet</p>
+                <ul className="space-y-1 text-[11px] font-mono bg-white/70 border border-red-200 rounded-md px-3 py-2">
+                  <li>Sunucu: {wipeServer}</li>
+                  <li>Veritabanı: {wipeDatabase}</li>
+                  <li>Cümle: {wipePhrase}</li>
+                  <li>Tarih: {wipeDate}</li>
+                  <li>Anahtar: {'•'.repeat(Math.min(wipeSecret.length, 12))}</li>
+                </ul>
+              </div>
+            )}
+
+            {wipeError && (
+              <div className="rounded-md border border-red-400 bg-white px-3 py-2 text-[12px] text-red-700">
+                {wipeError}
+              </div>
+            )}
+
+            {wipeResult && (
+              <div className="rounded-md border border-slate-200 bg-white px-3 py-2 text-[12px] space-y-1">
+                <div className={wipeResult.success ? 'text-emerald-700 font-semibold' : 'text-red-700 font-semibold'}>
+                  {wipeResult.message}
+                </div>
+                {wipeResult.steps.map((s, i) => (
+                  <div key={`${s.step}-${i}`} className={s.success ? 'text-emerald-700' : 'text-red-700'}>
+                    <span className="font-medium">{s.step}</span>: {s.message}
+                  </div>
+                ))}
+              </div>
+            )}
+
+            <div className="flex items-center justify-between gap-2 pt-1">
+              <button
+                type="button"
+                disabled={wipeStep === 0 || wipeBusy}
+                onClick={() => setWipeStep((s) => (s > 0 ? ((s - 1) as WipeStep) : s))}
+                className="h-9 px-3 text-[12px] font-semibold border border-red-300 rounded-md text-red-900 hover:bg-white disabled:opacity-40"
+              >
+                Geri
+              </button>
+              {wipeStep < 6 ? (
+                <button
+                  type="button"
+                  disabled={!wipeStepValid() || wipeBusy}
+                  onClick={() => setWipeStep((s) => ((s + 1) as WipeStep))}
+                  className="h-9 px-4 text-[12px] font-semibold rounded-md bg-red-700 text-white hover:bg-red-600 disabled:opacity-40"
+                >
+                  Devam
+                </button>
+              ) : (
+                <button
+                  type="button"
+                  disabled={wipeBusy || !boot?.configured}
+                  onClick={() => void runWipe()}
+                  className="inline-flex items-center gap-1.5 h-9 px-4 text-[12px] font-semibold rounded-md bg-red-800 text-white hover:bg-red-700 disabled:opacity-50"
+                >
+                  {wipeBusy ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Trash2 className="w-3.5 h-3.5" />}
+                  Veritabanını sıfırla
+                </button>
+              )}
+            </div>
           </div>
         </div>
       )}

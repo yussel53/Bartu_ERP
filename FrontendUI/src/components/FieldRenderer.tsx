@@ -343,8 +343,9 @@ export const FieldRenderer: React.FC<FieldRendererProps> = ({
           aria-label={field.label}
           {...register(registerName, { required: field.isRequired && !disabled })}
         >
-          {/* Satır Birim: boş "—" / alan adı yok; malzeme seçilince ana birim doğrudan gelir */}
+          {/* Birim / satır türü: boş seçenek yok (öndeğer Malzeme) */}
           {field.fieldName !== 'UnitID' &&
+            field.fieldName !== 'LineType' &&
             !options.some((o) => o.value === '') && (
               <option value="">{hideLabel || compact || inline ? '' : ph}</option>
             )}
